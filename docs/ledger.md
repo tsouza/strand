@@ -44,7 +44,43 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   for the data-structure baseline's default argument); the exact d-gap variant to
   register (invariant 11); the block-max raw-statistics fields (invariant 4);
   recommended batch-size range; current Lucene codec class names for
-  `docs/lineage.md`.
+  `docs/lineage.md`. Grounded ahead of the bake-off itself: SIMD-BP128 is a real,
+  exception-free scheme distinct from SIMD-FastPFOR, the actual patched-exception
+  scheme an earlier draft misnamed (`references/lemire-boytsov-simd-bp128.md`,
+  resolving the ambiguity `CLAUDE.md` §3 names); vertical (interleaved) SIMD layout,
+  not horizontal, is the registration this RFC should default to, given a measured
+  50–70% speed advantage at bit widths outside 16–26 and equal speed inside that
+  range (same source); the `bitpacking` crate (quickwit-oss, MIT, stable Rust,
+  genuine runtime CPU-feature dispatch with a scalar fallback, native x86 SSE3/AVX2
+  and aarch64 NEON paths, used by tantivy for its own postings) is a concrete,
+  ready candidate for the bake-off's SIMD decode path, satisfying invariant 9
+  as-is rather than requiring a hand-rolled kernel
+  (`references/quickwit-bitpacking-crate.md`). Two implementation cautions for
+  whichever kernel is chosen: BMI2's `pext`/`pdep` are not used by any real
+  BP128/FastPFOR implementation found (they accelerate a different codec family,
+  varint decoding) and carry a real trap if ever considered — AMD Zen 1/2 run them
+  at 18–19 cycles (non-pipelined, microcoded) versus 3-cycle-latency/1-cycle-
+  throughput on Intel Haswell and AMD Zen 3 onward, so correct dispatch would need
+  microarchitecture-generation awareness, not a feature-flag check
+  (`references/agner-fog-pdep-pext-latency.md`); and on ARM, default to NEON, not
+  SVE — the one direct benchmark found (AWS Graviton3) measured SVE slower than
+  NEON for this exact bit-unpacking workload, contradicting the "wider ISA is
+  faster" assumption (`references/fastlanes-arm-sve-vs-neon.md`). Separately, and
+  worth remembering so it isn't re-proposed as an open, promising avenue: no
+  established technique exists for processing BP128/FastPFOR-encoded postings
+  while still compressed — the state-of-the-art literature (the same
+  Lemire/Boytsov lineage) decodes via SIMD, then intersects via SIMD, as two
+  pipelined stages, not a fused decode-free operation
+  (`references/lemire-boytsov-simd-bp128.md`). This is unlike Roaring, whose
+  AND/OR operations genuinely run on its compressed containers with no
+  decompression step at all (`references/roaring-bitmaps-container-operations.md`)
+  — confirming invariant 2's choice was correct for the reason it's correct, now
+  grounded rather than assumed. Block-max pruning (invariant 4) is a third,
+  distinct technique from either of the above — deciding not to touch a block's
+  compressed bytes at all via precomputed bounds, not an operation performed on
+  bytes once touched (`references/ding-suel-block-max-shallow-pointers.md`, which
+  also pins the "shallow" vs "deep" pointer-movement terminology this project
+  should use consistently).
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length

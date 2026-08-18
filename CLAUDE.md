@@ -120,7 +120,10 @@ SIMD-BP128 while describing a patched-exception codec that does not exist under 
 name, and prescribed Gorder — a graph-analytics reordering — for ANN beam search, a
 different workload. Both were the texture of a model blending adjacent techniques from
 memory. Rule: **never implement against a remembered spec.** Fetch the primary source
-into the session, vendor it in `references/`, and cite it.
+into the session, vendor it in `references/`, and cite it. The correct terminology and
+a concrete implementation candidate for SIMD-BP128 were later grounded properly against
+the actual paper and a real crate — see `docs/ledger.md`'s R2 entry and
+`references/lemire-boytsov-simd-bp128.md`.
 
 **Start from usage, not structure.** Every RFC includes at least one worked example:
 actual bytes, actual offsets, a real tiny index a human can check by hand.
