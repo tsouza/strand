@@ -99,7 +99,11 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1):
   measure FastLanes against hand-vectorized BP128 and FastPFOR on postings
-  distributions (the margin is unmeasured), reconcile 1024-value granularity with
+  distributions (the margin is unmeasured — but a maintained, Apache-2.0, real-SIMD-
+  dispatch Rust implementation exists to measure against, `spiraldb/fastlanes`,
+  removing what would otherwise be FFI-or-reimplementation overhead before the
+  measurement could even start — `references/spiraldb-fastlanes-rust-crate.md`),
+  reconcile 1024-value granularity with
   the block-max sibling design (1024-native or nested 8×128, preserving invariant
   4), and assess ALP for the flat float-vector blob and the GPU decode path for
   raw-mappable blobs (the DaMoN '24 GPU paper's own "1024 values too large for a
