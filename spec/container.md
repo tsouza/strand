@@ -125,7 +125,8 @@ that blob's own region, not this registry — the registry entry only says
 where the blob starts and ends. A specific blob family's chunk index
 format is that family's own spec chapter's concern. A `raw-mappable` blob
 has no internal chunk table: its bytes are addressed directly at the
-declared `alignment`.
+declared `alignment`. A writer MUST place a raw-mappable blob at an
+`offset` that is a multiple of its declared `alignment`.
 
 ## 6. Byte-determinism scope of the registry checksum (invariant 11)
 

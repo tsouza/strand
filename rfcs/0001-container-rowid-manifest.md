@@ -1,6 +1,6 @@
 # RFC 0001: Container format, row-ID space, and manifest
 
-- **Status:** Approved — passed adversarial review (invariant compliance,
+- **Status:** Implemented — passed adversarial review (invariant compliance,
   byte-arithmetic, protocol/concurrency, and citation-accuracy passes); every
   blocking finding fixed and grounded against fetched primary sources. Residual
   non-blocking items are tracked in "Open questions / follow-on RFCs" below.
@@ -194,7 +194,8 @@ remap step.
 Three object kinds, all under a `_strand/` prefix inside the index's root:
 
 - **Table metadata** (`_strand/metadata.json`, written once, immutable thereafter
-  except for the declared amendments below): format version, the declared CAS host
+  except for the CAS-host move, the one declared amendment (`CLAUDE.md` §6)): format
+  version, the declared CAS host
   (`{"type": "native", "store": "s3"}` or `{"type": "catalog", "uri": "..."}` —
   `CLAUDE.md` §6's "one declared CAS host" rule), minimum snapshot retention (a count,
   a duration, or both).

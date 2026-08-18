@@ -326,7 +326,7 @@ delete the remainder older than the retention window. `strand-tools` grows this 
 at M3; until then the rule is stated so no one invents a more clever, less safe one.
 
 **Reader freshness has a price, and it is stated.** A reader's consistency model is
-snapshot-at-load. Freshness costs one conditional GET of the pointer per refresh; the
+snapshot-at-load. Freshness costs one GET of the pointer per refresh; the
 format defines no push or notification mechanism, on purpose. A "warm query with
 read-your-writes" therefore costs one pointer round trip more than a query against a
 cached snapshot, and §7's metrics report both numbers. This is one of the places the

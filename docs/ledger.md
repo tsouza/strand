@@ -143,6 +143,11 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   list claiming it. Carries forward as an M1 prerequisite — M1's postings kernels
   are its first real consumer, and the trait should land with them rather than as
   an unconsumed abstraction (`docs/milestones.md` M0 records the same).
+- **Raw-mappable blob alignment is normative but not yet enforced by the writer.**
+  `spec/container.md` §5 now requires a writer to place a raw-mappable blob's
+  `offset` at a multiple of its declared `alignment`, but `crates/strand-core/src/
+  segment.rs`'s `SegmentBuilder` does not yet pad blob regions to honor it. Small
+  implementation item; not done in this pass.
 - **TLA+ model correspondence gap, to close before the TLAPS proof phase** (RFC
   0002): `verification/manifest.tla`'s `ProposeSnapshot(w)` models the snapshot-
   object write as always succeeding, but the real `put_if_absent` in `commit()`

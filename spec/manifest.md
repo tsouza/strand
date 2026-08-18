@@ -31,7 +31,8 @@ This mirrors Puffin's "opaque typed blobs with a JSON footer" pattern
 path, JSON where humans and cross-engine tooling read it.
 
 **Table metadata** (`_strand/metadata.json`, written once, immutable
-thereafter except for declared amendments): format version, the declared
+thereafter except for the CAS-host move, the one declared amendment
+(`CLAUDE.md` §6)): format version, the declared
 CAS host, minimum snapshot retention. *Not yet implemented in the
 reference implementation* — table-metadata-driven retention is M3 scope
 (compaction); this chapter states the shape now so no future session
@@ -173,7 +174,7 @@ window. The sweep tool lands at M3; this rule is stated now so that tool
 has nothing to invent.
 
 **Reader freshness has a price, and it is stated.** A reader's consistency
-model is snapshot-at-load. Freshness costs one conditional GET of the
+model is snapshot-at-load. Freshness costs one GET of the
 pointer per refresh; this chapter defines no push or notification
 mechanism. A "warm query with read-your-writes" costs one pointer round
 trip more than a query against a cached snapshot.
