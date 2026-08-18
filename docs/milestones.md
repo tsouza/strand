@@ -1,0 +1,88 @@
+# Milestones
+
+Extracted verbatim from `CLAUDE.md` §11 at repository seeding. `CLAUDE.md` keeps a
+one-line summary per milestone; this file is the full detail each milestone session
+works from. Each milestone ends with a short written report in `docs/`: the numbers,
+what they mean, what they changed. A benchmark that embarrasses us goes in the report
+with an analysis, not in the memory hole.
+
+**M0 — Container + manifest.** Container spec chapter, chunk/block split, storage-class
+and alignment attributes, invariant-11 byte-determinism pins (endianness, chunk codec,
+checksums), footer/hotcache layout, blob registry, row-ID chapter with per-family
+merge-semantics declarations, **manifest chapter with the CAS commit protocol and the
+§7 safety rules (declared CAS host, deletion-safety retention, reader 404-refresh,
+orphan rule)**. `strand-core` read/write with batch-shaped readers from the start;
+`strand-tools inspect`. Golden files. Vendor `references/` and `docs/research/` from
+`docs/research/README.md`. Benchmarks and tests: cold end-to-end open (pointer → planned query) GET
+count and latency against MinIO; parallel-wave aggregate throughput (confirms or
+replaces the 100 MB budget rationale); manifest commit contention (two writers racing
+the pointer); crash tests (writer dies before commit → orphans, compaction deletes a
+file under a retained snapshot → must be impossible, reader on expired snapshot →
+404-refresh path); the measured tail-latency figure that confirms or replaces §8's
+placeholder.
+
+**M1 — Lexical.** BP128 postings + positions + FST term dictionary + block-max
+sibling blob + Roaring filter bitmaps. The R2 RFC pins the exact d-gap variant
+(invariant 11) and the block-max RFC pins the raw-statistics fields (invariant 4).
+The **scoring-profiles chapter** defines the `bm25` profile normatively and the
+Lucene-parity profile. **Analyzer descriptor schema and the normative token-stream
+vectors in `conformance/analyzers/` are gating deliverables of this milestone, not
+metadata afterthoughts** — without them invariant 6 is a label. Tantivy importer. R2
+codec bake-off lands here and confirms or swaps the postings default (including
+verifying tantivy's actual current codec, per `docs/data-structures.md`); the R9 layout evaluation and
+license audit MUST complete before the bake-off freezes the default, since a
+FastLanes outcome changes both the default and the block granularity. Benchmarks: MS
+MARCO BM25 latency and size vs tantivy; Lucene parity per invariant 5;
+bytes-fetched vs bytes-used across term frequency deciles (the read-amplification
+number, `docs/data-structures.md`). Adapter-based results appear in this
+milestone's report only after R11 verifies the respective extension point and the
+build-equivalence gate passes; until then, harness and published-numbers baselines
+only.
+
+**M2 — Vectors, cluster-first.** Flat vector blob; RaBitQ codecs with kernel-per-
+bit-width, the rotation descriptor field, and the rotation-provenance mechanism
+(invariant 11); the **cluster-family cold-native blob** (navigation tier + wholesale
+posting lists + rerank region) per the R1 RFC, with all posting-list offsets
+resolvable from the navigation tier (invariant 3's one-wave rule), the replication
+knob and tier-1 sizing limits in blob metadata, computed against §8's cold-open byte
+budget. The warm-tier graph blob family (persisted-permutation node order, ordering
+algorithm per R1's evidence) is in-scope but explicitly second. Benchmarks: cold and
+warm ANN recall/latency with GET counts asserted; codec comparison RaBitQ vs
+PQ-FastScan; the cold target to measure against is turbopuffer's published figures
+(`docs/benchmarks.md`), with the asymmetry stated. Adapter-based results appear in this
+milestone's report only after R11 verifies the respective extension point and the
+build-equivalence gate passes; until then, harness and published-numbers baselines
+only.
+
+**M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
+per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
+rebuild for graph blobs, rebalance for centroids), respecting §7's deletion-safety
+rule, with merge cost benchmarked per strategy; the orphan-sweep tool; end-to-end
+hybrid RRF across both blob families over one row-ID space. **The multi-segment
+benchmark**: the same corpus at 1, 16, and ~128 segments, cold and warm, so
+segment-count amplification is a measured curve feeding R10. Deliverable: **a
+benchmark report measured against published figures, with the caching-fleet
+asymmetry stated.**
+
+**M4 — Interchange + independence.** CIFF importer (lossless where CIFF permits);
+conformance manifest frozen at spec v0.1. **Second-reader parity must be real
+independence**: an external contributor implementing from `conformance/` alone, or a
+clean-room session given only `spec/` and `conformance/` with the Rust crates
+withheld — this is also the acceptance test for invariant 11: two implementations,
+same logical input, same index. If a stranger cannot implement from the conformance
+manifest, the spec failed §2's test regardless of CI. Puffin blob-type packaging RFC.
+The tantivy fork is the named primary second-reader path, built against the frozen
+v0.1 conformance manifest, never against a moving spec; the clean-room option remains
+the fallback and activates if any R11(d) failure trigger fires. Lucene `StrandCodec`
+lands here as the JVM parity vehicle.
+
+**M5 — The consumer.** A thin, read-only **DataFusion TableProvider** over STRAND
+segments — the answer to "name the second engine," written into scope on purpose
+because the research concluded no forced reader exists and one must be built. Slices
+of it should track earlier milestones (reading lexical blobs as M1 lands) so the spec
+is stress-tested by a consumer while it can still change cheaply; M5 is where it
+becomes a supported, benchmarked artifact. Without this milestone the project is
+Indri with better licensing, and we have chosen not to be that in writing. The
+TableProvider is additionally the hybrid-fusion benchmark host, running the §8 fusion
+workload with its selectivity sweep. The FAISS adapter lands alongside M2's
+benchmarks or here, per R11(b)'s feasibility finding.
