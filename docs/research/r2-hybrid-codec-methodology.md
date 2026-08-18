@@ -11,10 +11,36 @@ choices, not one fused codec). On compression the measured direction is the
 reverse of what an earlier draft of this document assumed: partitioned Elias-Fano
 is the *smaller* of the two on the reference collections
 (`references/ottaviano-venturini-partitioned-elias-fano.md`), so full-scan decode
-speed, not size, is the axis a hybrid would need to win back. No phase below has been executed. If a later session runs any
+speed, not size, is the axis a hybrid would need to win back. If a later session runs any
 phase and finds something load-bearing for R2's actual codec choice, that finding
 gets its own ledger entry and, if it changes the registered codec, its own RFC —
 this document is scoped to the investigation, not its outcome.
+
+**Phase 0 — attempted 2026-08-18, inconclusive on its strongest candidate for a
+genuine access-barrier reason, not a design or measurement failure.** Before
+searching, the bar was fixed as instructed (Step 1): the same yardstick Phase 3
+Stage 1 states explicitly — full-scan decode throughput within 15% of BP128-class
+speed, and compressed-domain search at least 25% faster than decode-then-search,
+both required simultaneously. A real, structurally on-point candidate was found —
+LICO (Zhu et al., SIGMOD/PACMMOD 2026, `references/lico-simd-learned-inverted-index-appendix.md`):
+a learned piecewise-linear-model codec with both a genuine compressed-domain
+`NextGeq` operation (binary search over the model's own encoded segments, no full
+decode) and SIMD decode/intersection paths, confirmed by reading the actual source
+code, not a description. Its precise numbers against the stated bar could not be
+checked: the paper's Experiments section sits behind a Cloudflare bot-challenge
+that blocked every automated fetch attempt despite Unpaywall reporting the paper
+CC-BY (DBLP's own record for the same DOI contradicts this, reporting "closed" —
+neither claim was resolved, both are stated), no arXiv or author-mirrored copy
+exists, and this session's hardware lacks the AVX-512 the reference implementation
+hard-requires to build or run at all. Full detail, including exactly which access
+routes were tried and ruled out, is in the vendored reference file. Per Step 4's
+verdict-mapping, this is neither "candidate passes" nor "candidate found but
+fails" — it is a genuine third outcome the original mapping did not anticipate: a
+real candidate the plan cannot currently rule in or out. **Standing, not yet
+decided:** whether to keep pursuing LICO specifically (a licensed/paywall-cleared
+copy, or borrowed AVX-512 hardware) versus treating Phase 0 as inconclusive and
+proceeding to the Track A/B fork on that basis. This document does not decide that
+on its own — see `docs/ledger.md` R9 for the standing status.
 
 The plan was produced by generating four independent methodologies from different
 angles (structural/theoretical feasibility, adaptive composition of the two existing

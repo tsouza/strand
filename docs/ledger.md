@@ -90,8 +90,20 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   the smaller of the two on the reference collections —
   `references/ottaviano-venturini-partitioned-elias-fano.md`) — has a phased,
   gated investigation methodology at `docs/research/r2-hybrid-codec-methodology.md`.
-  No phase has been executed; it is a plan, not a result, and does not change
-  R2's BP128 default or require an RFC on its own.
+  **Phase 0 attempted 2026-08-18**: a real, structurally on-point candidate was
+  found (LICO, SIGMOD/PACMMOD 2026 — a learned codec with a genuine compressed-
+  domain `NextGeq`, confirmed by reading its actual source, plus SIMD decode/
+  intersection), but its measured numbers against Phase 0's fixed bar could not be
+  checked — the paper is blocked by a Cloudflare bot-challenge despite
+  contradictory open-access metadata (Unpaywall says CC-BY, DBLP says closed), no
+  preprint or mirror exists, and this session's hardware lacks the AVX-512 its
+  reference implementation requires to build at all
+  (`references/lico-simd-learned-inverted-index-appendix.md` has the full trail).
+  Inconclusive, not negative — genuinely unresolved, not a "candidate found but
+  fails" verdict. Standing decision, not made here: pursue LICO specifically
+  (licensed access or borrowed AVX-512 hardware) versus treat Phase 0 as
+  inconclusive and proceed to the Track A/B fork. Does not change R2's BP128
+  default or require an RFC on its own.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
