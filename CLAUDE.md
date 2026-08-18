@@ -93,10 +93,14 @@ The closest successful precedent is Cloudflare's `workers-oauth-provider` — a
 production OAuth 2.1 library largely written by Claude in 2025. Its lessons, sharpened
 by our own review cycles:
 
-**Humans design, the agent implements.** Format design decisions land in RFCs approved
-by the maintainer; sessions implement approved RFCs. Never invent a format decision
-mid-session. If implementation reveals a design problem, stop, write it up in the RFC's
-Discussion section, and wait.
+**Agent designs, agent implements — but not in the same breath.** Format design
+decisions land in RFCs, and an RFC earns "approved" status by passing its own
+adversarial review (the "how this could be wrong" section below, argued out and
+resolved) before any session implements it — design and implementation are separate
+passes, even when the same agent does both. Never invent a format decision mid-session
+inside an implementation task. If implementation reveals a design problem, stop, write
+it up in the RFC's Discussion section, and resolve it there — through the same
+adversarial review — before continuing.
 
 **Provenance in the commit log.** Each commit message states the task or prompt that
 produced it. This repo should be readable as a record of how an AI-built format
