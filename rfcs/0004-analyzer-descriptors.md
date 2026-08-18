@@ -1,0 +1,300 @@
+# RFC 0004: Analyzer descriptors and per-document length
+
+- **Status:** Draft
+- **Milestone:** M1 — Lexical (`docs/milestones.md`)
+- **Spec chapters produced:** `spec/analyzer-descriptors.md`
+- **Invariants exercised:** 6 (`CLAUDE.md` §5); resolves the per-document-length
+  dependency invariant 5 and RFC 0003 both name as open.
+
+## Summary
+
+Defines the analyzer-descriptor schema invariant 6 requires — a structured
+description of a lexical blob's analysis chain, pinning Unicode version, ICU/CLDR
+version, tokenizer profile with any UAX #29 deviations, stopword list identity,
+stemmer name and version, and a schema slot (not yet a resolved choice) for
+dictionary-segmented scripts — and per-document length, precisely: which tokens
+count, at which point in the chain. A single worked example carries raw text through
+every stage of a concrete descriptor to an exact token stream and length, grounded
+entirely in fetched, checkable data: Unicode 17.0.0's own word-boundary rules,
+Lucene 10.5.1's real default English stopword list, and the Snowball project's own
+English-stemmer test vectors — not predicted from memory at any step.
+
+## Motivation
+
+Invariant 6 is explicit about why version pinning alone is insufficient: UAX #29 is
+not stable across Unicode versions (the annex itself is versioned per release,
+`references/unicode-wordbreaktest-and-cldr-version.md`), and U+202F NARROW NO-BREAK
+SPACE's `Word_Break` class changed in Unicode 9.0 — documented in the PRI #308
+background material vendored during the original R4 grounding pass
+(`references/r4-analyzer-conformance-sources.md`). Two engines pinning "Unicode
+9.0+" without a shared descriptor can
+still tokenize the same text differently across versions past that floor. Hiemstra,
+Hendriksen, Kamphuis & de Vries measured the real cost of shipping index exchange
+without this: importing a CIFF index built with one tokenizer and querying it with
+another dropped MAP from 0.234 to 0.081 on a TREC Robust04 subset — recovered
+entirely by forcing both sides through a shared, declared tokenizer
+(`references/r4-analyzer-conformance-sources.md`). This RFC exists so STRAND never
+has that failure mode: an index either declares its analysis chain precisely enough
+to reproduce, or it is not conforming, full stop.
+
+## Non-goals
+
+**Choosing a specific CJK/Thai/Lao segmentation dictionary** is not resolved here.
+Invariant 6 requires the descriptor carry a dictionary identity and version for
+dictionary-segmented scripts; this RFC pins the *schema slot* those fields occupy,
+not which dictionary STRAND ships as a default (MeCab, Jieba, ICU's own dictionary-
+based break iterator, and others are all live candidates, none audited in this
+pass). A conforming segment MUST populate the field if its content uses a
+dictionary-segmented script; this RFC does not yet say with what.
+
+**A catalog of every possible UAX #29 deviation** is not enumerated. The descriptor
+carries a `deviations` list (§1 below) as an open-ended, self-describing mechanism;
+this RFC does not attempt to pre-list every deviation a future tokenizer might
+declare, the same way invariant 4 pins the raw-statistics *principle* for block-max
+bounds without this RFC needing to pin every field STRAND's own postings layer will
+eventually carry.
+
+**Scoring formulas** are RFC 0003's job, not restated here. This RFC's connection to
+RFC 0003 is narrow and explicit: it resolves the one dependency RFC 0003's own
+Non-goals section named as open (per-document length, and specifically what
+`lucene-parity`'s inherited `discountOverlaps` behavior means for STRAND) and goes no
+further.
+
+**Where the descriptor physically lives inside a segment** is deferred to the R2
+RFC, for the same reason RFC 0003 deferred its own descriptor's placement: the
+lexical blob's byte layout doesn't exist yet, and pinning an offset into a
+not-yet-designed structure would be premature. The placement constraint from RFC
+0003 (§4 below) applies identically here.
+
+## Design
+
+### 1. The analyzer descriptor
+
+JSON, matching the manifest's and RFC 0003's own binary-for-wire/JSON-for-metadata
+split:
+
+| field                     | type              | notes                                                    |
+| ------------------------- | ----------------- | --------------------------------------------------------- |
+| `unicode_version`         | string             | e.g. `"17.0.0"`                                           |
+| `icu_version`              | string             | e.g. `"78.3"`                                             |
+| `cldr_version`             | string             | e.g. `"48.2"` — ICU and CLDR version independently even when released together (`references/unicode-wordbreaktest-and-cldr-version.md`) |
+| `tokenizer_profile`        | object             | §2 below                                                  |
+| `stopword_list_id`         | string or `null`   | §3 below; `null` means no stopword filtering              |
+| `stemmer`                  | object or `null`   | §4 below; `null` means no stemming                        |
+| `segmentation_dictionary`  | object or `null`   | §5 below; MUST be non-null if the field's content uses a dictionary-segmented script (CJK, Thai, Lao) |
+| `counts_overlaps_in_length`| boolean            | §6 below — resolves RFC 0003's deferred `discountOverlaps` question |
+
+### 2. `tokenizer_profile`
+
+```
+{
+  "algorithm": "UAX29-word",
+  "unicode_version": <matches the descriptor's own unicode_version>,
+  "token_retention": "word-only" | "all-segments",
+  "case_folding": "none" | "lower" | "full-case-fold",
+  "deviations": [ <string, human-readable, empty if none> ]
+}
+```
+
+`algorithm: "UAX29-word"` names the Unicode word-boundary algorithm
+(`references/unicode-wordbreaktest-and-cldr-version.md`) at the declared
+`unicode_version`, applied with **no property overrides** unless `deviations` names
+one explicitly — an empty `deviations` list is itself a normative claim (this
+descriptor's tokenizer follows stock UAX #29 exactly at this Unicode version), not
+merely the absence of a claim. `token_retention` states whether boundary segments
+that are not "words" under UAX #29's own classification (whitespace, punctuation)
+become indexed tokens (`"all-segments"`) or are discarded (`"word-only"`) — a real
+behavioral fork invariant 6 does not itself resolve, so this RFC makes it an
+explicit, declared field rather than an unstated default. `case_folding` states
+whether tokens are left as-is (`"none"`), simply lowercased (`"lower"`, ordinary
+`String::to_lowercase`-style mapping), or run through Unicode's full case-folding
+algorithm (`"full-case-fold"`, which additionally normalizes cases simple
+lowercasing does not, such as German ß) — a distinction this RFC's own drafting
+initially missed (an earlier draft applied lowercasing in its worked example with no
+corresponding schema field, caught while writing "How this could be wrong" below)
+and fixes here rather than carrying forward as a known gap.
+
+### 3. `stopword_list_id`
+
+An opaque identifier resolving to an exact, versioned word list — this RFC does not
+mandate a registry mechanism for resolving identifiers to lists (that is
+implementation/M1-execution scope), only that the identifier MUST be specific enough
+that two engines holding the same identifier hold the same list, byte-for-byte. The
+worked example below uses `"lucene-en-10.5.1"`, naming the exact vendored list
+(`references/lucene-english-stopwords.md`) unambiguously.
+
+### 4. `stemmer`
+
+```
+{ "name": <string>, "version": <string> }
+```
+
+`version` MUST anchor to something byte-reproducible — a specific released version or
+commit hash of the stemmer's own algorithm definition, not a vague "latest." The
+worked example uses `{"name": "snowball-porter2-en", "version":
+"snowballstem/snowball @ releases confirmed against snowball-data test vectors,
+2026-08-18"}` — Snowball's algorithm is a stable specification with periodic
+refinements, so a real conformance harness needs a commit-pinned reference the same
+way this RFC's own worked example does
+(`references/snowball-porter2-english-stemmer.md`).
+
+### 5. `segmentation_dictionary`
+
+```
+{ "script": <string, e.g. "Han", "Thai", "Lao">, "identity": <string>, "version": <string> } | null
+```
+
+Schema only — §Non-goals above states this RFC does not choose a default.
+
+### 6. `counts_overlaps_in_length` and per-document length, precisely
+
+**Per-document length**, for a field, is defined as: the count of tokens surviving
+the field's full declared analysis chain — tokenization, then every filter in
+`deviations`-adjusted tokenization, stopword removal, and stemming, in that declared
+order — landing as an indexed posting. This is exactly `dl := Σ_{i∈V} tf_i`,
+Robertson & Zaragoza's own definition (`references/robertson-zaragoza-bm25-and-
+beyond.md`), computed over the tokens this descriptor's chain actually produces, not
+over raw pre-analysis text.
+
+`counts_overlaps_in_length` resolves whether tokens sharing a zero position
+increment with the token before them (synonym-expansion-style overlaps — a
+mechanism this RFC does not otherwise specify, since STRAND's v0.1 tokenizer profile
+above has no synonym-expansion step) count toward that length. **`bm25`** (RFC 0003)
+uses whatever this field declares, honestly, for whichever segment it scores.
+**`lucene-parity`** (RFC 0003) additionally requires `counts_overlaps_in_length =
+false` — matching Lucene's own `discountOverlaps = true` default, which *excludes*
+overlaps from the counted length (`references/lucene-bm25similarity-and-
+smallfloat.md`); a segment declaring `counts_overlaps_in_length = true` while
+claiming `lucene-parity` scoring is non-conforming. This is the resolution RFC 0003's
+own Non-goals section deferred to this RFC.
+
+## Worked example
+
+Descriptor:
+
+```json
+{
+  "unicode_version": "17.0.0",
+  "icu_version": "78.3",
+  "cldr_version": "48.2",
+  "tokenizer_profile": {
+    "algorithm": "UAX29-word",
+    "unicode_version": "17.0.0",
+    "token_retention": "word-only",
+    "case_folding": "lower",
+    "deviations": []
+  },
+  "stopword_list_id": "lucene-en-10.5.1",
+  "stemmer": {
+    "name": "snowball-porter2-en",
+    "version": "snowballstem/snowball, confirmed against snowball-data test vectors 2026-08-18"
+  },
+  "segmentation_dictionary": null,
+  "counts_overlaps_in_length": false
+}
+```
+
+Raw text: `"The whales swim quickly."`
+
+| stage | output |
+| ----- | ------ |
+| UAX #29 word tokenization, `token_retention: "word-only"` | `["The", "whales", "swim", "quickly"]` — the trailing `.` is a boundary, not a word segment under UAX #29, and is discarded per `"word-only"` |
+| `case_folding: "lower"` | `["the", "whales", "swim", "quickly"]` |
+| Stopword removal, `lucene-en-10.5.1` (`references/lucene-english-stopwords.md`, confirmed to contain `"the"`) | `["whales", "swim", "quickly"]` |
+| Stemming, `snowball-porter2-en` (`references/snowball-porter2-english-stemmer.md`: `whales → whale`, `swim → swim`, `quickly → quick`, all confirmed against real test vectors, not predicted) | `["whale", "swim", "quick"]` |
+
+Final indexed token stream: `["whale", "swim", "quick"]`. Per-document length for
+this field, this document: **`dl = 3`** (§6's definition — three tokens survived the
+full declared chain). This is the first real, checkable analyzer-conformance vector
+this project has; it becomes a `conformance/analyzers/` golden file once implemented
+(§Conformance status below), the same status RFC 0003's worked example holds for
+scoring.
+
+## Napkin math (`CLAUDE.md` §7)
+
+Same conclusion as RFC 0003 §Napkin math, for the same reason: an analyzer
+descriptor is segment-open metadata, not a per-posting cold-path structure. The
+binding constraint on whichever RFC places its bytes is identical — zero added round
+trips beyond invariant 3's ≤2-RTT budget. A descriptor's realistic size (a handful of
+short strings and one small nested object) is well under any budget this format has
+needed a calculation to justify.
+
+## Invariant-11 checklist
+
+- **Endianness:** not applicable — JSON, not a binary wire structure.
+- **Term sort order:** not applicable at this layer.
+- **Chunk codec / checksums / codec-variant / stochastic-transform provenance:** not
+  applicable, identical reasoning to RFC 0003's own checklist — whichever blob
+  eventually carries these bytes inherits its own registry entry's checksum scope;
+  this RFC introduces no new codec or stochastic transform.
+- **Golden files:** the worked example above is the first `conformance/analyzers/`
+  vector — raw text in (`"The whales swim quickly."`), the descriptor JSON, and the
+  exact token stream out (`["whale", "swim", "quick"]`), per invariant 6's own
+  requirement that these vectors be normative.
+
+## How this could be wrong
+
+**Nearest grave (`docs/lineage.md`): CIFF, "no analyzer metadata."** `docs/lineage.md`
+names this as one of CIFF's explicit, named gaps — "conversion required, no
+positions, no pruning bounds, no analyzer metadata, lossy doc lengths. Every gap is a
+MUST here." This RFC is the direct fix for that specific gap, not a generic
+improvement: CIFF has no mechanism at all for a consumer to know how the producer
+tokenized, so cross-engine reuse silently corrupts results exactly the way Hiemstra
+et al.'s own measurement shows (Motivation, above). The risk this RFC could still fall
+into the same grave is real: a descriptor schema loose enough to be satisfied
+trivially (e.g., a `tokenizer_profile` with no way to express what actually changed)
+would be "analyzer metadata" in name only, reproducing CIFF's gap under a different
+field name. The `deviations` list and the requirement that an empty list be a
+positive claim, not silence, is this RFC's answer to that risk — but it is only as
+good as the discipline of whoever writes future descriptors, which no schema alone
+enforces.
+
+**An implicit, undeclared case-folding step — caught by this RFC's own worked
+example, fixed in place.** An earlier draft of §2's `tokenizer_profile` had no
+`case_folding` field, yet the worked example applied lowercasing anyway. That is
+exactly the kind of undeclared-analysis non-portability invariant 6 exists to
+prevent: two descriptors with identical JSON could have disagreed on case handling.
+Writing the worked example — forcing every step of a concrete chain onto the page —
+is what surfaced the gap; `case_folding` (§2) is the fix, applied to this version of
+the RFC rather than carried forward as a known hole for a later revision to close.
+This is worth naming as a process point, not just a content fix: a worked example
+that never gets written is a worked example that never catches this kind of gap.
+
+**Grounding the stemmer's "version" in a fetch-date rather than a commit hash.** The
+worked example's `stemmer.version` field cites "confirmed against snowball-data test
+vectors 2026-08-18" rather than a specific git commit of the algorithm's own `.sbl`
+definition. This is honest about what was actually checked (the test vectors, at a
+known date) but is weaker byte-determinism grounding than this project's own
+invariant-11 discipline asks for elsewhere (e.g. RFC 0001 pins its own dependencies
+to commit hashes and release tags precisely). A future session implementing this
+descriptor for real should pin an actual commit hash of `snowballstem/snowball`'s
+English `.sbl` source, not repeat this RFC's own date-based shortcut.
+
+## Alternatives considered
+
+**A single free-text `analyzer_description` string** instead of a structured schema.
+Rejected: invariant 6 requires the *fields* invariant 6 itself lists, not a
+human-readable summary a machine cannot check — the whole point of normative
+conformance vectors is that a descriptor's claims are checkable, and a free-text
+field is not.
+
+**Registering a fixed enum of stopword lists and stemmers** instead of opaque,
+versioned identifiers. Rejected: STRAND does not want to be in the business of
+registering every language's every stopword list as a spec amendment; an opaque,
+sufficiently-specific identifier (§3, §4) achieves the same determinism without
+coupling the format's own versioning to every analyzer component's release cadence —
+the same reasoning invariant 8 already applies to codecs ("don't invent encodings,"
+here: don't invent a closed registry where an open, checkable identifier suffices).
+
+## Open questions / follow-on RFCs
+
+- Which CJK/Thai/Lao segmentation dictionary STRAND adopts as a default (Non-goals,
+  above) is unresolved and needs its own grounding pass before M1's analyzer work is
+  complete — it gates real conformance for those scripts, not an edge case.
+- The stemmer version-pinning mechanism (How this could be wrong, above) should be
+  tightened to a commit hash before implementation, not left at this RFC's own
+  date-based placeholder.
+- The descriptor's exact placement inside a segment is the R2 RFC's job, identical
+  in shape to RFC 0003's own deferred placement question — the two descriptors
+  (scoring-profile, analyzer) may end up sharing one carrying mechanism once R2
+  designs it; this RFC does not assume they will.
