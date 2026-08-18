@@ -14,4 +14,5 @@
 
 pub mod container;
 pub mod manifest;
+pub mod segment;
 pub mod store;
