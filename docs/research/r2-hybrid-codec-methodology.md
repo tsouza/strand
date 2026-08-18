@@ -49,6 +49,58 @@ vendored reference file.
 to Track A and/or Track B, neither yet started, per the appetite for each track's
 cost — see `docs/ledger.md` R9 for the standing status and next-step options.
 
+**Phase 1 — executed 2026-08-18 (`bench/src/hybrid_codec_pilot.rs`).** Real MS
+MARCO postings lists (4,016 lists, `n >= 2`, systematically sampled across the
+full document-frequency spectrum from the same ~520K-passage corpus subset and
+analyzer chain R9's own codec measurement uses), encoded with two existing,
+unmodified implementations — `bitpacking`'s `BitPacker8x` for BP128 (delta-gap,
+256-value blocks, padded) and `sucds::mii_sequences::EliasFano` for EF (built
+directly over raw values, real `size_in_bytes()`, real `successor()` as the
+NextGeq-equivalent) — no new codec engineering, per Step 2. Five candidate cheap
+statistics tried per Steps 3–4: `n`, `density` (`n`/universe), `gap_mean`,
+`gap_variance`, `log(gap_variance)`, plus the one permitted pairwise-interaction
+term (`gap_variance * density`). A signal counts only if held-out accuracy beats
+the held-out majority baseline by at least 10 percentage points, fixed before
+fitting.
+
+Three axes, three different answers — this is not a single GO/NO-GO, it is three:
+
+- **Size: no signal needed.** EF wins on compressed size for ~97.1% of real
+  lists, consistently across reruns — not a "sometimes A, sometimes B" situation
+  a per-list chooser could exploit, just a near-constant winner on this corpus.
+- **Decode: real, stable, out-of-sample signal found — GO.** `n` (equivalently
+  `density`, since universe is fixed across all lists in this pilot, making the
+  two literally proportional) predicts the full-decode winner at ~99.5% held-out
+  accuracy against a 69.7% majority baseline — a +30 percentage point lift,
+  stable across three reruns at 20,000 repeats/list. The found rule: EF wins
+  decode for very short lists (`n <= 8`), BP128 wins for longer ones. **This
+  needs a caveat before it drives Phase 2B**: `n <= 8` is far below
+  `BitPacker8x`'s own 256-value block size, so BP128 decodes a full padded
+  256-block to recover 8 real values on these lists — the signal may be
+  measuring block-granularity padding overhead specific to this pilot's
+  from-scratch BP128 encoder, not a fundamental algorithmic property. A cheap
+  variable-length-final-block fix to the encoder could plausibly close most of
+  this gap without needing any per-list codec choice at all — worth checking
+  before treating this as Phase 2B fuel.
+- **Skip: no signal found, and the measurement itself isn't trustworthy enough
+  to be confident either way.** Held-out lift was ~0.00 on every feature tried.
+  Separately, and worth recording precisely: the per-list skip win/loss
+  *label* itself was not reproducible across identical reruns even at 20,000
+  timed repeats per list on this shared machine — the EF-wins-skip fraction
+  swung from 60.8% to 96.8% across otherwise-identical runs, while the
+  *aggregate mean* (EF ~2× faster, ~40ns vs. ~80ns) stayed consistent. This is
+  a measurement-reliability limit of a script-only pilot on nanosecond-scale
+  operations on shared hardware, not evidence that no signal exists on this
+  axis — Step 4's "necessary but not sufficient" framing applies literally
+  here.
+
+**Standing recommendation, not decided here**: the technical GO/NO-GO fired
+(decode found a real signal), but the found signal's likely mundane explanation
+(block-padding overhead on tiny lists) means the cheaper next step is checking
+whether a trivial BP128 encoder fix removes it, before committing to Phase 2B's
+multi-week, harness-building cost on the strength of this specific finding. Full
+numeric detail: `bench/results/hybrid-codec-pilot.json`.
+
 The plan was produced by generating four independent methodologies from different
 angles (structural/theoretical feasibility, adaptive composition of the two existing
 codecs, cross-domain literature archaeology, empirical prototyping), adversarially

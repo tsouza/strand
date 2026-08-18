@@ -111,8 +111,22 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   technique fuses BP128-class decode speed with compressed-domain searchability.
   Full detail: `references/zhu-etal-2026-lico-learned-inverted-index-compression.md`.
   Per Phase 0's own GO/NO-GO, the investigation now proceeds to the Track A/B fork
-  (`docs/research/r2-hybrid-codec-methodology.md`) — neither started. Does not
-  change R2's BP128 default or require an RFC on its own.
+  (`docs/research/r2-hybrid-codec-methodology.md`). **Phase 1 executed
+  2026-08-18** (`bench/src/hybrid_codec_pilot.rs`, real MS MARCO postings lists,
+  existing unmodified codecs — `bitpacking`'s `BitPacker8x` and
+  `sucds::mii_sequences::EliasFano`, no new engineering). Three separate answers,
+  not one: size needs no signal (EF wins ~97.1% of lists, near-constant); decode
+  found a real, stable, out-of-sample signal (list length `n <= 8` predicts EF
+  wins decode at ~99.5% held-out accuracy vs. 69.7% baseline) but it is likely a
+  `BitPacker8x` 256-value block-padding artifact of this pilot's own encoder, not
+  a fundamental property, so the cheaper next step is checking a variable-length-
+  final-block encoder fix before treating it as Phase 2B fuel; skip found no
+  signal, and separately the per-list skip win/loss measurement itself proved
+  unreliable across identical reruns (60.8%–96.8% swing at 20,000 repeats/list on
+  this shared machine) even though the aggregate mean was stable (EF ~2× faster).
+  Full detail in `docs/research/r2-hybrid-codec-methodology.md` and
+  `bench/results/hybrid-codec-pilot.json`. Does not change R2's BP128 default or
+  require an RFC on its own.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
