@@ -46,9 +46,12 @@ rule the tool will enforce (`CLAUDE.md` §6) but does not implement it.
 
 ### 1. Segment container layout
 
-A segment is one object in object storage, laid out data-first, metadata-last, so a
-reader never needs to know the file's total structure before it starts reading — only
-its size, which object storage headers give for free:
+A segment is one object in object storage, laid out data-first, metadata-last. A
+reader opening a segment through the manifest protocol (§3) already knows its exact
+byte length before the first GET — the snapshot metadata records each segment's
+`byte_length` — so the footer read can be an ordinary, explicitly-bounded range
+request rather than depending on suffix-range support that isn't confirmed for every
+target store; see the open protocol below.
 
 ```
 [ 0 .......................... data region: one or more blob regions, back to back ]
@@ -69,18 +72,32 @@ its size, which object storage headers give for free:
 | 25     | 7    | reserved        | zero                                        |
 | 32     | 8    | footer_checksum | u64, checksum_algo over bytes [0, 32)       |
 
-**Open protocol (invariant 3's ≤2-RTT budget).** A reader issues an HTTP suffix range
-request, `Range: bytes=-N`, for a speculative tail size `N` — a **reader-side tuning
-parameter, not a format constant**, so no vendor- or deployment-specific number is
-baked into wire bytes (the Optane lesson, `docs/lineage.md`). Suffix ranges are
-standard HTTP (RFC 7233 §2.1) and every major object store honors them, so this costs
-one GET without a prior HEAD for file size. The last 40 bytes of the response are the
-footer trailer. If `hotcache_offset` falls within the fetched window, the hotcache is
-already in hand — **one RTT, the common case**. If not, the reader issues one more
-range GET for `[hotcache_offset, hotcache_offset + hotcache_length)` — the **second
-and last RTT** the invariant allows. Either way, by the time the open completes, the
-blob registry and the row-ID range are fully resident, and invariant 3's one-wave rule
-holds for everything that follows: no further offset lookup ever costs a round trip.
+**Open protocol (invariant 3's ≤2-RTT budget).** Because the reader already has
+`byte_length` from the snapshot metadata, the first GET is an ordinary range request
+with an explicit end, `Range: bytes={byte_length-N}-{byte_length-1}`, for a
+speculative tail size `N` — a **reader-side tuning parameter, not a format
+constant**, so no vendor- or deployment-specific number is baked into wire bytes (the
+Optane lesson, `docs/lineage.md`). This deliberately avoids relying on HTTP
+suffix-range syntax (`bytes=-N`, no explicit end): AWS's own `GetObject` "Range"
+parameter documentation demonstrates only ordinary explicit-range requests and points
+readers to RFC 9110 §14.2 "Range" — which obsoletes RFC 7233 — for the header's
+semantics, but neither source was found, when checked, to confirm suffix-range
+support specifically; an explicit-end range has no such gap, since it is the form
+AWS's own documentation exercises directly. The last 40 bytes of the response are the
+footer trailer. Because the hotcache always ends immediately before the footer, at
+`byte_length - 40`, a single check — `hotcache_length + 40 <= N` — is sufficient to
+guarantee the *entire* hotcache (not merely its start) landed inside the fetched
+window: **one RTT, the common case**. If that check fails, the reader issues one more
+range GET for `[hotcache_offset, byte_length - 40)` — the **second and last RTT** the
+invariant allows. Either way, by the time the open completes, the blob registry and
+the row-ID range are fully resident, and invariant 3's one-wave rule holds for
+everything that follows: no further offset lookup ever costs a round trip.
+
+A tool that opens a segment directly, outside the manifest protocol (`strand-tools
+inspect` given a bare path, say), does not have `byte_length` for free and needs a
+`HEAD` request or independently confirmed suffix-range support to get it. That path
+is out of scope for invariant 3's budget, which binds the query-serving path only,
+where the manifest is always read first.
 
 **Hotcache region** (the navigation tier fetched wholesale at open):
 
@@ -113,6 +130,21 @@ where the blob starts and ends; a specific blob family's chunk index is that fam
 spec chapter's concern (M1/M2). A `raw-mappable` blob has no internal chunk table at
 all: its bytes are addressed directly at the declared `alignment`.
 
+The registry entry's `checksum` field is scoped differently depending on
+`storage_class`, and this distinction matters for invariant 11. For a `raw-mappable`
+blob, on-disk bytes *are* the uncompressed content, so `checksum` is fully
+deterministic across conformant implementations and participates in byte-for-byte
+golden-file comparison like every other hotcache field. For a `chunk-compressed`
+blob, on-disk bytes are compressed, and invariant 11 already states that compressed
+chunk bytes "may vary across compressor versions and are verified by checksum and
+round-trip, not byte-comparison" — the same exception applies one level up here:
+the registry entry's `checksum` *value* is excluded from byte-exact golden-file
+comparison for chunk-compressed blobs (verified instead by recomputing it against the
+actual stored bytes and confirming the recomputed value matches, which catches
+corruption without demanding two different zstd builds produce identical compressed
+output). What invariant 11 pins is that the field is present, little-endian, and
+computed with the declared `checksum_algo` — not a specific value.
+
 ### 2. Row-ID space
 
 Each segment declares a contiguous row-ID range `[row_id_base, row_id_base +
@@ -123,9 +155,11 @@ ordinal (a flat vector blob, a lexical doc-length array) uses this same mapping,
 family needs its own ID table.
 
 Global uniqueness across all segments in one index is a manifest-level property, not a
-container-level one: a writer reserves its range as part of a manifest commit (§3
-below), and the CAS commit protocol makes range reservation atomic — two writers
-racing the pointer cannot both claim the same range, because only one wins the CAS.
+container-level one: a writer *proposes* a range read from the current snapshot's
+`next_row_id` cursor (§3 below), but that proposal is only real once its commit wins
+the pointer CAS — a writer that loses the race re-reads the winner's `next_row_id` and
+recomputes its range before retrying, so two writers never end up holding the same
+range as of any snapshot a reader can actually see.
 
 **What "stable" buys, concretely**, resolving invariant 1's per-family merge
 strategies against this scheme:
@@ -155,13 +189,18 @@ Three object kinds, all under a `_strand/` prefix inside the index's root:
   (`{"type": "native", "store": "s3"}` or `{"type": "catalog", "uri": "..."}` —
   `CLAUDE.md` §6's "one declared CAS host" rule), minimum snapshot retention (a count,
   a duration, or both).
-- **Snapshot metadata** (`_strand/snapshots/{version:020}.json`, immutable, one per
-  committed version): the segment set, each entry giving the segment's path, its
-  row-ID range, byte length, and checksum; and, per the Lance model cited in
+- **Snapshot metadata** (`_strand/snapshots/{version:020}-{writer_nonce}.json`,
+  immutable, one per *proposed* commit — see the filename rationale below): the
+  `version` (u64) this snapshot represents, so a writer can compute the next version
+  as `version + 1` from the snapshot's own content rather than parsing it out of a
+  path; a `next_row_id` cursor (u64, one past the highest row-ID any referenced
+  segment claims — an O(1) read for the next writer, instead of scanning every
+  segment's range); the segment set, each entry giving the segment's path, its
+  row-ID range, `byte_length`, and checksum; and, per the Lance model cited in
   `docs/lineage.md`, a reference to each blob family's index version *without*
   embedding that family's internal structure (index-aware, index-internals-agnostic).
 - **Current pointer** (`_strand/current`): the single object every reader and writer
-  reads first. Its content is the current snapshot's version number.
+  reads first. Its content is the path (key) of the current snapshot metadata object.
 
 These are JSON, not the container's binary format — invariant 11's byte-determinism
 pins (endianness, checksum algorithm, codec-variant registration) govern *wire
@@ -173,39 +212,77 @@ Puffin's "opaque typed blobs with a JSON footer" pattern (`docs/lineage.md`): bi
 where bytes are read by a codec on the hot path, JSON where humans and cross-engine
 tooling read it.
 
+**Why the snapshot filename carries a `writer_nonce`.** Apache Iceberg's own
+optimistic-concurrency shape is the model here, verified against its spec directly:
+"Writers create table metadata files optimistically, assuming that the current
+version will not be changed before the writer's commit... If the snapshot on which an
+update is based is no longer current, the writer must retry the update based on the
+new current version" (`apache/iceberg`, `format/spec.md`). That retry is only cheap
+if *proposing* a new metadata object never itself collides between two writers — and
+a bare `{version:020}.json` path can collide, because two writers reading the same
+`current` independently compute the same next version number and race to create the
+identical path, a case §"How this could be wrong" below discusses. Appending a random
+`writer_nonce` (for example, 8 bytes of random hex) to the snapshot filename removes
+that collision entirely: every writer's proposed object has a distinct path, so the
+`If-None-Match: *` create in step 1 always succeeds, and the *only* place writers
+actually contend is the pointer CAS in step 2 — matching Iceberg's documented shape,
+where conflict is detected and resolved at the pointer swap, not at file creation.
+
 **Commit protocol**, on a store with native conditional writes (S3, confirmed;
 GCS/Azure header semantics are R5, open — see below):
 
-1. Create the new snapshot metadata object at its versioned path with
-   `If-None-Match: *` (fails only if that exact version was already written, which
-   would mean a version-number collision, not a race — versions are chosen by reading
-   the current pointer first).
-2. Advance the current pointer: `PUT _strand/current` with `If-Match: <etag last
-   read>`. Success means this writer's commit is now current. A `412 Precondition
-   Failed` means another writer landed first; this writer re-reads `_strand/current`,
-   re-derives a new version number and (if it reserved a row-ID range) a fresh range
-   past the winner's, and retries from step 1. The orphaned snapshot object from the
-   losing attempt is harmless per the orphan-file rule (`CLAUDE.md` §6) and is swept
-   later, at M3.
-3. For the very first commit against a fresh table, `_strand/current` does not exist
-   yet: the writer uses `If-None-Match: *` on the create, and a losing writer detects
-   this the same way — a failed precondition — and retries by reading the (now
-   existing) pointer.
+1. Read `_strand/current` (a snapshot path), then `GET` that snapshot's `version`
+   and `next_row_id` — or, for a table's very first commit, treat both as absent.
+   Derive this attempt's version number (`version + 1`, or `0` if absent), row-ID
+   range (`[next_row_id, next_row_id + count)`, or `[0, count)` if absent), and a
+   fresh random `writer_nonce`.
+2. Write the new segment(s), then create the snapshot metadata object at
+   `_strand/snapshots/{version:020}-{writer_nonce}.json` with `If-None-Match: *`.
+   Because the nonce makes this path unique to this attempt, this create does not
+   contend with other writers and is not expected to fail.
+3. Advance the current pointer: `PUT _strand/current` with `If-Match: <etag last
+   read>` (or `If-None-Match: *` if step 1 found no existing pointer), pointing at the
+   object just written in step 2. Success means this writer's commit is now current.
+   A `412 Precondition Failed` means another writer landed first: this writer
+   re-reads `_strand/current` and the winner's snapshot metadata, re-derives its
+   version number and row-ID range from *that* fresh state (its previously proposed
+   range may now overlap the winner's and MUST be recomputed, not reused — this is
+   the "rerun the conflict check" step Iceberg's spec describes), writes a new
+   snapshot object under a new nonce, and retries from step 3. The orphaned snapshot
+   object from the losing attempt is harmless per the orphan-file rule (`CLAUDE.md`
+   §6) and is swept later, at M3.
 
 **Reader protocol:**
 
-1. `GET _strand/current` — the version number.
-2. `GET _strand/snapshots/{version}.json` — the segment set.
+1. `GET _strand/current` — the current snapshot's path.
+2. `GET` that snapshot metadata object — the segment set and `next_row_id`.
 3. Open each referenced segment per §1, in parallel across segments.
 
+A `404` at either step means the referenced object was removed by compaction between
+this reader's two GETs (§7's deletion-safety rule bounds *when* that can happen, not
+*whether* a reader can lose this particular race). Per the safety rules below, the
+reader treats this as an expired snapshot: refresh `_strand/current` and retry the
+whole sequence, capped at a small, implementation-chosen retry limit — the exact
+count is a reader parameter this RFC does not pin, for the same reason `N` in §1 is
+unpinned, but the requirement itself is not optional: an unbounded retry loop is not
+a conforming reader, and past the limit a reader MUST surface an error rather than
+loop forever.
+
 **Safety rules** (`CLAUDE.md` §6, restated here as this RFC's obligations): a segment
-file is never physically deleted while any retained snapshot (per the table metadata's
-retention policy) references it; a reader that gets 404 on a segment its snapshot
-references re-fetches `_strand/current` and retries rather than reporting corruption;
-orphaned segment and snapshot objects — left behind by a writer that crashed or lost a
-CAS race — are swept by listing the prefix and subtracting everything referenced by a
-retained snapshot (tool lands at M3; the rule is normative now so the M3 tool has
-nothing to invent).
+file *and* a snapshot metadata object are never physically deleted while any retained
+snapshot (per the table metadata's retention policy) references them; a reader that
+gets 404 on either — not only a segment file — refreshes and retries, bounded, as
+just described, rather than reporting corruption; orphaned segment and snapshot
+objects — left behind by a writer that crashed or lost the pointer CAS — are swept by
+listing the prefix and subtracting everything referenced by a retained snapshot (tool
+lands at M3; the rule is normative now so the M3 tool has nothing to invent). The
+"one declared CAS host" rule (`CLAUDE.md` §6) is, as written, a conformance
+requirement on writers, not a mechanism this protocol enforces against a
+misconfigured or malicious writer — no fencing token or cross-host detection is
+specified. This is not unique to STRAND: Iceberg's own model relies on writers using
+the catalog it was configured with, and nothing in that model cryptographically stops
+a writer from bypassing it either. Enforcement beyond convention is out of scope here
+and not a v0.1 problem this RFC solves.
 
 ## Worked example
 
@@ -280,16 +357,30 @@ Wall time: the two manifest GETs are sequential (the snapshot path depends on th
 pointer's content) — 2 × ~100ms — then segment opens run in parallel across however
 many segments the snapshot references, so their contribution to wall time is one
 segment-open's worth (≤2 × ~100ms), not N segment-opens' worth. Total: **~300–400ms**
-structured cold-path wall time, independent of segment count. This lands in the same
-range as turbopuffer's stated "often as little as ~400ms" structured cold path
-(`docs/benchmarks.md`), which is the right comparison — both figures count from the
-pointer/metadata trip, per `CLAUDE.md` §7's rule that arithmetic starting after
-metadata is in hand is an engine's accounting, not a format's.
+structured cold-path wall time, independent of segment count — this is STRAND's own
+unmeasured napkin-math estimate, not yet an M0-measured number.
+
+`docs/benchmarks.md` gives two turbopuffer figures, and it is explicit about which
+one this estimate should be judged against: **874ms p50 for a truly cold namespace**,
+measured, and the smaller **"often as little as ~400ms"** figure, which is turbopuffer's
+own *structured*-path, first-principles budget, not a measured p50 — `docs/benchmarks.md`
+states plainly that "the 874ms true-cold figure — not the ~400ms structured-path
+figure — is the number our cold-open story actually competes with, and the more
+beatable of the two." Comparing STRAND's estimate against 874ms measured: this
+estimate is well inside it, which is the honest headline. Comparing it against the
+~400ms figure instead would be comparing two unmeasured budgets, and even then not a
+clean one: turbopuffer's structured path is described (`docs/benchmarks.md`) as
+"metadata, then filter/centroid indexes + WAL tail, then clusters" — three
+components — while this RFC's accounting has two manifest GETs and one segment-open
+wave, without an enumerated WAL-tail-equivalent step, so the step counts are not
+shown to correspond. The ~400ms figure is context, not the comparison this RFC rests
+its claim on.
 
 Bytes: the pointer object is a few dozen bytes; snapshot metadata is O(segments) —
 unmeasured at this stage, flagged for M0 benchmark data rather than asserted; each
-segment's hotcache is small (tens to low hundreds of bytes per blob entry) and is
-**not** the same budget as the 100 MB cold-open byte budget (`CLAUDE.md` §7) — that
+segment's hotcache is small (34 bytes per `blob_entry`, per the field table in §1,
+plus 20 bytes of fixed row-ID/count header) and is **not** the same budget as the
+100 MB cold-open byte budget (`CLAUDE.md` §7) — that
 budget bounds a `tier: cold-fetchable` vector blob's navigation-tier-plus-codes
 payload once such a blob is registered (M2), not the container's own footer/hotcache
 metadata, which this RFC expects to stay in the low kilobytes for realistic segments
@@ -306,15 +397,19 @@ and will confirm or correct against M0 measurement.
   trailer and to each blob's on-disk bytes at the container level; a chunk-compressed
   blob's own per-chunk checksums (invariant 11's "every chunk carries a declared
   checksum over its uncompressed content") are that blob family's concern, inside its
-  region, not duplicated here.
+  region, not duplicated here. The container-level `blob_entry.checksum` *value* is
+  golden-file-comparable only for `raw-mappable` blobs; for `chunk-compressed` blobs
+  it is verified by recomputation, per the design note in §1 above and invariant 11's
+  own compressed-bytes exception.
 - **Codec-variant provenance:** not applicable to container-level structures; the
   chunk compression codec (zstd, with level) is fully named per blob, satisfying the
   "complete registration" requirement for *this* layer's only codec use.
 - **Stochastic-transform provenance:** not applicable — no stochastic transform exists
   at this layer (RaBitQ rotation is M2).
 - **Golden files:** this RFC's worked example, once implemented, becomes the first
-  `conformance/` golden file: uncompressed hotcache and footer bytes, byte-for-byte,
-  per invariant 11's rule that golden files pin uncompressed structures.
+  `conformance/` golden file: uncompressed hotcache and footer bytes, byte-for-byte —
+  with the one exception just noted, a chunk-compressed blob's registry checksum,
+  which conformance verifies by recomputation rather than literal byte match.
 
 ## How this could be wrong
 
@@ -332,19 +427,50 @@ keeping the speculative tail size a reader parameter, not a format constant, but
 not yet state a target hotcache size ceiling; that number should come from M0
 benchmark data, not be guessed here, per §2.
 
-**Row-ID range reservation is a coordination point.** Because global uniqueness is
-enforced by the CAS commit (a writer's range is only real once its commit wins), many
-concurrent writers targeting the same table serialize on the pointer for range
-reservation, not just for visibility. This is a real throughput cost this RFC
-surfaces but does not solve — consistent with `CLAUDE.md` §6's "write amplification is
-the writer's problem," a high-throughput writer can reserve a larger range per commit
-to amortize contention, an engineering choice the format doesn't need to make for it.
+**Row-ID range reservation is a coordination point.** Even with per-attempt nonces
+removing the file-creation collision, global uniqueness is still enforced only by the
+pointer CAS — a writer's range is only real once its commit wins — so many concurrent
+writers targeting the same table still serialize on the pointer for range visibility.
+This is a real throughput cost this RFC surfaces but does not solve — consistent with
+`CLAUDE.md` §6's "write amplification is the writer's problem," a high-throughput
+writer can reserve a larger range per commit to amortize contention, an engineering
+choice the format doesn't need to make for it.
 
-**Inventing manifest semantics nobody else runs.** The commit protocol here is close
-to a direct copy of Iceberg's, deliberately — the nearest grave for a *bespoke*
-protocol is Indri/Galago (`docs/lineage.md`): a well-specified format that dies with
-no engine pressured to keep implementing it. Departing from Iceberg's shape without a
-strong reason would reopen that risk; this RFC does not depart from it.
+**A losing writer must actually recompute, not just retry.** The commit protocol
+requires a writer that loses the pointer CAS to re-derive its row-ID range and
+version number from the winner's fresh state before retrying, not merely resend its
+original proposal under a new nonce. This is correct as specified, but it is also
+exactly the kind of step an implementation can silently get wrong under load (retry
+the write, forget to refresh the range) and produce duplicate row-IDs that no test
+catches until two segments' data collides at query time. The round-trip property
+tests and the manifest commit-contention benchmark (`docs/milestones.md`, M0) are
+where this must be exercised, deliberately, with concurrent writers whose proposed
+ranges are forced to collide.
+
+**The reader-retry bound is unpinned, deliberately, and that's a real gap until it
+isn't.** §3 requires readers to bound their 404-refresh retries but does not say by
+how much, for the same reason the speculative tail size `N` is a reader parameter and
+not a format constant — but an unpinned bound is not itself a benchmark result, and a
+badly chosen one (too low, spurious failures under legitimate heavy compaction; too
+high, slow error surfacing) is a real deployment problem this RFC defers rather than
+solves. The crash tests in `docs/milestones.md`'s M0 list ("reader on expired
+snapshot → 404-refresh path") should produce a recommended default, not just prove
+the path exists.
+
+**Adopting Iceberg's shape, not copying its bytes.** The commit protocol's shape —
+optimistic metadata creation, a CAS-guarded pointer, refresh-and-retry on conflict —
+is grounded against Iceberg's own spec text, not memory: "Writers create table
+metadata files optimistically... If the snapshot on which an update is based is no
+longer current, the writer must retry the update based on the new current version"
+(`apache/iceberg`, `format/spec.md`). It is not, however, a byte-for-byte or even
+protocol-for-protocol copy — Iceberg's reference deployments commonly commit through
+an external catalog (Hive, Glue, a REST catalog) rather than a bare conditional PUT on
+a fixed object path, and this RFC's specific mechanics (the `writer_nonce`-suffixed
+filename, the `next_row_id` cursor) are STRAND's own, not verified against any
+Iceberg source. The nearest grave for a genuinely *bespoke* protocol is Indri/Galago
+(`docs/lineage.md`): a well-specified format nobody's engine is pressured to keep
+implementing. Adopting the same conceptual shape as a widely-implemented one is the
+mitigation; this RFC does not claim more fidelity to Iceberg than that.
 
 **GCS/Azure are unverified.** This RFC's commit protocol is written and reasoned about
 against S3's confirmed conditional-write semantics (If-None-Match GA August 2024,
@@ -374,11 +500,33 @@ offsetting benefit for this format's access patterns, and would give up the chea
 `CLAUDE.md` §6: "the format ships no WAL and no memtable; a production writer batches
 on its own side." Not reconsidered here.
 
+**Bare `{version:020}.json` snapshot filenames without a per-writer nonce.** Rejected:
+two writers reading the same `current` pointer independently compute the same next
+version number, so a bare version-number path collides under genuine concurrency —
+not the "version-number collision, not a race" an earlier draft of this RFC claimed.
+Appending a random `writer_nonce` removes the collision at the cost of a filename
+that isn't purely a sort key; `next_row_id` in the snapshot body, not the filename,
+is what a reader actually needs to interpret order.
+
+**A suffix range GET (`bytes=-N`) instead of an explicit-end range.** Rejected on
+verification, not on principle: a suffix range would save the reader from needing
+`byte_length` up front, but neither RFC 9110 §14.2 nor AWS's `GetObject` "Range"
+documentation was confirmed, when checked, to demonstrate suffix-range support
+specifically — only ordinary explicit-range requests. Since the manifest already
+hands the reader `byte_length` for free before it opens any segment, there was no
+reason to depend on the unconfirmed form.
+
 ## Open questions / follow-on RFCs
 
 - Hotcache size ceiling and the default speculative tail-read size — needs M0 MinIO
   benchmark data before either is stated as more than provisional.
+- The reader 404-refresh retry bound — this RFC requires one to exist but does not
+  pin a number; M0's crash tests should produce a recommended default.
 - GCS/Azure conditional-write header semantics and the external-catalog fallback
   protocol (R5) — follow-on RFC once a non-S3 target or catalog is in scope.
+- Whether S3 (or another target store) actually supports HTTP suffix-range requests
+  is worth confirming directly against primary source when `references/` is vendored
+  at M0 — this RFC no longer depends on the answer, but a confirmed "yes" would let
+  `strand-tools inspect` open a bare segment file in one RTT without a `HEAD` first.
 - Whether the manifest should eventually carry optional per-segment summary metadata
   for cross-segment pruning is R10 and stays explicitly out of this RFC's scope.
