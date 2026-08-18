@@ -77,7 +77,11 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   lineage, now conditional on R9's granularity outcome — the block-max sibling-blob
   *pattern* stays settled (invariant 4), only the granularity number is open.
 - **Pending figures:** the ~250ms p90 tail figure — re-locate the source sentence or
-  replace with the M0 measured figure (§8); the parallel-wave aggregate throughput
-  behind the 100 MB budget rationale — measure at M0; tantivy codec-SPI absence
-  (R11(a)); FAISS FastScan external-list feasibility (R11(b)); the Quickwit
-  inheritance hypothesis (R11(c)).
+  replace with a real-network M0 measured figure (`CLAUDE.md` §7); `bench/` measures
+  a real cold-open p50/p90/p99 against MinIO on localhost (`bench/results/cold-open.json`),
+  which confirms the GET-count half of invariant 3 but not yet the real-network tail
+  latency this figure needs — that still wants MinIO with injected latency, or real S3;
+  the parallel-wave aggregate throughput behind the 100 MB budget rationale — not yet
+  measurable at all until a `tier: cold-fetchable` vector blob exists (M2); tantivy
+  codec-SPI absence (R11(a)); FAISS FastScan external-list feasibility (R11(b)); the
+  Quickwit inheritance hypothesis (R11(c)).

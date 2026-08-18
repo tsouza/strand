@@ -356,7 +356,14 @@ cherry-picks: **~100ms per object-storage round trip** as the planning figure
 and **~250ms p90 for small reads as the tail figure for SLO discussion — pending: this
 figure has not been located in a current primary source; vendor the source sentence or
 replace it with a measured MinIO/S3 tail figure at M0. Until then it is a placeholder
-and is marked as such wherever used.** An RFC without this arithmetic is incomplete.
+and is marked as such wherever used.** `bench/` now measures a real cold-open p50/p90/p99
+(`bench/results/cold-open.json`; run: `cargo run -p strand-bench --bin cold-open`) — but
+against MinIO on localhost with no injected network latency, so it confirms the
+**GET-count** half of invariant 3 (3 GETs per open: pointer, snapshot, one-RTT segment
+open) and gives a real baseline, not yet the real-network tail figure this placeholder
+is about; that still needs either real S3 or MinIO with injected latency (as
+`docs/benchmarks.md` already calls for), which is a stated follow-on, not done here. An
+RFC without this arithmetic is incomplete.
 For calibration: 50–200 dependent fetches at 100ms is 5–20 seconds — the graph-cold
 baseline being escaped.
 

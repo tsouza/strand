@@ -57,7 +57,12 @@ impl S3Store {
                 .key(key)
                 .send()
                 .await
-                .map_err(|e| StoreError::Io(e.to_string()))?;
+                .map_err(|e| {
+                    StoreError::Io(format!(
+                        "{:#}",
+                        aws_smithy_types::error::display::DisplayErrorContext(&e)
+                    ))
+                })?;
             Ok(())
         })
     }
@@ -89,15 +94,19 @@ impl ConditionalStore for S3Store {
                     if err.as_service_error().is_some_and(|e| e.is_no_such_key()) {
                         return Ok(None);
                     }
-                    return Err(StoreError::Io(err.to_string()));
+                    return Err(StoreError::Io(format!(
+                        "{:#}",
+                        aws_smithy_types::error::display::DisplayErrorContext(&err)
+                    )));
                 }
             };
             let etag = output.e_tag().unwrap_or_default().to_string();
-            let body = output
-                .body
-                .collect()
-                .await
-                .map_err(|e| StoreError::Io(e.to_string()))?;
+            let body = output.body.collect().await.map_err(|e| {
+                StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&e)
+                ))
+            })?;
             Ok(Some((body.into_bytes().to_vec(), etag)))
         })
     }
@@ -116,7 +125,10 @@ impl ConditionalStore for S3Store {
             match result {
                 Ok(output) => Ok(output.e_tag().unwrap_or_default().to_string()),
                 Err(err) if is_precondition_failed(&err) => Err(StoreError::PreconditionFailed),
-                Err(err) => Err(StoreError::Io(err.to_string())),
+                Err(err) => Err(StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&err)
+                ))),
             }
         })
     }
@@ -135,7 +147,10 @@ impl ConditionalStore for S3Store {
             match result {
                 Ok(output) => Ok(output.e_tag().unwrap_or_default().to_string()),
                 Err(err) if is_precondition_failed(&err) => Err(StoreError::PreconditionFailed),
-                Err(err) => Err(StoreError::Io(err.to_string())),
+                Err(err) => Err(StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&err)
+                ))),
             }
         })
     }

@@ -1,0 +1,14 @@
+{
+  "name": "cold-open",
+  "date": "2026-08-18T10:55:36Z",
+  "commit": "c54ec744069903c1a9be4cb4f7476e14701395df",
+  "result": {
+    "iterations": 30,
+    "get_count_per_open": 3,
+    "latency_ms_p50": 10.039103,
+    "latency_ms_p90": 13.175179,
+    "latency_ms_p99": 14.740212000000001,
+    "latency_ms_min": 8.699651,
+    "latency_ms_max": 14.740212000000001
+  }
+}

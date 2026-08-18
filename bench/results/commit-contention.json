@@ -1,0 +1,13 @@
+{
+  "name": "commit-contention",
+  "date": "2026-08-18T10:55:42Z",
+  "commit": "c54ec744069903c1a9be4cb4f7476e14701395df",
+  "result": {
+    "writers": 8,
+    "commits_per_writer": 5,
+    "total_commits": 40,
+    "total_wall_ms": 2095.905225,
+    "total_pointer_put_attempts": 363,
+    "extra_put_attempts_from_retries": 283
+  }
+}

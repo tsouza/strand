@@ -97,6 +97,16 @@ const READER_REFRESH_RETRY_LIMIT: u32 = 5;
 /// this attempt should build against — it is never reused across attempts,
 /// which is what makes a stale, overlapping row-ID range structurally
 /// impossible rather than a discipline the caller must maintain.
+///
+/// Because `build_segments` can run more than once, any I/O it performs
+/// must be attempt-safe: writing a segment (via `segment::write_segment`,
+/// say) to a **fixed** path derived only from caller-side state (a loop
+/// index, a writer ID) will collide with that same path's first attempt on
+/// retry, since the first attempt's write already landed even though its
+/// commit lost the race — `write_segment`'s `put_if_absent` then correctly
+/// rejects the second write to the same path. Include something
+/// attempt-unique in the path (a fresh random nonce, a counter bumped each
+/// call) the same way `commit`'s own snapshot-path nonce does.
 pub fn commit<S: ConditionalStore>(
     store: &S,
     build_segments: impl Fn(u64) -> Vec<SegmentRef>,

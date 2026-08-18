@@ -1,0 +1,32 @@
+[package]
+name = "strand-bench"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "STRAND end-to-end benchmarks against real MinIO, per CLAUDE.md §7"
+publish = false
+
+[lib]
+name = "strand_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cold-open"
+path = "src/cold_open.rs"
+
+[[bin]]
+name = "commit-contention"
+path = "src/commit_contention.rs"
+
+[dependencies]
+strand-core = { path = "../crates/strand-core", features = ["s3"] }
+aws-config = "1.10.1"
+aws-sdk-s3 = "1.142.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+testcontainers-modules = { version = "0.15.0", features = ["minio"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
