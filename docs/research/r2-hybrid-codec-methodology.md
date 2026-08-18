@@ -28,7 +28,11 @@ central cost-vs-trustworthiness tension); the fixes are inlined below, not defer
 ---
 
 **Scope note.** This document is a plan for finding out. It does not propose, sketch,
-or evaluate any specific codec, encoding, or composition design at any point below.
+or evaluate any specific codec or encoding design at any point below. Phase 2B does
+evaluate one narrow composition question — whether choosing per list or per block
+between the two existing, unmodified codecs can approach an oracle ceiling — which is
+selection among already-registered codecs, never a new encoding; its surviving
+output, a validated composition scheme, is what Phase 3 tests.
 
 ## Phase Sequence and Rationale
 
@@ -218,16 +222,25 @@ in a future re-telling):
   Any one of the three failing means "not a general win" — stop, name which axis
   failed, do not proceed hoping a later SIMD pass fixes it.
 
+Stage 2, for completeness: the SIMD-tier implementation of whichever artifact
+cleared Stage 1, measured under the same three criteria on the same collections.
+Its exit is the investigation's final verdict: all three still holding at the
+SIMD tier means the question is answered affirmatively and any codec-registration
+consequence goes to its own RFC per the intro; any criterion failing means stop,
+with the failing axis named — a Stage 1 pass that Stage 2 cannot reproduce is
+recorded as a scalar-only result, not a general win.
+
 **Cost.** Cheap at Stage 0, rising only once earned by clearing the cheap gate.
 
 ## What This Plan Does Not Do
 
-It does not propose, sketch, or evaluate any specific hybrid codec design, encoding
-scheme, or composition mechanism at any phase. Naming existing structures
+It does not propose, sketch, or evaluate any specific hybrid codec design or encoding
+scheme at any phase. Naming existing structures
 (PGM-index, wavelet trees, sdsl-lite, RRR) in Phase 0 is search-target specification,
 not design-sketching — nothing above states or implies how such a structure would
-combine with BP128 or EF. Every phase produces evidence and a stop/continue verdict
-only.
+combine with BP128 or EF. Every phase produces evidence and a stop/continue verdict;
+Phase 2B alone may additionally hand a validated composition scheme to Phase 3, per
+the scope note.
 
 ## The Resolved Tension, Precisely
 
