@@ -1,6 +1,15 @@
 # RFC 0005: Term dictionary
 
-- **Status:** Draft
+- **Status:** Approved — passed adversarial review, including independent
+  reconstruction of both worked-example artifacts from scratch: the reviewer wrote
+  its own program against the real `fst` crate and its own script computing the
+  term-info bytes, and both matched this RFC's claims byte-for-byte, including the
+  cross-process determinism claim. One broken internal citation, hand-drifted
+  tables (a `CLAUDE.md` §2 hard-rule violation), an incomplete "nearest grave" pass
+  (covered the design-philosophy risk but not this RFC's own self-identified
+  largest technical risk), and one stale "not independently verified" hedge (closed
+  by fetching the real Lucene source directly) — all fixed and grounded. No
+  blocking findings remain.
 - **Milestone:** M1 — Lexical (`docs/milestones.md`)
 - **Spec chapters produced:** `spec/term-dictionary.md`; additively extends
   `spec/container.md` §9 (the blob-type registry, first populated by this RFC)
@@ -254,6 +263,19 @@ instead (weakening the direct-mmap, zero-decompression access pattern §4's quer
 resolution assumes). This RFC does not resolve which fallback wins; it names the
 fork in the road and the test (build the same logical FST on both an x86_64 and an
 ARM machine, byte-compare) that resolves it, owed before implementation.
+
+This specific risk names its own grave, distinct from Indri/Galago above: **the
+Optane-era formats** (`docs/lineage.md`) — "hardware-specific choices baked into
+media layouts, unimplementable the day the hardware died — the standing argument
+for keeping register widths out of wire bytes." Trusting one platform's empirically-
+observed determinism as if it were a portable guarantee is exactly that grave's
+shape: a design assumption that happens to hold on the hardware it was checked on,
+unverified on the hardware it wasn't. This RFC's own invariant-11 checklist already
+marks the FST golden file "provisional" rather than settled for precisely this
+reason (§Invariant-11 checklist above); the two-axis test named in the paragraph
+above is what turns "provisional" into either "settled" or "this design needs to
+change," and until it runs, this RFC is knowingly carrying the same shape of risk
+the Optane grave records, not a resolved one.
 
 **FST size at scale, unmeasured, could force a redesign toward Lucene's sparse
 approach.** If a real large-vocabulary corpus (MS MARCO or larger) produces an FST

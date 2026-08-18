@@ -82,19 +82,37 @@ the fixed-size logical struct, not a naive flat array.
 
 ## The competing design: Lucene's BlockTree (sparse index, not a dense per-term FST)
 
-**Source:** secondary (Apache Lucene's own `Lucene90BlockTreeTermsWriter`
-documentation and package overview; not independently re-fetched from Lucene source
-in this pass — flagged as such, weaker grounding than the tantivy citations above).
+**Source:** Apache Lucene, tag `releases/lucene/10.1.0`, byte-exact via `curl` (this
+citation previously read "secondary... not independently re-fetched... weaker
+grounding"; closed during RFC 0005's adversarial review, which fetched the same
+source and reported the same findings independently — re-confirmed here a second
+time, directly, rather than merely accepting that review's word for it). Files:
+`lucene/core/src/java/org/apache/lucene/codecs/lucene90/blocktree/
+Lucene90BlockTreeTermsWriter.java`, `.../blocktree/package-info.java`. Fetched
+2026-08-18.
+
+```java
+public static final int DEFAULT_MIN_BLOCK_SIZE = 25;
+public static final int DEFAULT_MAX_BLOCK_SIZE = 48;
+```
+
+> "This terms dictionary organizes all terms into blocks according to shared
+> prefix, such that each block has enough terms, and then stores the prefix trie in
+> memory as an FST as the index structure." (`package-info.java`)
+
+> "The .tip file contains a separate FST for each field. The FST maps a term prefix
+> to the on-disk block that holds all terms starting with that prefix."
+> (`Lucene90BlockTreeTermsWriter.java`)
 
 Lucene's term dictionary organizes terms into blocks by shared prefix (default block
-size 25–48 terms) and builds an FST *index over the blocks*, not over individual
-terms — the FST's leaves point at block locations, and the actual term bytes and
-metadata for the matching block are read from a separate file (`.tim`) only after
-the FST navigates to the right block. This makes Lucene's FST **sparse**: it has
-roughly `1/block_size` as many entries as there are terms, deliberately trading a
-small amount of extra seek/scan work within a block for a dramatically smaller
-in-memory/cold-fetched index — the opposite tradeoff from tantivy's dense,
-one-entry-per-term FST.
+size 25–48 terms, confirmed exactly by the constants above) and builds an FST *index
+over the blocks*, not over individual terms — the FST's leaves point at block
+locations, and the actual term bytes and metadata for the matching block are read
+from a separate file (`.tim`) only after the FST navigates to the right block. This
+makes Lucene's FST **sparse**: it has roughly `1/block_size` as many entries as
+there are terms, deliberately trading a small amount of extra seek/scan work within
+a block for a dramatically smaller in-memory/cold-fetched index — the opposite
+tradeoff from tantivy's dense, one-entry-per-term FST.
 
 This is a real, load-bearing architectural fork for any STRAND design choice: a
 dense FST (tantivy-style) is architecturally simpler (one lookup structure, not two
