@@ -25,5 +25,6 @@ all = { level = "deny", priority = -1 }
 s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types", "dep:tokio"]
 
 [dev-dependencies]
+proptest = "1.11.0"
 testcontainers-modules = { version = "0.15.0", features = ["minio"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }

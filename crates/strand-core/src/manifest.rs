@@ -559,6 +559,156 @@ mod tests {
         assert_eq!(read_snapshot(&store), Err(ReadError::RetriesExhausted));
     }
 
+    /// Property-based coverage extending the hand-picked scenarios above:
+    /// randomized sequences of concurrent-writer rounds, checked against the
+    /// protocol's real safety invariants rather than one scenario's expected
+    /// values. This is the alternative RFC 0002's adversarial review named as
+    /// the thing to build and evaluate before a TLA+/DST effort is justified
+    /// (`rfcs/0002-manifest-formal-verification.md`).
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        fn unique_path() -> String {
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            format!("segments/{:x}.bin", COUNTER.fetch_add(1, Ordering::Relaxed))
+        }
+
+        fn toy_segment(row_id_base: u64, row_id_count: u64) -> SegmentRef {
+            SegmentRef {
+                path: unique_path(),
+                row_id_base,
+                row_id_count,
+                byte_length: 1,
+                checksum: 0,
+            }
+        }
+
+        /// One round's shape: how many real, top-level `commit()` calls it
+        /// produces, and what happens to the round's *last* writer's pointer
+        /// CAS.
+        #[derive(Debug, Clone, Copy)]
+        enum RoundPlan {
+            /// No contention, no fault: an ordinary successful commit.
+            Solo,
+            /// A second writer's whole commit actually lands, for real,
+            /// before this round's writer attempts its own pointer CAS —
+            /// the genuine `PreconditionFailed` race.
+            RivalWins,
+            /// This round's pointer write is reported `Ambiguous`, but it
+            /// actually landed (the ack was lost).
+            AmbiguousLanded,
+            /// This round's pointer write is reported `Ambiguous` and did
+            /// not land (the request never reached the server).
+            AmbiguousNotLanded,
+        }
+
+        fn round_plan() -> impl Strategy<Value = RoundPlan> {
+            prop_oneof![
+                Just(RoundPlan::Solo),
+                Just(RoundPlan::RivalWins),
+                Just(RoundPlan::AmbiguousLanded),
+                Just(RoundPlan::AmbiguousNotLanded),
+            ]
+        }
+
+        /// Runs one round against the shared `inner` store and returns how
+        /// many top-level, successful `commit()` calls it performed (1,
+        /// except `RivalWins`, which performs 2).
+        fn run_round(inner: &InMemoryStore, plan: RoundPlan, row_id_count: u64) -> u32 {
+            match plan {
+                RoundPlan::Solo => {
+                    commit(inner, |next_row_id| {
+                        vec![toy_segment(next_row_id, row_id_count)]
+                    })
+                    .unwrap();
+                    1
+                }
+                RoundPlan::RivalWins => {
+                    let rival_fired = std::cell::Cell::new(false);
+                    commit(inner, |next_row_id| {
+                        if !rival_fired.get() {
+                            rival_fired.set(true);
+                            commit(inner, |rival_next_row_id| {
+                                vec![toy_segment(rival_next_row_id, 1)]
+                            })
+                            .unwrap();
+                        }
+                        vec![toy_segment(next_row_id, row_id_count)]
+                    })
+                    .unwrap();
+                    2
+                }
+                RoundPlan::AmbiguousLanded => {
+                    let store = AmbiguousThenNormalPointerWrite {
+                        inner,
+                        already_fired: std::cell::Cell::new(false),
+                    };
+                    commit(&store, |next_row_id| {
+                        vec![toy_segment(next_row_id, row_id_count)]
+                    })
+                    .unwrap();
+                    1
+                }
+                RoundPlan::AmbiguousNotLanded => {
+                    let store = AmbiguousAndNeverAppliedPointerWrite {
+                        inner,
+                        already_fired: std::cell::Cell::new(false),
+                    };
+                    commit(&store, |next_row_id| {
+                        vec![toy_segment(next_row_id, row_id_count)]
+                    })
+                    .unwrap();
+                    1
+                }
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn commit_invariants_hold_across_randomized_concurrent_rounds(
+                rounds in prop::collection::vec((round_plan(), 1u64..5), 1..8),
+            ) {
+                let inner = InMemoryStore::new();
+                let mut expected_commit_count: u32 = 0;
+                for (plan, row_id_count) in rounds {
+                    expected_commit_count += run_round(&inner, plan, row_id_count);
+                }
+
+                let final_snapshot = read_snapshot(&inner).unwrap().unwrap();
+
+                prop_assert_eq!(
+                    final_snapshot.version,
+                    u64::from(expected_commit_count) - 1,
+                    "version must count exactly the successful commits, no more, no fewer"
+                );
+                prop_assert_eq!(
+                    final_snapshot.segments.len(),
+                    expected_commit_count as usize
+                );
+
+                let mut ranges: Vec<_> = final_snapshot
+                    .segments
+                    .iter()
+                    .map(|s| s.row_id_base..(s.row_id_base + s.row_id_count))
+                    .collect();
+                ranges.sort_by_key(|r| r.start);
+                for pair in ranges.windows(2) {
+                    prop_assert!(
+                        pair[0].end <= pair[1].start,
+                        "row-ID ranges must not overlap: {:?} vs {:?}",
+                        pair[0],
+                        pair[1]
+                    );
+                }
+
+                let total_row_ids: u64 = final_snapshot.segments.iter().map(|s| s.row_id_count).sum();
+                prop_assert_eq!(final_snapshot.next_row_id, total_row_ids);
+            }
+        }
+    }
+
     fn snapshot_key_for_test(store: &InMemoryStore, version: u64) -> String {
         let (pointer_bytes, _) = store.get(CURRENT_POINTER_KEY).unwrap().unwrap();
         let path = String::from_utf8(pointer_bytes).unwrap();
