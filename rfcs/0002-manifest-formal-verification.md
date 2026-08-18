@@ -1,21 +1,26 @@
 # RFC 0002: Dual-model verification of the manifest CAS protocol
 
-- **Status:** Draft — revised to address every finding from the first
-  adversarial review (below), not yet through a second pass. The
-  property-based alternative that review called for was built and evaluated
-  (see "Evidence gathered"); separately, the user has since determined that
-  test-based coverage — even property-based, even mutation-tested — cannot
-  substitute for exhaustive model-space exploration, because it is bounded by
-  the scenario space a human encoded into the generator ("known unknowns"),
-  while a faithful model checked exhaustively within its bounds can surface
-  interactions no test author conceived of ("unknown unknowns"). Given an
-  explicit choice between a cheaper phased TLA+-only plan and the full
-  original scope (TLA+ model, TLAPS proof, DST harness, dual-tracing
-  cross-validation), the user chose the full scope. This revision fixes the
-  citation and completeness issues the first review found; it does not need
-  to re-litigate whether the effort proceeds, only whether it is now
-  well-grounded enough to approve. Do not begin building the TLA+ spec or the
-  DST harness against this RFC until it passes a fresh adversarial review.
+- **Status:** Approved — passed a second adversarial review after a first review
+  found 10 ranked issues (citation errors, one backwards citation, incompleteness,
+  a proportionality question). All 10 were fixed in a revision (references
+  vendored, the PObserve and MongoDB citations corrected, the drift-classification
+  table completed, the action grammar extended to the reader path); the second
+  review confirmed each fix against the vendored primary sources and the real
+  protocol code rather than trusting the revision's own account, and found three
+  further minor issues (a modality contradiction in the Type-II resolution rule, a
+  missing `DefiniteFailure` outcome in the reader-path grammar, an unsourced
+  "already expert" claim in the effort estimate), each fixed in place. On
+  proportionality specifically: the property-based alternative the first review
+  called for was built and evaluated (see "Evidence gathered") and caught this
+  protocol's known bug class; the user then determined, independent of that
+  result, that test-based coverage — however rigorous — cannot substitute for
+  exhaustive model-space exploration, because it is bounded by the scenario space
+  a human encoded into the generator ("known unknowns"), while a faithful model
+  checked exhaustively within its bounds can surface interactions no test author
+  conceived of ("unknown unknowns"), and chose the full original scope (TLA+
+  model, TLAPS proof, DST harness, dual-tracing cross-validation) over a cheaper
+  phased alternative. Implementation (the actual `.tla` spec, the TLAPS proof, and
+  the DST harness) may now begin against this RFC.
 - **Milestone:** None directly. Cross-cutting verification infrastructure for the
   manifest CAS protocol RFC 0001 §3 already specifies and `crates/strand-core/src/
   manifest.rs` already implements; does not gate any of M1–M5.
@@ -113,6 +118,36 @@ proceeds regardless, because property-based testing and model checking answer
 different questions. It remains useful context for scoping *what the TLA+
 model needs to check that the property suite already doesn't*, which is part
 of what the Open Questions below still need to settle.
+
+### Second adversarial review
+
+A second, independent review (fresh agent, verifying each of the 10 findings
+above against the newly vendored `references/` files and the real protocol
+code — `rfcs/0001-container-rowid-manifest.md`, `spec/manifest.md`,
+`crates/strand-core/src/manifest.rs` — rather than trusting the revision's own
+account of itself) confirmed findings 1, 3, 4, 5, 6, 8, 9, and 10 genuinely
+fixed, and finding 2 (proportionality) honestly resolved as a recorded policy
+decision rather than a smuggled technical claim. It flagged one caveat worth
+keeping in view rather than treating as fully closed: TLC's "exhaustive within
+bounds" is exhaustive only over the *modeled* action/outcome enumeration,
+which — like `proptest`'s `RoundPlan` — is itself human-authored; the
+known-unknowns/unknown-unknowns distinction this RFC's Status header draws is
+softer than a categorical line, since a spec that omits an action class is
+blind to it in exactly the way a generator that omits a fault type is. This
+does not change the user's decision, but it means the model's own action
+grammar (§4) deserves the same scrutiny for completeness that "How this could
+be wrong" already gives the property-based generator.
+
+It also found three new, minor issues, each fixed directly rather than
+requiring a further review pass: §3's "Resolving Type-II" paragraph
+contradicted its own table (reasoning in "the model forbids" terms about a
+drift type defined as "the model permits"), corrected to stay in one
+modality throughout; §4's reader-path actions were missing a `DefiniteFailure`
+outcome the writer path already had, even though `read_snapshot` has exactly
+that outcome (`ReadError::Io`), now added; and §5 attributed "already expert
+in the technique" to FMDSE's team, a claim the vendored source does not make,
+now removed. Verdict: approve with those fixes, which are reflected in the
+body above.
 
 ## Summary
 
@@ -275,15 +310,20 @@ classified before anything is changed:
 | tracer artifact | neither side is wrong; the trace vocabulary's abstraction boundary is | fix the tracer, not the model or the code |
 | fault-model mismatch | the DST harness's simulated `ConditionalStore` failure behavior doesn't match what the real backend actually does | fix the simulated fault model, not the spec or the Rust protocol logic |
 
-**Resolving Type-II: which side is authoritative.** The deciding question is
-whether RFC 0001 (or its governing spec chapters) actually intends the behavior the
-model forbids. If the protocol was designed to support it — the model is simply
-too restrictive — tighten the Rust code's behavior only if the code diverges from
-what was designed; otherwise, revise the *model* to permit it. If the protocol was
-never intended to support it, the Rust code has a latent bug even though nothing
-currently exercises it, and the code is what changes. This is a design-intent
+**Resolving Type-II: which side is authoritative.** Type-II means the model
+*permits* some behavior the Rust code never actually produces. The deciding
+question is whether RFC 0001 (or its governing spec chapters) actually intends the
+protocol to support that behavior. If it does, the code is incomplete relative to
+the design — not the model too loose — and the Rust code is extended to cover it.
+If it does not, the model is simply more permissive than the protocol was ever
+designed to be, an artifact of how the spec was written rather than a real
+requirement, and the *model* is tightened to forbid it. This is a design-intent
 question, answered by consulting RFC 0001/`spec/manifest.md`, not answered by the
-model or the code alone.
+model or the code alone. (A previous version of this paragraph reasoned about "the
+behavior the model forbids," which is Type-I's modality, not Type-II's, and its
+second branch described a Rust bug producing forbidden behavior — Type-I again,
+not Type-II; corrected here to stay in "the model permits it, the code doesn't do
+it" terms throughout.)
 
 **The fourth drift source (fault-model mismatch) is distinct from a tracer
 artifact.** A tracer artifact is about vocabulary — the trace vocabulary
@@ -326,15 +366,21 @@ ResolveAmbiguity(w, v)      \* on Ambiguous: writer w re-reads the pointer to
 
 ```
 ReadPointer(r)               \* reader r issues GET _strand/current; outcome ∈
-                              \*   {Found(path), Absent}
+                              \*   {Found(path), Absent, DefiniteFailure}
 ReadSnapshotObject(r, path)  \* reader r issues GET on the snapshot metadata
                               \*   object `path` names; outcome ∈
-                              \*   {Found(snapshot), Expired}
+                              \*   {Found(snapshot), Expired, DefiniteFailure}
 RefreshAndRetry(r)           \* on Expired: r re-issues ReadPointer, bounded by
                               \*   READER_REFRESH_RETRY_LIMIT attempts total
 RetriesExhausted(r)          \* the bound in RefreshAndRetry is reached without
                               \*   ever landing on a readable snapshot
 ```
+
+`DefiniteFailure` at either reader action propagates immediately as
+`ReadError::Io` (`manifest.rs`'s `read_snapshot`, which does not retry it),
+distinct from `Expired`, which continues the bounded refresh loop, and from
+`RetriesExhausted`, which is reached only by exhausting that loop on repeated
+`Expired` outcomes, never on a `DefiniteFailure`.
 
 Each is one coarse, per-attempt action — matching the real functions' structure
 directly, not a decomposition into the individual HTTP requests each one issues.
@@ -354,7 +400,10 @@ blockchain-conformance-testing.md`): a 675-line TLA+ spec, a 1,282-line TLAPS
 proof (machine-checking in about two minutes once written), a roughly 2,000-line
 custom simulator (1,000 lines core driver, 1,000 lines network/DES abstraction)
 against a 2,411-line Go implementation, for **approximately two person-months,
-distributed across three engineers already expert in the technique**. STRAND's
+distributed across three engineers** (the source states the effort and
+headcount, `references/fmdse-blockchain-conformance-testing.md`; it makes no
+claim about the team's prior expertise with the technique, so none is asserted
+here). STRAND's
 manifest protocol is smaller than FMDSE's consensus-protocol case study — no
 quorum, no leader election — but this RFC does not assume the cost scales down
 proportionally with protocol size; the TLAPS proof step in particular is not
@@ -371,6 +420,21 @@ for a stalled effort of this specific shape, not a completed one to learn
 implementation lessons from.
 
 ## How this could be wrong
+
+**The model's own action grammar is a human enumeration too, not an escape from
+that limit.** The second adversarial review's caveat, not fully resolved here:
+TLC's exhaustive check is exhaustive only over the actions §4 actually
+specifies. An action class nobody thought to model (a fifth writer-side
+outcome, a reader-path interaction the current grammar doesn't capture) is
+invisible to TLC in exactly the way an unmodeled fault type is invisible to
+`proptest`'s generator — the "known unknowns vs. unknown unknowns" framing in
+the Status header is directionally right (TLC explores the *combinations* of
+modeled actions exhaustively, which a sampled generator does not, and that is
+real and valuable) but is not a categorical escape from needing the action
+grammar itself to be complete. §4 should get the same adversarial scrutiny for
+missing action classes that "Alternatives considered" already gives the
+property-based generator's `RoundPlan` enumeration — this has not yet
+happened and is worth doing before the model is treated as settled.
 
 **This could simply not get finished.** `spacejam/tla-rust`'s dormancy is this
 project's nearest grave for this specific kind of effort — not a format grave from
