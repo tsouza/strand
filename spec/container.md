@@ -210,3 +210,20 @@ Total file size: 102 bytes.
 - GCS/Azure conditional-write and range-request header semantics are R5,
   open (`docs/ledger.md`); this chapter's open protocol is written and
   verified against S3/MinIO only.
+
+## 9. Blob-type registry
+
+`CLAUDE.md` §1 lists "the blob-type registry" among what belongs in the format.
+This section is that registry: every `family_id`/`blob_type_id` pair (§5) any
+approved RFC has assigned, so future RFCs allocate new IDs without collision.
+Populated incrementally, one RFC at a time — this section started empty at RFC
+0001's approval and gains its first real entries with RFC 0005.
+
+`family_id = 0` is reserved: RFC 0001's own worked example (§7 above) uses it for
+an anonymous placeholder blob with no real family meaning, and no RFC may assign it
+a real family.
+
+| `family_id` | family    | `blob_type_id` | blob type          | registered by |
+| ------------ | --------- | ---------------- | ------------------- | -------------- |
+| 1            | lexical   | 0                | term-dictionary FST | RFC 0005 (`rfcs/0005-term-dictionary.md`) |
+| 1            | lexical   | 1                | term-info store     | RFC 0005 (`rfcs/0005-term-dictionary.md`) |
