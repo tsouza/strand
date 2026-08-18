@@ -128,7 +128,8 @@ fn full_commit_and_read_round_trip_against_real_object_storage() {
                 &builder,
                 next_row_id,
             )]
-        });
+        })
+        .unwrap();
 
         assert_eq!(committed.segments.len(), 1);
         assert_eq!(committed.segments[0].row_id_base, 0);

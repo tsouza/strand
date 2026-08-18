@@ -59,7 +59,8 @@ fn commit_writes_a_real_segment_that_round_trips_through_the_container_format() 
             &builder,
             next_row_id,
         )]
-    });
+    })
+    .unwrap();
 
     assert_eq!(committed.segments.len(), 1);
     let segment_ref = &committed.segments[0];
@@ -99,7 +100,8 @@ fn two_commits_write_two_segments_with_continuous_non_overlapping_row_ids() {
             &builder,
             next_row_id,
         )]
-    });
+    })
+    .unwrap();
     let second = commit(&store, |next_row_id| {
         let mut builder = SegmentBuilder::new(3);
         builder.add_blob(toy_blob(0x01, 0x02));
@@ -109,7 +111,8 @@ fn two_commits_write_two_segments_with_continuous_non_overlapping_row_ids() {
             &builder,
             next_row_id,
         )]
-    });
+    })
+    .unwrap();
 
     assert_eq!(second.segments.len(), 2);
     assert_eq!(second.segments[0].row_id_base, 0);

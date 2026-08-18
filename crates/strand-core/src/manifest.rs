@@ -15,7 +15,7 @@
 //! The snapshot manifest and its CAS commit protocol, per RFC 0001 §3
 //! (`rfcs/0001-container-rowid-manifest.md`).
 
-use crate::store::ConditionalStore;
+use crate::store::{ConditionalStore, StoreError};
 use serde::{Deserialize, Serialize};
 
 const CURRENT_POINTER_KEY: &str = "_strand/current";
@@ -44,42 +44,41 @@ enum ReadAttempt {
     Expired,
 }
 
-fn try_read_current<S: ConditionalStore>(store: &S) -> ReadAttempt {
-    let Some((pointer_bytes, pointer_etag)) =
-        store.get(CURRENT_POINTER_KEY).expect("store I/O failed")
-    else {
-        return ReadAttempt::NoCommitsYet;
+fn try_read_current<S: ConditionalStore>(store: &S) -> Result<ReadAttempt, StoreError> {
+    let Some((pointer_bytes, pointer_etag)) = store.get(CURRENT_POINTER_KEY)? else {
+        return Ok(ReadAttempt::NoCommitsYet);
     };
     let snapshot_path = String::from_utf8(pointer_bytes).expect("pointer content is UTF-8");
-    let Some((snapshot_bytes, _)) = store.get(&snapshot_path).expect("store I/O failed") else {
-        return ReadAttempt::Expired;
+    let Some((snapshot_bytes, _)) = store.get(&snapshot_path)? else {
+        return Ok(ReadAttempt::Expired);
     };
     let snapshot: SnapshotMetadata =
         serde_json::from_slice(&snapshot_bytes).expect("snapshot content is valid JSON");
-    ReadAttempt::Found(CurrentState {
+    Ok(ReadAttempt::Found(CurrentState {
         version: Some(snapshot.version),
         next_row_id: snapshot.next_row_id,
         segments: snapshot.segments,
         pointer_etag: Some(pointer_etag),
-    })
+    }))
 }
 
 /// Used by the writer path (`commit`), which already has its own outer retry
 /// discipline on the pointer CAS: an expired read here is retried
 /// unboundedly, since the writer's real bound is the number of times it's
-/// willing to lose the CAS, not this read.
-fn read_current<S: ConditionalStore>(store: &S) -> CurrentState {
+/// willing to lose the CAS, not this read. A genuine backend failure is not
+/// retried at all — it propagates immediately.
+fn read_current<S: ConditionalStore>(store: &S) -> Result<CurrentState, StoreError> {
     loop {
-        match try_read_current(store) {
+        match try_read_current(store)? {
             ReadAttempt::NoCommitsYet => {
-                return CurrentState {
+                return Ok(CurrentState {
                     version: None,
                     next_row_id: 0,
                     segments: Vec::new(),
                     pointer_etag: None,
-                };
+                });
             }
-            ReadAttempt::Found(state) => return state,
+            ReadAttempt::Found(state) => return Ok(state),
             ReadAttempt::Expired => continue,
         }
     }
@@ -101,9 +100,9 @@ const READER_REFRESH_RETRY_LIMIT: u32 = 5;
 pub fn commit<S: ConditionalStore>(
     store: &S,
     build_segments: impl Fn(u64) -> Vec<SegmentRef>,
-) -> SnapshotMetadata {
+) -> Result<SnapshotMetadata, CommitError> {
     loop {
-        let current = read_current(store);
+        let current = read_current(store).map_err(CommitError::from_store_error)?;
         let new_segments = build_segments(current.next_row_id);
         let added_row_ids: u64 = new_segments.iter().map(|s| s.row_id_count).sum();
 
@@ -119,27 +118,64 @@ pub fn commit<S: ConditionalStore>(
         let nonce = format!("{:016x}", rand_nonce());
         let snapshot_bytes = serde_json::to_vec(&snapshot).unwrap();
         let path = snapshot_key(version, &nonce);
-        store
-            .put_if_absent(&path, &snapshot_bytes)
-            .expect("snapshot path is unique per attempt and must not collide");
+        match store.put_if_absent(&path, &snapshot_bytes) {
+            Ok(_) => {}
+            Err(StoreError::Io(msg)) => return Err(CommitError::Io(msg)),
+            Err(StoreError::PreconditionFailed) => panic!(
+                "snapshot path {path} collided despite the per-attempt nonce — \
+                 this should be statistically impossible"
+            ),
+        }
 
         let pointer_result = match &current.pointer_etag {
             Some(etag) => store.put_if_match(CURRENT_POINTER_KEY, path.as_bytes(), etag),
             None => store.put_if_absent(CURRENT_POINTER_KEY, path.as_bytes()),
         };
 
-        if pointer_result.is_ok() {
-            return snapshot;
+        match pointer_result {
+            Ok(_) => return Ok(snapshot),
+            Err(StoreError::PreconditionFailed) => {
+                // Lost the pointer CAS: another writer committed first. Loop
+                // back to re-read the fresh current state and recompute —
+                // not retry — the version and row-ID range.
+            }
+            Err(StoreError::Io(msg)) => {
+                // Not a race — the backend itself failed. Retrying forever
+                // on the assumption a rival will eventually stop contending
+                // would turn a permanent outage into an infinite loop.
+                return Err(CommitError::Io(msg));
+            }
         }
-        // Lost the pointer CAS: another writer committed first. Loop back to
-        // re-read the fresh current state and recompute — not retry — the
-        // version and row-ID range.
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadError {
+    /// The refresh-and-retry bound (RFC 0001 §3) was reached without ever
+    /// landing on a snapshot the manifest could actually read.
     RetriesExhausted,
+    /// The backend itself failed — not a 404 race, an actual I/O error.
+    Io(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommitError {
+    /// The backend failed for a reason other than losing the pointer CAS —
+    /// `commit`'s retry loop never treats this as "a rival writer won" and
+    /// keeps looping, because a permanent outage is not a race that
+    /// eventually resolves.
+    Io(String),
+}
+
+impl CommitError {
+    fn from_store_error(e: StoreError) -> CommitError {
+        match e {
+            StoreError::Io(msg) => CommitError::Io(msg),
+            StoreError::PreconditionFailed => {
+                unreachable!("ConditionalStore::get never returns PreconditionFailed")
+            }
+        }
+    }
 }
 
 /// The reader protocol, RFC 0001 §3 steps 1–2: resolve the current pointer,
@@ -153,15 +189,19 @@ pub fn read_snapshot<S: ConditionalStore>(
 ) -> Result<Option<SnapshotMetadata>, ReadError> {
     for _ in 0..=READER_REFRESH_RETRY_LIMIT {
         match try_read_current(store) {
-            ReadAttempt::NoCommitsYet => return Ok(None),
-            ReadAttempt::Found(state) => {
+            Ok(ReadAttempt::NoCommitsYet) => return Ok(None),
+            Ok(ReadAttempt::Found(state)) => {
                 return Ok(Some(SnapshotMetadata {
                     version: state.version.expect("Found always carries a version"),
                     next_row_id: state.next_row_id,
                     segments: state.segments,
                 }));
             }
-            ReadAttempt::Expired => continue,
+            Ok(ReadAttempt::Expired) => continue,
+            Err(StoreError::Io(msg)) => return Err(ReadError::Io(msg)),
+            Err(StoreError::PreconditionFailed) => {
+                unreachable!("ConditionalStore::get never returns PreconditionFailed")
+            }
         }
     }
     Err(ReadError::RetriesExhausted)
@@ -228,7 +268,8 @@ mod tests {
                 byte_length: 102,
                 checksum: 0xdead_beef,
             }]
-        });
+        })
+        .unwrap();
 
         assert_eq!(committed.version, 0);
         assert_eq!(committed.next_row_id, 2);
@@ -247,7 +288,8 @@ mod tests {
                 byte_length: 102,
                 checksum: 0xdead_beef,
             }]
-        });
+        })
+        .unwrap();
 
         let committed = commit(&store, |next_row_id| {
             vec![SegmentRef {
@@ -257,7 +299,8 @@ mod tests {
                 byte_length: 200,
                 checksum: 0xf00d,
             }]
-        });
+        })
+        .unwrap();
 
         assert_eq!(committed.version, 1);
         assert_eq!(committed.next_row_id, 5);
@@ -291,7 +334,8 @@ mod tests {
                         byte_length: 500,
                         checksum: 0xbad,
                     }]
-                });
+                })
+                .unwrap();
             }
             vec![SegmentRef {
                 path: "segments/mine.bin".to_string(),
@@ -300,7 +344,8 @@ mod tests {
                 byte_length: 102,
                 checksum: 0xdead_beef,
             }]
-        });
+        })
+        .unwrap();
 
         assert_eq!(committed.version, 1, "the rival took version 0");
         assert_eq!(committed.segments.len(), 2);
@@ -339,7 +384,8 @@ mod tests {
                 byte_length: 102,
                 checksum: 0xdead_beef,
             }]
-        });
+        })
+        .unwrap();
         let second = commit(&store, |next_row_id| {
             vec![SegmentRef {
                 path: "segments/b.bin".to_string(),
@@ -348,7 +394,8 @@ mod tests {
                 byte_length: 200,
                 checksum: 0xf00d,
             }]
-        });
+        })
+        .unwrap();
 
         assert_eq!(read_snapshot(&store), Ok(Some(second)));
     }
@@ -401,7 +448,8 @@ mod tests {
                 byte_length: 102,
                 checksum: 0xdead_beef,
             }]
-        });
+        })
+        .unwrap();
         let first_snapshot_key = snapshot_key_for_test(&inner, first.version);
         let already_fired = std::cell::Cell::new(false);
 
@@ -424,7 +472,8 @@ mod tests {
                             byte_length: 200,
                             checksum: 0xf00d,
                         }]
-                    });
+                    })
+                    .unwrap();
                     inner.delete(&first_snapshot_key);
                 }
             },
@@ -447,7 +496,8 @@ mod tests {
                 byte_length: 102,
                 checksum: 0xdead_beef,
             }]
-        });
+        })
+        .unwrap();
 
         let store = FaultInjectingStore {
             inner: &inner,
@@ -468,5 +518,130 @@ mod tests {
         let path = String::from_utf8(pointer_bytes).unwrap();
         assert!(path.starts_with(&format!("_strand/snapshots/{version:020}-")));
         path
+    }
+
+    /// A `ConditionalStore` every one of whose operations fails with
+    /// `StoreError::Io` — the persistent-outage case, as opposed to the
+    /// transient, self-resolving races the other test doubles model.
+    struct AlwaysFailingStore;
+
+    impl ConditionalStore for AlwaysFailingStore {
+        fn get(
+            &self,
+            _key: &str,
+        ) -> Result<Option<(Vec<u8>, crate::store::ETag)>, crate::store::StoreError> {
+            Err(crate::store::StoreError::Io(
+                "simulated network failure".into(),
+            ))
+        }
+
+        fn put_if_absent(
+            &self,
+            _key: &str,
+            _bytes: &[u8],
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            Err(crate::store::StoreError::Io(
+                "simulated network failure".into(),
+            ))
+        }
+
+        fn put_if_match(
+            &self,
+            _key: &str,
+            _bytes: &[u8],
+            _etag: &crate::store::ETag,
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            Err(crate::store::StoreError::Io(
+                "simulated network failure".into(),
+            ))
+        }
+    }
+
+    #[test]
+    fn read_snapshot_surfaces_io_errors_instead_of_panicking() {
+        let store = AlwaysFailingStore;
+
+        let result = read_snapshot(&store);
+
+        assert!(matches!(result, Err(ReadError::Io(_))), "{result:?}");
+    }
+
+    #[test]
+    fn commit_surfaces_io_errors_from_the_initial_read_instead_of_panicking() {
+        let store = AlwaysFailingStore;
+
+        let result = commit(&store, |next_row_id| {
+            vec![SegmentRef {
+                path: "segments/a.bin".to_string(),
+                row_id_base: next_row_id,
+                row_id_count: 2,
+                byte_length: 102,
+                checksum: 0xdead_beef,
+            }]
+        });
+
+        assert!(matches!(result, Err(CommitError::Io(_))), "{result:?}");
+    }
+
+    /// A store that behaves normally except that writes to the current
+    /// pointer always fail with `StoreError::Io` — modeling a persistent
+    /// backend outage discovered exactly at the CAS step, as opposed to
+    /// `StoreError::PreconditionFailed`, which means a rival writer won.
+    /// `commit`'s retry loop must tell these apart: looping forever on a
+    /// permanent Io failure, mistaking it for a rival that will eventually
+    /// stop racing, is a real bug, not a hypothetical one — this is the
+    /// same class of gap the reader's 404-refresh bound closed for reads.
+    struct FailingPointerWrites<'a> {
+        inner: &'a InMemoryStore,
+    }
+
+    impl ConditionalStore for FailingPointerWrites<'_> {
+        fn get(
+            &self,
+            key: &str,
+        ) -> Result<Option<(Vec<u8>, crate::store::ETag)>, crate::store::StoreError> {
+            self.inner.get(key)
+        }
+
+        fn put_if_absent(
+            &self,
+            key: &str,
+            bytes: &[u8],
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            if key == CURRENT_POINTER_KEY {
+                return Err(crate::store::StoreError::Io("simulated outage".into()));
+            }
+            self.inner.put_if_absent(key, bytes)
+        }
+
+        fn put_if_match(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            etag: &crate::store::ETag,
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            if key == CURRENT_POINTER_KEY {
+                return Err(crate::store::StoreError::Io("simulated outage".into()));
+            }
+            self.inner.put_if_match(key, bytes, etag)
+        }
+    }
+
+    #[test]
+    fn commit_surfaces_io_errors_from_a_failing_pointer_cas_instead_of_looping_forever() {
+        let inner = InMemoryStore::new();
+        let store = FailingPointerWrites { inner: &inner };
+
+        let result = commit(&store, |next_row_id| {
+            vec![SegmentRef {
+                path: "segments/a.bin".to_string(),
+                row_id_base: next_row_id,
+                row_id_count: 2,
+                byte_length: 102,
+                checksum: 0xdead_beef,
+            }]
+        });
+
+        assert!(matches!(result, Err(CommitError::Io(_))), "{result:?}");
     }
 }
