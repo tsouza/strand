@@ -1,0 +1,13 @@
+[package]
+name = "strand-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "STRAND container, row-ID, and manifest reference implementation"
+
+[dependencies]
+twox-hash = { version = "2", default-features = false, features = ["xxhash3_64"] }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
