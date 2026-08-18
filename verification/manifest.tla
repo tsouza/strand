@@ -96,6 +96,21 @@ TypeOK ==
 \* (exercised by commit_surfaces_io_errors_from_the_initial_read_instead_of_panicking
 \* in manifest.rs) -- so this action needs a DefiniteFailure branch too, found
 \* missing by the second adversarial review (see above) and added here.
+\*
+\* A second, later-found gap in the same spot (docs/ledger.md, "TLA+ model
+\* correspondence gap"): the real read_current() also loops unboundedly when
+\* try_read_current() returns ReadAttempt::Expired (the pointer named a
+\* snapshot object compaction already removed) -- unlike the reader path,
+\* whose analogous Expired case is bounded by ReaderRetryLimit. The third
+\* branch below models that: the writer's own bound is the pointer CAS it is
+\* about to contend on (manifest.rs's doc comment says so explicitly), not
+\* this read, so an Expired read here is just a self-transition back to
+\* "Read" -- everything unchanged, since nothing was actually learned. Adding
+\* a branch that changes nothing is a legitimate TLA+ action (a self-loop
+\* edge in the state graph, not a stutter step); it cannot introduce a new
+\* reachable state or falsify any invariant here, since every invariant this
+\* module checks reads only committed `snapshots` or a writer/reader that has
+\* actually reached "Done" -- neither is true of a writer sitting in "Read".
 ReadCurrent(w) ==
     /\ wPc[w] = "Read"
     /\ \/ /\ LET nid == IF Len(snapshots) = 0 THEN 0 ELSE snapshots[Len(snapshots)].nextRowId IN
@@ -104,7 +119,19 @@ ReadCurrent(w) ==
           /\ UNCHANGED <<snapshots, rPc, rLocal>>
        \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
           /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+       \/ /\ wPc' = [wPc EXCEPT ![w] = "Read"]
+          /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
 
+\* RFC 0002 SS4's action grammar lists no outcome set for ProposeSnapshot -- the
+\* same class of gap ReadCurrent had (docs/ledger.md, "TLA+ model correspondence
+\* gap"). The real put_if_absent in commit() (manifest.rs:131-139) can return
+\* StoreError::Io or StoreError::Ambiguous here, and BOTH map to the same
+\* CommitError::Io outcome -- unlike the pointer CAS below, this write's path is
+\* attempt-unique (the writer_nonce), so an ambiguous outcome needs no
+\* disambiguation: whether it landed or not, nothing will ever reference it under
+\* a wrong assumption, and a landed-but-unacked write just leaves a harmless
+\* orphan (CLAUDE.md SS6) once this attempt is abandoned. The second branch below
+\* is that single collapsed failure outcome, not two separate ones.
 ProposeSnapshot(w) ==
     /\ wPc[w] = "Propose"
     /\ LET base == wLocal[w].baseVersion
@@ -112,9 +139,11 @@ ProposeSnapshot(w) ==
            priorSegs == IF base = 0 THEN <<>> ELSE snapshots[base].segments
            newSeg == [base |-> nid, count |-> RowIdCounts[w]]
            proposed == [version |-> base, nextRowId |-> nid + RowIdCounts[w], segments |-> Append(priorSegs, newSeg)]
-       IN wLocal' = [wLocal EXCEPT ![w].proposed = proposed]
-    /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
-    /\ UNCHANGED <<snapshots, rPc, rLocal>>
+       IN \/ /\ wLocal' = [wLocal EXCEPT ![w].proposed = proposed]
+             /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
+             /\ UNCHANGED <<snapshots, rPc, rLocal>>
+          \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+             /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
 
 \* RFC 0002 SS4: outcome in {Success, PreconditionFailed, DefiniteFailure, Ambiguous}.
 \* A stale CAS token always fails, never ambiguously succeeds -- RFC 0002 SS3's

@@ -539,3 +539,41 @@ invariants checked are complete — the same gap from the other side.
   deletion and retention semantics land — the reader-side `Expired`/404-refresh
   action in §4 already exists in the current protocol, but the *conditions* under
   which a real deployment triggers it (compaction) don't yet.
+
+## Discussion — post-approval amendments
+
+Per `CLAUDE.md` §3, a design problem revealed after approval is recorded here, in the
+RFC, rather than folded silently into the model. §4's action grammar is unmodified
+above; this section is the record of what changed and why.
+
+**§4's writer-path actions listed no outcome set for `ReadCurrent` or
+`ProposeSnapshot`.** Unlike `TryAdvancePointer` (`{Success, PreconditionFailed,
+DefiniteFailure, Ambiguous}`) and the reader path's `ReadPointer`/`ReadSnapshotObject`
+(each with an explicit outcome set), §4 as approved gave these two writer-path actions
+no outcome set at all — an omission, not a decision that they have exactly one
+outcome. The gap was harmless to every invariant this RFC's model checks (a failed
+read or propose reaches a terminal state, or loops back to one, that no invariant
+observes), but would have entrenched itself into a TLAPS proof built on the
+as-approved grammar. `docs/ledger.md` recorded it as a correspondence gap to close
+before that phase starts; it is closed here.
+
+`ReadCurrent(w)` gained a third branch: an `Expired` self-transition back to `"Read"`,
+grounded in `read_current()`'s real behavior (`crates/strand-core/src/manifest.rs`) —
+it loops unboundedly on a 404 race against the snapshot object, unlike the reader
+path's bounded refresh, because the writer's real bound is the pointer CAS it is
+about to contend on, not this read. `ProposeSnapshot(w)` gained a second branch: a
+single collapsed failure outcome covering both `StoreError::Io` and
+`StoreError::Ambiguous`, since `commit()`'s snapshot-object write needs no
+disambiguation on ambiguity — its path is attempt-unique (the `writer_nonce`), so a
+landed-but-unacked write is simply a harmless orphan (`CLAUDE.md` §6), never a source
+of doubt about what the writer itself believes happened.
+
+Both additions are grounded and mutation-test-free by design: neither changes an
+invariant's truth value on any reachable path (`ReadCurrent`'s branch cannot reach a
+new state at all, being a true self-loop; `ProposeSnapshot`'s failure branch reaches
+only the pre-existing `"Failed"` terminal state, which `WriterSuccessIsCommitted` and
+every other invariant already ignore) — re-running TLC after the change is the
+verification that matters here, not a new mutation test. TLC's state count moved from
+561 distinct states (1487 generated) to **591 distinct states (1793 generated)**,
+depth unchanged at 14, all seven invariants still holding; `verification/README.md`
+carries the new baseline. Landed 2026-08-18, task: "Start with the TLA+ gap."

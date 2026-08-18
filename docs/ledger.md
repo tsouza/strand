@@ -171,17 +171,17 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `offset` at a multiple of its declared `alignment`, but `crates/strand-core/src/
   segment.rs`'s `SegmentBuilder` does not yet pad blob regions to honor it. Small
   implementation item; not done in this pass.
-- **TLA+ model correspondence gap, to close before the TLAPS proof phase** (RFC
-  0002): `verification/manifest.tla`'s `ProposeSnapshot(w)` models the snapshot-
-  object write as always succeeding, but the real `put_if_absent` in `commit()`
-  can fail definitely or ambiguously and end the attempt
-  (`crates/strand-core/src/manifest.rs:131-139`). The omission traces to RFC 0002
-  §4's approved action grammar, which — like ReadCurrent, and unlike the pointer
-  and reader actions — listed no outcome set for `ProposeSnapshot`. Harmless to
-  the current TLC-checked safety invariants (a failed propose reaches a terminal
-  state no invariant observes), but a TLAPS proof built on the current grammar
-  would entrench the gap; add the failure outcome to the model (and record it
-  against RFC 0002) before that phase starts. Same class, writer side:
-  `ReadCurrent(w)` models no `Expired` outcome, though the real `read_current`
-  loops on one unboundedly; safety-neutral, add alongside the `ProposeSnapshot`
-  failure outcome before the TLAPS phase.
+- **TLA+ model correspondence gap — resolved 2026-08-18.** `verification/
+  manifest.tla`'s `ProposeSnapshot(w)` and `ReadCurrent(w)` both gained the
+  outcome branches this entry previously flagged as missing before the TLAPS
+  proof phase: `ProposeSnapshot(w)` a collapsed failure branch (real
+  `StoreError::Io`/`StoreError::Ambiguous` from `put_if_absent`, both mapping to
+  the same terminal outcome since that write's path is attempt-unique and needs
+  no disambiguation), `ReadCurrent(w)` an `Expired` self-transition (the real
+  `read_current` loops on one unboundedly, unlike the reader path's bounded
+  refresh). TLC re-verified clean: 591 distinct states (1793 generated, depth
+  14, up from 561/1487), all seven invariants still holding. Recorded in RFC
+  0002's new Discussion section (`rfcs/0002-manifest-formal-verification.md`)
+  and `verification/README.md`'s state-count baseline. The TLAPS phase can now
+  build on a grammar that matches the real code's outcome sets on every writer
+  action, not just the pointer CAS.

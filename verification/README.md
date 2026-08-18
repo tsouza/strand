@@ -19,10 +19,15 @@ Then, from the repository root:
     java -jar /path/to/tla2tools.jar -workers auto -config verification/manifest.cfg verification/manifest.tla
 
 Expect `Model checking completed. No error has been found.` and exit code
-`0`, with **561 distinct states** found (1487 generated, search depth 14).
+`0`, with **591 distinct states** found (1793 generated, search depth 14).
 That state count is the baseline: a future session scaling the model up
 should expect it to move, and a change that leaves it identical has probably
-not reached the state space it meant to. A parse-only check (no model
+not reached the state space it meant to. (Baseline was 561/1487 before
+`ReadCurrent`'s `Expired` branch and `ProposeSnapshot`'s failure branch were
+added, closing the TLA+ model correspondence gap `docs/ledger.md` recorded;
+`ProposeSnapshot`'s new failure path is what actually grew the reachable
+state space — a self-loop alone, like `ReadCurrent`'s `Expired` branch,
+cannot introduce a new distinct state.) A parse-only check (no model
 checking, just confirms the module is well-formed) is also available:
 
     java -cp /path/to/tla2tools.jar tla2sany.SANY verification/manifest.tla
