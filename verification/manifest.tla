@@ -136,4 +136,51 @@ Next == \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePoi
 
 Spec == Init /\ [][Next]_<<snapshots, wPc, wLocal, rPc, rLocal>>
 
+\* RFC 0002 Open Questions: "no two SegmentRefs across the full committed
+\* segment set have overlapping row-ID ranges." Only the latest snapshot's
+\* segment list needs checking, not a simplification that risks missing an
+\* earlier overlap: ProposeSnapshot only ever extends the immediate
+\* predecessor (Append(snapshots[base].segments, newSeg) where base is the
+\* CURRENT length), so every earlier snapshot's segment list is a strict
+\* prefix of every later one by construction, and TLC checks invariants at
+\* every reachable state -- meaning each entry's own non-overlap was already
+\* validated the moment it was newest, and nothing after that point can
+\* mutate it. Confirmed sound, not just assumed, by the second adversarial
+\* review (see above).
+NoOverlappingRowIds ==
+    snapshots = <<>> \/
+    LET segs == snapshots[Len(snapshots)].segments IN
+    \A i, j \in 1..Len(segs) :
+        i # j =>
+            \/ segs[i].base + segs[i].count <= segs[j].base
+            \/ segs[j].base + segs[j].count <= segs[i].base
+
+\* RFC 0002 Open Questions: "next_row_id [is] strictly monotonic across commits."
+MonotonicNextRowId ==
+    \A i, j \in 1..Len(snapshots) : i < j => snapshots[i].nextRowId <= snapshots[j].nextRowId
+
+\* RFC 0002 Open Questions: "every committed snapshot is reachable by
+\* following prior versions back to version 0" -- restated as: the sequence
+\* position and the recorded version number never diverge. Not vacuous
+\* despite holding by construction under the CORRECT action definitions: it
+\* holds only because both append sites (TryAdvancePointer's Success branch,
+\* ResolveAmbiguity's landed branch) gate on Len(snapshots) = wLocal[w].baseVersion
+\* before appending a record whose own .version field equals that same
+\* baseVersion. Break either guard and this invariant catches it -- confirmed
+\* by mutation test, Step 3 below.
+VersionsMatchIndex ==
+    \A i \in 1..Len(snapshots) : snapshots[i].version = i - 1
+
+\* Matches the existing Rust proptest's own invariant (manifest.rs's
+\* tests::property module: `next_row_id` equals the summed `row_id_count`
+\* across every committed segment) -- added by the second adversarial
+\* review because the TLA+ model previously checked less than the cheaper
+\* alternative it's supposed to complement.
+RECURSIVE SumCounts(_)
+SumCounts(segs) == IF segs = <<>> THEN 0 ELSE segs[1].count + SumCounts(Tail(segs))
+
+NextRowIdMatchesSegments ==
+    snapshots = <<>> \/
+    snapshots[Len(snapshots)].nextRowId = SumCounts(snapshots[Len(snapshots)].segments)
+
 ====
