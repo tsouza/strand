@@ -53,6 +53,14 @@ impl InMemoryStore {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Unconditionally removes `key`. Not part of `ConditionalStore`: no
+    /// reader or writer in the commit protocol ever deletes an object: this
+    /// exists for tests that simulate compaction, and later for the M3
+    /// orphan-sweep tool.
+    pub fn delete(&self, key: &str) {
+        self.objects.lock().unwrap().remove(key);
+    }
 }
 
 impl ConditionalStore for InMemoryStore {
@@ -91,6 +99,25 @@ mod tests {
     #[test]
     fn get_returns_none_for_absent_key() {
         let store = InMemoryStore::new();
+        assert_eq!(store.get("missing"), None);
+    }
+
+    #[test]
+    fn delete_removes_a_present_key() {
+        let store = InMemoryStore::new();
+        store.put_if_absent("key", b"hello").unwrap();
+
+        store.delete("key");
+
+        assert_eq!(store.get("key"), None);
+    }
+
+    #[test]
+    fn delete_of_an_absent_key_is_a_no_op() {
+        let store = InMemoryStore::new();
+
+        store.delete("missing");
+
         assert_eq!(store.get("missing"), None);
     }
 

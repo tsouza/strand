@@ -33,28 +33,62 @@ struct CurrentState {
     pointer_etag: Option<crate::store::ETag>,
 }
 
-fn read_current<S: ConditionalStore>(store: &S) -> CurrentState {
+/// The result of one attempt at resolving the current snapshot: either the
+/// table has never been committed to, the pointer's target was found, or the
+/// pointer named a snapshot object that is no longer there — the 404 race
+/// RFC 0001 §3 describes (compaction removed it between the pointer read and
+/// the follow-up fetch).
+enum ReadAttempt {
+    NoCommitsYet,
+    Found(CurrentState),
+    Expired,
+}
+
+fn try_read_current<S: ConditionalStore>(store: &S) -> ReadAttempt {
     let Some((pointer_bytes, pointer_etag)) = store.get(CURRENT_POINTER_KEY) else {
-        return CurrentState {
-            version: None,
-            next_row_id: 0,
-            segments: Vec::new(),
-            pointer_etag: None,
-        };
+        return ReadAttempt::NoCommitsYet;
     };
     let snapshot_path = String::from_utf8(pointer_bytes).expect("pointer content is UTF-8");
-    let (snapshot_bytes, _) = store
-        .get(&snapshot_path)
-        .expect("pointer target must exist");
+    let Some((snapshot_bytes, _)) = store.get(&snapshot_path) else {
+        return ReadAttempt::Expired;
+    };
     let snapshot: SnapshotMetadata =
         serde_json::from_slice(&snapshot_bytes).expect("snapshot content is valid JSON");
-    CurrentState {
+    ReadAttempt::Found(CurrentState {
         version: Some(snapshot.version),
         next_row_id: snapshot.next_row_id,
         segments: snapshot.segments,
         pointer_etag: Some(pointer_etag),
+    })
+}
+
+/// Used by the writer path (`commit`), which already has its own outer retry
+/// discipline on the pointer CAS: an expired read here is retried
+/// unboundedly, since the writer's real bound is the number of times it's
+/// willing to lose the CAS, not this read.
+fn read_current<S: ConditionalStore>(store: &S) -> CurrentState {
+    loop {
+        match try_read_current(store) {
+            ReadAttempt::NoCommitsYet => {
+                return CurrentState {
+                    version: None,
+                    next_row_id: 0,
+                    segments: Vec::new(),
+                    pointer_etag: None,
+                };
+            }
+            ReadAttempt::Found(state) => return state,
+            ReadAttempt::Expired => continue,
+        }
     }
 }
+
+/// RFC 0001 §3: the retry count is a reader parameter the RFC deliberately
+/// does not pin, for the same reason the speculative tail size in the
+/// container's open protocol is unpinned — but the bound itself, unlike its
+/// exact value, is not optional. This default is provisional pending the
+/// M0 crash-test data the RFC calls for.
+const READER_REFRESH_RETRY_LIMIT: u32 = 5;
 
 /// Commits `build_segments`'s output as a new snapshot, retrying per RFC 0001
 /// §3 if another writer's commit wins the pointer CAS first. `build_segments`
@@ -101,17 +135,34 @@ pub fn commit<S: ConditionalStore>(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadError {
+    RetriesExhausted,
+}
+
 /// The reader protocol, RFC 0001 §3 steps 1–2: resolve the current pointer,
-/// then read the snapshot it names. Returns `None` for a table with no
-/// commits yet.
-pub fn read_snapshot<S: ConditionalStore>(store: &S) -> Option<SnapshotMetadata> {
-    let current = read_current(store);
-    let version = current.version?;
-    Some(SnapshotMetadata {
-        version,
-        next_row_id: current.next_row_id,
-        segments: current.segments,
-    })
+/// then read the snapshot it names. Returns `Ok(None)` for a table with no
+/// commits yet. On a 404 race (the pointer named a snapshot compaction has
+/// since removed), refreshes and retries, bounded — an unbounded retry loop
+/// is not a conforming reader, so past the limit this returns
+/// `Err(ReadError::RetriesExhausted)` rather than looping forever.
+pub fn read_snapshot<S: ConditionalStore>(
+    store: &S,
+) -> Result<Option<SnapshotMetadata>, ReadError> {
+    for _ in 0..=READER_REFRESH_RETRY_LIMIT {
+        match try_read_current(store) {
+            ReadAttempt::NoCommitsYet => return Ok(None),
+            ReadAttempt::Found(state) => {
+                return Ok(Some(SnapshotMetadata {
+                    version: state.version.expect("Found always carries a version"),
+                    next_row_id: state.next_row_id,
+                    segments: state.segments,
+                }));
+            }
+            ReadAttempt::Expired => continue,
+        }
+    }
+    Err(ReadError::RetriesExhausted)
 }
 
 fn rand_nonce() -> u64 {
@@ -272,7 +323,7 @@ mod tests {
     fn read_snapshot_returns_none_for_a_table_with_no_commits() {
         let store = InMemoryStore::new();
 
-        assert_eq!(read_snapshot(&store), None);
+        assert_eq!(read_snapshot(&store), Ok(None));
     }
 
     #[test]
@@ -297,6 +348,120 @@ mod tests {
             }]
         });
 
-        assert_eq!(read_snapshot(&store), Some(second));
+        assert_eq!(read_snapshot(&store), Ok(Some(second)));
+    }
+
+    /// A `ConditionalStore` wrapper that runs a hook before delegating each
+    /// `get` call, letting a test inject a store mutation at the exact point
+    /// a reader is mid-sequence — modeling the 404 race RFC 0001 §3
+    /// describes: compaction removes a snapshot object between a reader's
+    /// pointer read and its follow-up fetch of what that pointer named.
+    struct FaultInjectingStore<'a, F: Fn(&str)> {
+        inner: &'a InMemoryStore,
+        on_get: F,
+    }
+
+    impl<F: Fn(&str)> ConditionalStore for FaultInjectingStore<'_, F> {
+        fn get(&self, key: &str) -> Option<(Vec<u8>, crate::store::ETag)> {
+            (self.on_get)(key);
+            self.inner.get(key)
+        }
+
+        fn put_if_absent(
+            &self,
+            key: &str,
+            bytes: &[u8],
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            self.inner.put_if_absent(key, bytes)
+        }
+
+        fn put_if_match(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            etag: &crate::store::ETag,
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            self.inner.put_if_match(key, bytes, etag)
+        }
+    }
+
+    #[test]
+    fn read_snapshot_refreshes_and_retries_past_a_compacted_snapshot() {
+        let inner = InMemoryStore::new();
+        let first = commit(&inner, |next_row_id| {
+            vec![SegmentRef {
+                path: "segments/a.bin".to_string(),
+                row_id_base: next_row_id,
+                row_id_count: 2,
+                byte_length: 102,
+                checksum: 0xdead_beef,
+            }]
+        });
+        let first_snapshot_key = snapshot_key_for_test(&inner, first.version);
+        let already_fired = std::cell::Cell::new(false);
+
+        let store = FaultInjectingStore {
+            inner: &inner,
+            on_get: |key: &str| {
+                if key == first_snapshot_key && !already_fired.get() {
+                    already_fired.set(true);
+                    // Simulate: by the time the reader tries to fetch the
+                    // snapshot its pointer read just named, compaction has
+                    // removed it — because a newer commit already landed and
+                    // moved the pointer past it. Deletion-safety (CLAUDE.md
+                    // §6) never removes a file the current pointer still
+                    // references, so the new commit must land first.
+                    commit(&inner, |next_row_id| {
+                        vec![SegmentRef {
+                            path: "segments/b.bin".to_string(),
+                            row_id_base: next_row_id,
+                            row_id_count: 3,
+                            byte_length: 200,
+                            checksum: 0xf00d,
+                        }]
+                    });
+                    inner.delete(&first_snapshot_key);
+                }
+            },
+        };
+
+        let result = read_snapshot(&store).unwrap().unwrap();
+
+        assert_eq!(result.version, 1, "recovered onto the newer snapshot");
+        assert_eq!(result.segments.len(), 2);
+    }
+
+    #[test]
+    fn read_snapshot_gives_up_after_the_retry_limit_instead_of_looping_forever() {
+        let inner = InMemoryStore::new();
+        commit(&inner, |next_row_id| {
+            vec![SegmentRef {
+                path: "segments/a.bin".to_string(),
+                row_id_base: next_row_id,
+                row_id_count: 2,
+                byte_length: 102,
+                checksum: 0xdead_beef,
+            }]
+        });
+
+        let store = FaultInjectingStore {
+            inner: &inner,
+            on_get: |key: &str| {
+                // Every snapshot fetch finds the object already compacted,
+                // forever — the pathological case a bound must survive.
+                if key.starts_with("_strand/snapshots/") {
+                    inner.delete(key);
+                }
+            },
+        };
+
+        assert_eq!(read_snapshot(&store), Err(ReadError::RetriesExhausted));
+    }
+
+    fn snapshot_key_for_test(store: &InMemoryStore, version: u64) -> String {
+        let (pointer_bytes, _) = store.get(CURRENT_POINTER_KEY).unwrap();
+        let path = String::from_utf8(pointer_bytes).unwrap();
+        assert!(path.starts_with(&format!("_strand/snapshots/{version:020}-")));
+        path
     }
 }
