@@ -70,4 +70,70 @@ TypeOK ==
         /\ rLocal[r].ptrVersion \in Nat
         /\ rLocal[r].result = NoResult \/ rLocal[r].result = NoCommitsYetVal \/ rLocal[r].result \in SnapshotRec
 
+\* RFC 0002 SS4 gives ReadCurrent no explicit outcome set, but the real
+\* read_current() propagates a store.get() failure as CommitError::Io
+\* (exercised by commit_surfaces_io_errors_from_the_initial_read_instead_of_panicking
+\* in manifest.rs) -- so this action needs a DefiniteFailure branch too, found
+\* missing by the second adversarial review (see above) and added here.
+ReadCurrent(w) ==
+    /\ wPc[w] = "Read"
+    /\ \/ /\ LET nid == IF Len(snapshots) = 0 THEN 0 ELSE snapshots[Len(snapshots)].nextRowId IN
+             wLocal' = [wLocal EXCEPT ![w] = [baseVersion |-> Len(snapshots), nextRowId |-> nid, proposed |-> NoProposal]]
+          /\ wPc' = [wPc EXCEPT ![w] = "Propose"]
+          /\ UNCHANGED <<snapshots, rPc, rLocal>>
+       \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+          /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+
+ProposeSnapshot(w) ==
+    /\ wPc[w] = "Propose"
+    /\ LET base == wLocal[w].baseVersion
+           nid == wLocal[w].nextRowId
+           priorSegs == IF base = 0 THEN <<>> ELSE snapshots[base].segments
+           newSeg == [base |-> nid, count |-> RowIdCounts[w]]
+           proposed == [version |-> base, nextRowId |-> nid + RowIdCounts[w], segments |-> Append(priorSegs, newSeg)]
+       IN wLocal' = [wLocal EXCEPT ![w].proposed = proposed]
+    /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
+    /\ UNCHANGED <<snapshots, rPc, rLocal>>
+
+\* RFC 0002 SS4: outcome in {Success, PreconditionFailed, DefiniteFailure, Ambiguous}.
+\* PreconditionFailed is forced (a stale CAS token always fails, never ambiguously
+\* succeeds -- RFC 0002 SS3's drift table treats a definite service response, which
+\* this is, as distinct from a genuinely ambiguous one). The other three outcomes
+\* are a real writer's environment-injected choice, independent of staleness.
+TryAdvancePointer(w) ==
+    /\ wPc[w] = "Advance"
+    /\ LET stale == Len(snapshots) # wLocal[w].baseVersion IN
+       IF stale THEN
+           /\ wPc' = [wPc EXCEPT ![w] = "Read"]
+           /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+       ELSE
+           \/ /\ snapshots' = Append(snapshots, wLocal[w].proposed)
+              /\ wPc' = [wPc EXCEPT ![w] = "Done"]
+              /\ UNCHANGED <<wLocal, rPc, rLocal>>
+           \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+              /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+           \/ /\ wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+              /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+
+\* manifest.rs's real disambiguation: a follow-up read of the pointer resolves
+\* the ambiguity completely, because the CAS is atomic server-side. "Landed" is
+\* only still possible if no rival has committed since this writer's read. The
+\* follow-up read can itself fail (manifest.rs lines ~178-182, also
+\* CommitError::Io) -- the third branch below, missing from the first draft
+\* per the second adversarial review (see above).
+ResolveAmbiguity(w) ==
+    /\ wPc[w] = "ResolveAmbiguity"
+    /\ \/ /\ Len(snapshots) = wLocal[w].baseVersion
+          /\ snapshots' = Append(snapshots, wLocal[w].proposed)
+          /\ wPc' = [wPc EXCEPT ![w] = "Done"]
+          /\ UNCHANGED <<wLocal, rPc, rLocal>>
+       \/ /\ wPc' = [wPc EXCEPT ![w] = "Read"]
+          /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+       \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+          /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+
+Next == \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
+
+Spec == Init /\ [][Next]_<<snapshots, wPc, wLocal, rPc, rLocal>>
+
 ====
