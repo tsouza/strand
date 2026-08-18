@@ -58,16 +58,16 @@ its size, which object storage headers give for free:
 
 **Footer trailer (fixed 40 bytes, little-endian per invariant 11):**
 
-| offset | size | field | value |
-|---|---|---|---|
-| 0 | 4 | magic | ASCII `STRD` |
-| 4 | 2 | format_major | u16 |
-| 6 | 2 | format_minor | u16 |
-| 8 | 8 | hotcache_offset | u64, byte offset from file start |
-| 16 | 8 | hotcache_length | u64 |
-| 24 | 1 | checksum_algo | u8, `1` = xxHash3-64 (invariant 11 default) |
-| 25 | 7 | reserved | zero |
-| 32 | 8 | footer_checksum | u64, checksum_algo over bytes [0, 32) |
+| offset | size | field           | value                                       |
+| ------ | ---- | --------------- | ------------------------------------------- |
+| 0      | 4    | magic           | ASCII `STRD`                                |
+| 4      | 2    | format_major    | u16                                         |
+| 6      | 2    | format_minor    | u16                                         |
+| 8      | 8    | hotcache_offset | u64, byte offset from file start            |
+| 16     | 8    | hotcache_length | u64                                         |
+| 24     | 1    | checksum_algo   | u8, `1` = xxHash3-64 (invariant 11 default) |
+| 25     | 7    | reserved        | zero                                        |
+| 32     | 8    | footer_checksum | u64, checksum_algo over bytes [0, 32)       |
 
 **Open protocol (invariant 3's ≤2-RTT budget).** A reader issues an HTTP suffix range
 request, `Range: bytes=-N`, for a speculative tail size `N` — a **reader-side tuning
@@ -84,22 +84,27 @@ holds for everything that follows: no further offset lookup ever costs a round t
 
 **Hotcache region** (the navigation tier fetched wholesale at open):
 
-```
-row_id_base:   u64
-row_id_count:  u64
-blob_count:    u32
-blob_entry[blob_count]:
-  family_id:          u16   (registry-assigned: lexical, vector, ...)
-  blob_type_id:        u16   (registered codec ID within the family)
-  storage_class:        u8    (0 = chunk-compressed, 1 = raw-mappable; invariant 10)
-  tier:                  u8    (0 = n/a, 1 = cold-fetchable, 2 = warm; invariant 7)
-  alignment:              u16   (power-of-two; raw-mappable blobs only)
-  chunk_codec:             u8    (0 = none, 1 = zstd; invariant 11 default)
-  chunk_codec_level:        u8
-  offset:                    u64   (byte offset within the segment file)
-  length:                     u64
-  checksum:                    u64   (checksum_algo over the blob's on-disk bytes)
-```
+| field                  | type                                | notes       |
+| ---------------------- | ----------------------------------- | ----------- |
+| row_id_base            | u64                                 |             |
+| row_id_count           | u64                                 |             |
+| blob_count             | u32                                 |             |
+| blob_entry[blob_count] | struct, repeated `blob_count` times | table below |
+
+**`blob_entry` fields:**
+
+| field             | type | notes                                                |
+| ----------------- | ---- | ---------------------------------------------------- |
+| family_id         | u16  | registry-assigned: lexical, vector, ...              |
+| blob_type_id      | u16  | registered codec ID within the family                |
+| storage_class     | u8   | 0 = chunk-compressed, 1 = raw-mappable; invariant 10 |
+| tier              | u8   | 0 = n/a, 1 = cold-fetchable, 2 = warm; invariant 7   |
+| alignment         | u16  | power-of-two; raw-mappable blobs only                |
+| chunk_codec       | u8   | 0 = none, 1 = zstd; invariant 11 default             |
+| chunk_codec_level | u8   |                                                      |
+| offset            | u64  | byte offset within the segment file                  |
+| length            | u64  |                                                      |
+| checksum          | u64  | checksum_algo over the blob's on-disk bytes          |
 
 Per invariant 10, a `chunk-compressed` blob's internal chunk offset table (chunk
 lengths, per-chunk checksums, the mapping from chunk index to byte range) is part of
@@ -215,43 +220,44 @@ storing two little-endian `u32` values, `42` and `43`, 8-byte aligned.
 
 **Hotcache region** (offset 8, 54 bytes):
 
-```
-row_id_base   (u64) = 1000        → E8 03 00 00 00 00 00 00
-row_id_count  (u64) = 2           → 02 00 00 00 00 00 00 00
-blob_count    (u32) = 1           → 01 00 00 00
+| field        | type | value | bytes (little-endian)     |
+| ------------ | ---- | ----- | ------------------------- |
+| row_id_base  | u64  | 1000  | `E8 03 00 00 00 00 00 00` |
+| row_id_count | u64  | 2     | `02 00 00 00 00 00 00 00` |
+| blob_count   | u32  | 1     | `01 00 00 00`             |
 
-blob_entry[0]:
-  family_id          (u16) = 0    → 00 00
-  blob_type_id        (u16) = 0    → 00 00
-  storage_class          (u8)  = 1    → 01            (raw-mappable)
-  tier                     (u8)  = 0    → 00            (n/a)
-  alignment                 (u16) = 8    → 08 00
-  chunk_codec                 (u8)  = 0    → 00            (none)
-  chunk_codec_level             (u8)  = 0    → 00
-  offset                          (u64) = 0    → 00 00 00 00 00 00 00 00
-  length                            (u64) = 8    → 08 00 00 00 00 00 00 00
-  checksum                            (u64) = xxHash3-64(data region bytes above)
-                                                    → computed by the reference
-                                                       implementation; not hand-derived
-                                                       here, consistent with §2: no
-                                                       number ships without being
-                                                       actually computed from a source,
-                                                       and hand-arithmetic on a
-                                                       non-trivial hash is not a source.
-```
+`blob_entry[0]`:
+
+| field             | type | value                               | bytes (little-endian)                    |
+| ----------------- | ---- | ----------------------------------- | ---------------------------------------- |
+| family_id         | u16  | 0                                   | `00 00`                                  |
+| blob_type_id      | u16  | 0                                   | `00 00`                                  |
+| storage_class     | u8   | 1 (raw-mappable)                    | `01`                                     |
+| tier              | u8   | 0 (n/a)                             | `00`                                     |
+| alignment         | u16  | 8                                   | `08 00`                                  |
+| chunk_codec       | u8   | 0 (none)                            | `00`                                     |
+| chunk_codec_level | u8   | 0                                   | `00`                                     |
+| offset            | u64  | 0                                   | `00 00 00 00 00 00 00 00`                |
+| length            | u64  | 8                                   | `08 00 00 00 00 00 00 00`                |
+| checksum          | u64  | xxHash3-64(data region bytes above) | computed by the reference implementation |
+
+The `checksum` and, below, `footer_checksum` bytes are left as "computed by the
+reference implementation" rather than hand-derived: consistent with §2, no number
+ships without actually being computed from a source, and hand-arithmetic on a
+non-trivial hash is not a source.
 
 **Footer trailer** (offset 62, 40 bytes):
 
-```
-magic            = "STRD"        → 53 54 52 44
-format_major     = 0             → 00 00
-format_minor     = 1             → 01 00
-hotcache_offset  = 8              → 08 00 00 00 00 00 00 00
-hotcache_length  = 54             → 36 00 00 00 00 00 00 00
-checksum_algo    = 1 (xxHash3-64) → 01
-reserved (7 bytes, zero)         → 00 00 00 00 00 00 00
-footer_checksum  = xxHash3-64(bytes[0,32)) → computed by the reference implementation
-```
+| field           | value                   | bytes                                    |
+| --------------- | ----------------------- | ---------------------------------------- |
+| magic           | "STRD"                  | `53 54 52 44`                            |
+| format_major    | 0                       | `00 00`                                  |
+| format_minor    | 1                       | `01 00`                                  |
+| hotcache_offset | 8                       | `08 00 00 00 00 00 00 00`                |
+| hotcache_length | 54                      | `36 00 00 00 00 00 00 00`                |
+| checksum_algo   | 1 (xxHash3-64)          | `01`                                     |
+| reserved        | 0 (7 bytes)             | `00 00 00 00 00 00 00`                   |
+| footer_checksum | xxHash3-64(bytes[0,32)) | computed by the reference implementation |
 
 Total file size: 102 bytes. A reader requesting the last 4096 bytes (any speculative
 size larger than the file) gets the whole file in one GET — the common case, one RTT.
@@ -264,11 +270,11 @@ wrong" below.
 End-to-end cold path, from the pointer read, using the pinned ~100ms per-round-trip
 planning figure:
 
-| step | round trips | notes |
-|---|---|---|
-| `GET _strand/current` | 1 | pointer read |
-| `GET` snapshot metadata | 1 | segment set, O(segments) bytes |
-| open each referenced segment | ≤2, in parallel across segments | invariant 3 |
+| step                         | round trips                     | notes                          |
+| ---------------------------- | ------------------------------- | ------------------------------ |
+| `GET _strand/current`        | 1                               | pointer read                   |
+| `GET` snapshot metadata      | 1                               | segment set, O(segments) bytes |
+| open each referenced segment | ≤2, in parallel across segments | invariant 3                    |
 
 Wall time: the two manifest GETs are sequential (the snapshot path depends on the
 pointer's content) — 2 × ~100ms — then segment opens run in parallel across however

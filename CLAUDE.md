@@ -81,6 +81,13 @@ is written for **human readers**. Specifically:
   uncorrected cold-path latency figure, an unmeasured throughput claim, flawed
   single-stream bandwidth arithmetic, and a conflation of two distinct FAISS kernels —
   and it stays.
+- Any field-by-field byte layout, struct definition, or worked example (RFCs
+  especially) is a markdown table, never a fenced code block with hand-space-aligned
+  columns. Column widths computed by eye drift the moment one field name is longer
+  than its neighbors, and a drifted column reads as a wrong offset even when the
+  underlying number is right. Pad table columns with a script (or a formatter scoped
+  to tables only — a general formatter that also rewrites emphasis style or reflows
+  prose is doing more than asked and should not be reached for here), not by hand.
 
 Test for every document: could a competent engineer who has never seen this repo read
 it once and implement against it? If not, rewrite.
