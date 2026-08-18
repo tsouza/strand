@@ -230,7 +230,7 @@ These are settled. A session may propose changing one only via RFC, never by dri
    turbopuffer's production fix used 512-value batches and is the validated reference
    point: their scan benchmark went from 6.5ms to ~110μs on 100k values — "60× faster
    than before," verbatim — and the production query from 220ms to 47ms
-   (turbopuffer.com/blog/zero-cost, vendored at M0). A plain `Iterator` impl may exist
+   (turbopuffer.com/blog/zero-cost, vendoring owed, tracked in docs/ledger.md). A plain `Iterator` impl may exist
    for ergonomics but is never the benchmarked path. For the kernels themselves: the
    **scalar implementation is normative** — it defines the bit-exact result — and SIMD
    paths (stable Rust: `wide` or `pulp` with runtime multiversion dispatch; nightly
@@ -358,7 +358,7 @@ parallel across segments), then the cold-fetchable waves. Arithmetic that starts
 the metadata is in hand is an engine's accounting, not a format's — the comparison
 engine's "3–4 roundtrips" includes its metadata trip. The pinned figures, so no RFC
 cherry-picks: **~100ms per object-storage round trip** as the planning figure
-(turbopuffer architecture docs, their stated first-principles number, vendored at M0)
+(turbopuffer architecture docs, their stated first-principles number, vendoring owed, tracked in docs/ledger.md)
 and **~250ms p90 for small reads as the tail figure for SLO discussion — pending: this
 figure has not been located in a current primary source; vendor the source sentence or
 replace it with a measured MinIO/S3 tail figure at M0. Until then it is a placeholder

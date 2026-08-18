@@ -13,7 +13,11 @@ checksums), footer/hotcache layout, blob registry, row-ID chapter with per-famil
 merge-semantics declarations, **manifest chapter with the CAS commit protocol and the
 `CLAUDE.md` §6 safety rules (declared CAS host, deletion-safety retention, reader 404-refresh,
 orphan rule)**. `strand-core` read/write; `strand-tools inspect`. Golden files. Vendor
-`references/` and `docs/research/` from `docs/research/README.md`. The batch-shaped
+`references/` and `docs/research/` from `docs/research/README.md` — **partially done**:
+`references/` holds the R2 and RFC-0002 grounding; the R1/R3–R8 sources, both adapter
+LICENSE files, all turbopuffer pages, and the full kickstart report remain owed
+(`docs/ledger.md`), and every figure resting on them stays provisional until its
+source sentence lands. The batch-shaped
 reader trait (invariant 9's frozen API shape) was originally listed here but is **not
 yet implemented** — no `next_batch()` interface exists in the code; it carries forward
 as an M1 prerequisite, since M1's postings kernels are its first real consumer
