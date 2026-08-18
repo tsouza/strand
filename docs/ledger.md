@@ -138,13 +138,31 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   cross-run comparability than a consistent (if loaded) machine. The number that
   actually decides the R2 bake-off default still needs dedicated, reserved hardware,
   not this box and not GHA's shared pool — today's numbers are a directional first
-  measurement, not the final one. **What this does not yet answer:** real MS MARCO
-  postings distributions (skewed, not uniform-random — `docs/data-structures.md`'s
-  own bake-off target), ARM/non-AVX2 hardware (where `BitPacker8x`'s AVX2 path is
-  unavailable and FastLanes' portability story is the actual comparison that
-  matters), and FastPFOR are all still unmeasured; this is a first, honest data
-  point on one axis (raw decode speed, one CPU generation, one machine), not the
-  full R9 answer. The granularity question (1024-native vs. nested 8×128, preserving
+  measurement, not the final one. **FastPFOR now measured too**
+  (`bench/src/codec_decode_throughput.rs`, same commit series) — on the same
+  uniform-random sweep, `FastPFor256` (pure Rust, `fast-pack/FastPFOR-rs`, Apache-2.0)
+  decodes at ~2.7B values/sec, 5.9x slower than `BitPacker8x`'s ~16.1B, which is the
+  expected worst case for an adaptive exception-based codec on data with no skew to
+  exploit. A second, deliberately skewed distribution (95% of values uniform in
+  `[0, 16)`, 5% uniform in `[0, 2^24)` — a synthetic stand-in for delta-gap postings
+  with a long tail, not real corpus data) shows the actual tradeoff this codec exists
+  for: FastPFOR decodes at ~1.9B values/sec (7.3x slower than `BitPacker8x`'s ~14.0B
+  on the same skewed data) but compresses to **178 bytes per 1024 values, versus
+  BitPacker8x's 3072** — a 17x size advantage, because plain bit-packing must size an
+  entire 256-value block to its single largest outlier, and 5% exception density
+  means nearly every block contains one. This 17x gap is a synthetic stress-test
+  figure, not a real-corpus one — the vendored Lemire & Boytsov grounding
+  (`references/lemire-boytsov-simd-bp128.md`) states FastPFOR's real advantage over
+  BP128-family codecs is "5–15% worse ratio" for BP128, i.e. a much narrower real gap
+  than this synthetic 95/5 split produces; the true figure for real postings sits
+  somewhere between these two measurements and needs the actual corpus to pin down,
+  not asserted from either extreme. **What this does not yet answer:** real MS MARCO
+  postings distributions (skewed with a real, not synthetic, shape —
+  `docs/data-structures.md`'s own bake-off target) and ARM/non-AVX2 hardware (where
+  `BitPacker8x`'s AVX2 path is unavailable and FastLanes' portability story is the
+  actual comparison that matters) are still unmeasured; this is a first, honest data
+  point on two axes now (raw decode speed and, for FastPFOR, the decode-speed-vs-
+  compression tradeoff), one CPU generation, one machine, not the full R9 answer. The granularity question (1024-native vs. nested 8×128, preserving
   invariant 4) and the flat-float-vector/GPU-decode assessment (ALP) below remain
   fully open regardless of this measurement — the DaMoN '24 GPU paper's own "1024
   values too large for a single GPU warp" caveat is a real constraint on that

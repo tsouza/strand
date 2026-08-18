@@ -29,6 +29,7 @@ aws-config = "1.10.1"
 aws-sdk-s3 = "1.142.0"
 bitpacking = "0.9.3"
 fastlanes = "0.6.1"
+fastpfor = "0.9.0"
 rand = "0.9.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

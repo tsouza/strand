@@ -14,24 +14,42 @@
 
 //! R9's still-open measurement (`docs/ledger.md`): decode throughput of the
 //! `bitpacking` crate's SIMD-BP128 candidates (`BitPacker4x`, 128-int blocks,
-//! SSE3; `BitPacker8x`, 256-int blocks, AVX2) against `fastlanes`
-//! (`spiraldb/fastlanes`, 1024-int blocks) at matched bit-widths, matched
-//! total value counts (1024 values per comparison unit), and matched input
-//! data per width.
+//! SSE3; `BitPacker8x`, 256-int blocks, AVX2), `fastlanes`
+//! (`spiraldb/fastlanes`, 1024-int blocks), and `fastpfor`
+//! (`fast-pack/FastPFOR-rs`, 256-int blocks, pure Rust, exception-based) at
+//! matched bit-widths, matched total value counts (1024 values per
+//! comparison unit), and matched input data per width.
 //!
 //! **What this is not.** Not a benchmark against real MS MARCO postings
 //! distributions (`docs/data-structures.md`'s own bake-off target) — this
 //! generates synthetic, uniform-random values in `[0, 2^W)` per declared
-//! bit-width `W`, the same data-generation convention both crates' own
-//! upstream benchmarks use. A uniform distribution is the worst case for any
-//! scheme that could exploit skew (it can't), so this measures raw decode
-//! throughput at a fixed bit-width honestly, not full corpus-level
-//! compression behavior. The R2 bake-off (`docs/milestones.md` M1) still
-//! needs the real corpus; this is a narrower, still-useful first measurement
-//! of the specific margin R9 asks about.
+//! bit-width `W`, the same data-generation convention the `bitpacking` and
+//! `fastlanes` crates' own upstream benchmarks use. A uniform distribution
+//! is the worst case for any scheme that could exploit skew (it can't), so
+//! this measures raw decode throughput at a fixed bit-width honestly, not
+//! full corpus-level compression behavior. The R2 bake-off
+//! (`docs/milestones.md` M1) still needs the real corpus; this is a
+//! narrower, still-useful first measurement of the specific margin R9 asks
+//! about.
+//!
+//! **FastPFOR specifically needs a second, skewed distribution to be a fair
+//! test.** FastPFOR is an adaptive, exception-based codec (Lemire & Boytsov,
+//! `references/lemire-boytsov-simd-bp128.md`): it bit-packs the common case
+//! at a small width and stores a minority of larger "exception" values
+//! separately, so it should look artificially weak on uniform-random data
+//! (every value forces the same width, so the exception machinery buys
+//! nothing but still costs something) and should look better on skewed data
+//! resembling real delta-gap postings (mostly small values, occasional large
+//! ones). This file measures both: FastPFOR on the same uniform sweep as the
+//! other three codecs (apples-to-apples, explicitly not its intended case),
+//! and a second, separate skewed-distribution comparison against
+//! `BitPacker8x` (the fastest plain bit-packer measured) specifically to
+//! test FastPFOR's actual design target honestly rather than only on the
+//! distribution that disadvantages it.
 
 use bitpacking::{BitPacker, BitPacker4x, BitPacker8x};
 use fastlanes::BitPacking as FastLanesBitPacking;
+use fastpfor::{BlockCodec, FastPForBlock256};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -60,6 +78,15 @@ struct CodecResult {
 }
 
 #[derive(Serialize)]
+struct SkewedResult {
+    codec: String,
+    decode_ns_per_1024_values: f64,
+    decode_values_per_sec: f64,
+    encode_ns_per_1024_values: f64,
+    compressed_bytes_per_1024_values: usize,
+}
+
+#[derive(Serialize)]
 struct AllResults {
     values_per_unit: usize,
     iterations: usize,
@@ -67,6 +94,8 @@ struct AllResults {
     bitpacker4x_128int_sse3: Vec<CodecResult>,
     bitpacker8x_256int_avx2: Vec<CodecResult>,
     fastlanes_1024int: Vec<CodecResult>,
+    fastpfor_256int_uniform: Vec<CodecResult>,
+    skewed_distribution_95pct_4bit_5pct_24bit: Vec<SkewedResult>,
 }
 
 fn random_values(rng: &mut StdRng, width: u8) -> Vec<u32> {
@@ -236,6 +265,174 @@ fn bench_fastlanes(values: &[u32], width: u8) -> CodecResult {
     }
 }
 
+fn bench_fastpfor(values: &[u32]) -> CodecResult {
+    use fastpfor::slice_to_blocks;
+
+    let mut codec = FastPForBlock256::default();
+    let (blocks, remainder) = slice_to_blocks::<FastPForBlock256>(values);
+    assert!(remainder.is_empty(), "VALUES_PER_UNIT must be a multiple of 256");
+
+    let mut encoded = Vec::new();
+    codec.encode_blocks(blocks, &mut encoded).unwrap();
+    let mut decoded = Vec::new();
+    codec
+        .decode_blocks(&encoded, Some(values.len() as u32), &mut decoded)
+        .unwrap();
+    assert_eq!(values, &decoded[..], "FastPFOR round-trip mismatch");
+
+    let encode_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        encoded.clear();
+        codec
+            .encode_blocks(std::hint::black_box(blocks), &mut encoded)
+            .unwrap();
+        std::hint::black_box(&encoded);
+    }
+    let encode_ns = encode_start.elapsed().as_nanos() as f64 / ITERATIONS as f64;
+
+    let decode_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        decoded.clear();
+        codec
+            .decode_blocks(
+                std::hint::black_box(&encoded),
+                Some(values.len() as u32),
+                &mut decoded,
+            )
+            .unwrap();
+        std::hint::black_box(&decoded);
+    }
+    let decode_ns = decode_start.elapsed().as_nanos() as f64 / ITERATIONS as f64;
+
+    CodecResult {
+        bit_width: 0, // not width-parameterized; FastPFOR chooses its own encoding per block
+        decode_ns_per_1024_values: decode_ns,
+        decode_values_per_sec: VALUES_PER_UNIT as f64 / (decode_ns / 1e9),
+        encode_ns_per_1024_values: encode_ns,
+    }
+}
+
+/// A realistic delta-gap-shaped distribution: ~95% of values are small
+/// (dense/common-term short gaps, `[0, 16)`), ~5% are large "exception"
+/// values (`[0, 2^24)`, a rare-term-style long gap) — the shape FastPFOR's
+/// exception mechanism is designed for, unlike the uniform sweep above.
+fn skewed_values(rng: &mut StdRng) -> Vec<u32> {
+    (0..VALUES_PER_UNIT)
+        .map(|_| {
+            if rng.random_ratio(95, 100) {
+                rng.random_range(0..16u32)
+            } else {
+                rng.random_range(0..(1u32 << 24))
+            }
+        })
+        .collect()
+}
+
+fn bench_fastpfor_skewed(values: &[u32]) -> SkewedResult {
+    use fastpfor::slice_to_blocks;
+
+    let mut codec = FastPForBlock256::default();
+    let (blocks, remainder) = slice_to_blocks::<FastPForBlock256>(values);
+    assert!(remainder.is_empty());
+
+    let mut encoded = Vec::new();
+    codec.encode_blocks(blocks, &mut encoded).unwrap();
+    let mut decoded = Vec::new();
+    codec
+        .decode_blocks(&encoded, Some(values.len() as u32), &mut decoded)
+        .unwrap();
+    assert_eq!(values, &decoded[..], "FastPFOR skewed round-trip mismatch");
+    let compressed_bytes = encoded.len();
+
+    let encode_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        encoded.clear();
+        codec
+            .encode_blocks(std::hint::black_box(blocks), &mut encoded)
+            .unwrap();
+        std::hint::black_box(&encoded);
+    }
+    let encode_ns = encode_start.elapsed().as_nanos() as f64 / ITERATIONS as f64;
+
+    let decode_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        decoded.clear();
+        codec
+            .decode_blocks(
+                std::hint::black_box(&encoded),
+                Some(values.len() as u32),
+                &mut decoded,
+            )
+            .unwrap();
+        std::hint::black_box(&decoded);
+    }
+    let decode_ns = decode_start.elapsed().as_nanos() as f64 / ITERATIONS as f64;
+
+    SkewedResult {
+        codec: "fastpfor_256int".to_string(),
+        decode_ns_per_1024_values: decode_ns,
+        decode_values_per_sec: VALUES_PER_UNIT as f64 / (decode_ns / 1e9),
+        encode_ns_per_1024_values: encode_ns,
+        compressed_bytes_per_1024_values: compressed_bytes,
+    }
+}
+
+/// `BitPacker8x` on the same skewed distribution, for comparison: plain
+/// bit-packing must size every value in a block to the block's own maximum,
+/// so the rare large exceptions force the whole block to a wide bit-width —
+/// exactly the cost FastPFOR's exception mechanism exists to avoid.
+fn bench_bitpacker8x_skewed(values: &[u32]) -> SkewedResult {
+    let bp = BitPacker8x::new();
+    let blocks = VALUES_PER_UNIT / BitPacker8x::BLOCK_LEN;
+    let mut compressed = vec![0u8; VALUES_PER_UNIT * 4];
+    let mut decompressed = vec![0u32; VALUES_PER_UNIT];
+
+    let mut compressed_len = 0;
+    let mut widths = Vec::with_capacity(blocks);
+    for b in 0..blocks {
+        let block = &values[b * BitPacker8x::BLOCK_LEN..(b + 1) * BitPacker8x::BLOCK_LEN];
+        let width = bp.num_bits(block);
+        widths.push(width);
+        let out = &mut compressed[compressed_len..];
+        compressed_len += bp.compress(block, out, width);
+    }
+    for (b, &width) in widths.iter().enumerate() {
+        let block_bytes = width as usize * BitPacker8x::BLOCK_LEN / 8;
+        let start: usize = widths[..b]
+            .iter()
+            .map(|&w| w as usize * BitPacker8x::BLOCK_LEN / 8)
+            .sum();
+        let src = &compressed[start..start + block_bytes];
+        let dst = &mut decompressed[b * BitPacker8x::BLOCK_LEN..(b + 1) * BitPacker8x::BLOCK_LEN];
+        bp.decompress(src, dst, width);
+    }
+    assert_eq!(values, &decompressed[..], "BitPacker8x skewed round-trip mismatch");
+    let compressed_bytes = compressed_len;
+
+    let decode_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let mut offset = 0;
+        for (b, &width) in widths.iter().enumerate() {
+            let block_bytes = width as usize * BitPacker8x::BLOCK_LEN / 8;
+            let src = &compressed[offset..offset + block_bytes];
+            let dst =
+                &mut decompressed[b * BitPacker8x::BLOCK_LEN..(b + 1) * BitPacker8x::BLOCK_LEN];
+            bp.decompress(std::hint::black_box(src), dst, width);
+            offset += block_bytes;
+        }
+        std::hint::black_box(&decompressed);
+    }
+    let decode_ns = decode_start.elapsed().as_nanos() as f64 / ITERATIONS as f64;
+
+    SkewedResult {
+        codec: "bitpacker8x_256int".to_string(),
+        decode_ns_per_1024_values: decode_ns,
+        decode_values_per_sec: VALUES_PER_UNIT as f64 / (decode_ns / 1e9),
+        encode_ns_per_1024_values: 0.0, // not remeasured; encode cost isn't this comparison's point
+        compressed_bytes_per_1024_values: compressed_bytes,
+    }
+}
+
 fn cpu_model() -> String {
     std::fs::read_to_string("/proc/cpuinfo")
         .ok()
@@ -253,14 +450,25 @@ fn main() {
     let mut bitpacker4x = Vec::new();
     let mut bitpacker8x = Vec::new();
     let mut fastlanes = Vec::new();
+    let mut fastpfor = Vec::new();
 
     for &width in &WIDTHS {
         let values = random_values(&mut rng, width);
         bitpacker4x.push(bench_bitpacker4x(&values, width));
         bitpacker8x.push(bench_bitpacker8x(&values, width));
         fastlanes.push(bench_fastlanes(&values, width));
+        let mut fastpfor_result = bench_fastpfor(&values);
+        fastpfor_result.bit_width = width; // label with the source width, though FastPFOR ignores it
+        fastpfor.push(fastpfor_result);
         println!("width {width} done");
     }
+
+    let skewed = skewed_values(&mut rng);
+    let skewed_results = vec![
+        bench_fastpfor_skewed(&skewed),
+        bench_bitpacker8x_skewed(&skewed),
+    ];
+    println!("skewed distribution done");
 
     write_report(
         "codec-decode-throughput",
@@ -271,6 +479,8 @@ fn main() {
             bitpacker4x_128int_sse3: bitpacker4x,
             bitpacker8x_256int_avx2: bitpacker8x,
             fastlanes_1024int: fastlanes,
+            fastpfor_256int_uniform: fastpfor,
+            skewed_distribution_95pct_4bit_5pct_24bit: skewed_results,
         },
     );
 }

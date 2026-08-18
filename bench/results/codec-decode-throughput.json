@@ -1,7 +1,7 @@
 {
   "name": "codec-decode-throughput",
-  "date": "2026-08-18T21:13:17Z",
-  "commit": "55b6279b6e76648ccbae0f82b1335d516c95f66b",
+  "date": "2026-08-18T21:34:03Z",
+  "commit": "7657d4779105fdbcb046e1660c34b32df42e54e4",
   "result": {
     "values_per_unit": 1024,
     "iterations": 2000,
@@ -9,187 +9,265 @@
     "bitpacker4x_128int_sse3": [
       {
         "bit_width": 1,
-        "decode_ns_per_1024_values": 119.5745,
-        "decode_values_per_sec": 8563698781.93093,
-        "encode_ns_per_1024_values": 110.9645
+        "decode_ns_per_1024_values": 123.9725,
+        "decode_values_per_sec": 8259896347.980398,
+        "encode_ns_per_1024_values": 111.9715
       },
       {
         "bit_width": 2,
-        "decode_ns_per_1024_values": 122.6905,
-        "decode_values_per_sec": 8346204473.859018,
-        "encode_ns_per_1024_values": 87.3385
+        "decode_ns_per_1024_values": 117.487,
+        "decode_values_per_sec": 8715857924.706564,
+        "encode_ns_per_1024_values": 82.679
       },
       {
         "bit_width": 4,
-        "decode_ns_per_1024_values": 115.903,
-        "decode_values_per_sec": 8834974073.147373,
-        "encode_ns_per_1024_values": 85.5095
+        "decode_ns_per_1024_values": 138.111,
+        "decode_values_per_sec": 7414326157.945421,
+        "encode_ns_per_1024_values": 83.245
       },
       {
         "bit_width": 6,
-        "decode_ns_per_1024_values": 148.483,
-        "decode_values_per_sec": 6896412383.909269,
-        "encode_ns_per_1024_values": 120.622
+        "decode_ns_per_1024_values": 124.4795,
+        "decode_values_per_sec": 8226254122.164694,
+        "encode_ns_per_1024_values": 114.468
       },
       {
         "bit_width": 8,
-        "decode_ns_per_1024_values": 108.8985,
-        "decode_values_per_sec": 9403251651.767471,
-        "encode_ns_per_1024_values": 112.1785
+        "decode_ns_per_1024_values": 108.5945,
+        "decode_values_per_sec": 9429575162.646358,
+        "encode_ns_per_1024_values": 104.9855
       },
       {
         "bit_width": 10,
-        "decode_ns_per_1024_values": 132.832,
-        "decode_values_per_sec": 7708985786.557457,
-        "encode_ns_per_1024_values": 179.6355
+        "decode_ns_per_1024_values": 152.952,
+        "decode_values_per_sec": 6694910821.695695,
+        "encode_ns_per_1024_values": 115.888
       },
       {
         "bit_width": 12,
-        "decode_ns_per_1024_values": 131.1015,
-        "decode_values_per_sec": 7810742058.63396,
-        "encode_ns_per_1024_values": 131.538
+        "decode_ns_per_1024_values": 144.6005,
+        "decode_values_per_sec": 7081579939.211828,
+        "encode_ns_per_1024_values": 112.492
       },
       {
         "bit_width": 16,
-        "decode_ns_per_1024_values": 104.4025,
-        "decode_values_per_sec": 9808194248.222025,
-        "encode_ns_per_1024_values": 105.7915
+        "decode_ns_per_1024_values": 116.191,
+        "decode_values_per_sec": 8813075023.022438,
+        "encode_ns_per_1024_values": 88.874
       },
       {
         "bit_width": 20,
-        "decode_ns_per_1024_values": 164.917,
-        "decode_values_per_sec": 6209184013.776628,
-        "encode_ns_per_1024_values": 115.3315
+        "decode_ns_per_1024_values": 126.1775,
+        "decode_values_per_sec": 8115551504.8245535,
+        "encode_ns_per_1024_values": 96.393
       },
       {
         "bit_width": 24,
-        "decode_ns_per_1024_values": 135.8315,
-        "decode_values_per_sec": 7538752056.776226,
-        "encode_ns_per_1024_values": 149.1735
+        "decode_ns_per_1024_values": 151.5345,
+        "decode_values_per_sec": 6757537062.517117,
+        "encode_ns_per_1024_values": 116.0375
       }
     ],
     "bitpacker8x_256int_avx2": [
       {
         "bit_width": 1,
-        "decode_ns_per_1024_values": 70.536,
-        "decode_values_per_sec": 14517409549.733469,
-        "encode_ns_per_1024_values": 58.539
+        "decode_ns_per_1024_values": 70.5195,
+        "decode_values_per_sec": 14520806301.803047,
+        "encode_ns_per_1024_values": 61.173
       },
       {
         "bit_width": 2,
-        "decode_ns_per_1024_values": 70.49,
-        "decode_values_per_sec": 14526883245.850477,
-        "encode_ns_per_1024_values": 56.5215
+        "decode_ns_per_1024_values": 68.702,
+        "decode_values_per_sec": 14904951820.907688,
+        "encode_ns_per_1024_values": 62.337
       },
       {
         "bit_width": 4,
-        "decode_ns_per_1024_values": 63.2315,
-        "decode_values_per_sec": 16194460039.695406,
-        "encode_ns_per_1024_values": 54.0885
+        "decode_ns_per_1024_values": 71.094,
+        "decode_values_per_sec": 14403465833.966301,
+        "encode_ns_per_1024_values": 57.8125
       },
       {
         "bit_width": 6,
-        "decode_ns_per_1024_values": 70.5205,
-        "decode_values_per_sec": 14520600392.793585,
-        "encode_ns_per_1024_values": 59.262
+        "decode_ns_per_1024_values": 64.2145,
+        "decode_values_per_sec": 15946554127.183113,
+        "encode_ns_per_1024_values": 67.9265
       },
       {
         "bit_width": 8,
-        "decode_ns_per_1024_values": 70.533,
-        "decode_values_per_sec": 14518027022.812017,
-        "encode_ns_per_1024_values": 61.594
+        "decode_ns_per_1024_values": 58.972,
+        "decode_values_per_sec": 17364172827.782677,
+        "encode_ns_per_1024_values": 58.283
       },
       {
         "bit_width": 10,
-        "decode_ns_per_1024_values": 73.0195,
-        "decode_values_per_sec": 14023651216.455881,
-        "encode_ns_per_1024_values": 63.227
+        "decode_ns_per_1024_values": 64.8895,
+        "decode_values_per_sec": 15780673298.453526,
+        "encode_ns_per_1024_values": 63.6905
       },
       {
         "bit_width": 12,
-        "decode_ns_per_1024_values": 71.808,
-        "decode_values_per_sec": 14260249554.3672,
-        "encode_ns_per_1024_values": 64.726
+        "decode_ns_per_1024_values": 63.2495,
+        "decode_values_per_sec": 16189851303.172358,
+        "encode_ns_per_1024_values": 60.1665
       },
       {
         "bit_width": 16,
-        "decode_ns_per_1024_values": 59.5155,
-        "decode_values_per_sec": 17205601902.025524,
-        "encode_ns_per_1024_values": 54.417
+        "decode_ns_per_1024_values": 49.8205,
+        "decode_values_per_sec": 20553788099.2764,
+        "encode_ns_per_1024_values": 51.2025
       },
       {
         "bit_width": 20,
-        "decode_ns_per_1024_values": 97.275,
-        "decode_values_per_sec": 10526856849.139038,
-        "encode_ns_per_1024_values": 74.399
+        "decode_ns_per_1024_values": 64.924,
+        "decode_values_per_sec": 15772287597.806665,
+        "encode_ns_per_1024_values": 63.438
       },
       {
         "bit_width": 24,
-        "decode_ns_per_1024_values": 78.1745,
-        "decode_values_per_sec": 13098900536.619999,
-        "encode_ns_per_1024_values": 67.5475
+        "decode_ns_per_1024_values": 64.4655,
+        "decode_values_per_sec": 15884465334.17099,
+        "encode_ns_per_1024_values": 59.6865
       }
     ],
     "fastlanes_1024int": [
       {
         "bit_width": 1,
-        "decode_ns_per_1024_values": 104.4135,
-        "decode_values_per_sec": 9807160951.40954,
-        "encode_ns_per_1024_values": 82.091
+        "decode_ns_per_1024_values": 109.2435,
+        "decode_values_per_sec": 9373555406.042465,
+        "encode_ns_per_1024_values": 82.439
       },
       {
         "bit_width": 2,
-        "decode_ns_per_1024_values": 87.767,
-        "decode_values_per_sec": 11667255346.542551,
-        "encode_ns_per_1024_values": 81.1485
+        "decode_ns_per_1024_values": 90.2,
+        "decode_values_per_sec": 11352549889.135256,
+        "encode_ns_per_1024_values": 78.794
       },
       {
         "bit_width": 4,
-        "decode_ns_per_1024_values": 83.4195,
-        "decode_values_per_sec": 12275307332.218487,
-        "encode_ns_per_1024_values": 76.945
+        "decode_ns_per_1024_values": 81.961,
+        "decode_values_per_sec": 12493747026.024572,
+        "encode_ns_per_1024_values": 78.5945
       },
       {
         "bit_width": 6,
-        "decode_ns_per_1024_values": 94.69,
-        "decode_values_per_sec": 10814235927.764284,
-        "encode_ns_per_1024_values": 88.441
+        "decode_ns_per_1024_values": 91.3465,
+        "decode_values_per_sec": 11210062782.919981,
+        "encode_ns_per_1024_values": 86.136
       },
       {
         "bit_width": 8,
-        "decode_ns_per_1024_values": 82.63,
-        "decode_values_per_sec": 12392593489.047562,
-        "encode_ns_per_1024_values": 72.0005
+        "decode_ns_per_1024_values": 78.1695,
+        "decode_values_per_sec": 13099738389.013617,
+        "encode_ns_per_1024_values": 75.2415
       },
       {
         "bit_width": 10,
-        "decode_ns_per_1024_values": 106.1975,
-        "decode_values_per_sec": 9642411544.527884,
-        "encode_ns_per_1024_values": 95.8255
+        "decode_ns_per_1024_values": 88.8615,
+        "decode_values_per_sec": 11523550694.057606,
+        "encode_ns_per_1024_values": 85.563
       },
       {
         "bit_width": 12,
-        "decode_ns_per_1024_values": 152.6405,
-        "decode_values_per_sec": 6708573412.691913,
-        "encode_ns_per_1024_values": 95.404
+        "decode_ns_per_1024_values": 83.6085,
+        "decode_values_per_sec": 12247558561.6295,
+        "encode_ns_per_1024_values": 80.205
       },
       {
         "bit_width": 16,
-        "decode_ns_per_1024_values": 82.0415,
-        "decode_values_per_sec": 12481488027.400766,
-        "encode_ns_per_1024_values": 62.504
+        "decode_ns_per_1024_values": 69.4235,
+        "decode_values_per_sec": 14750048614.662182,
+        "encode_ns_per_1024_values": 52.726
       },
       {
         "bit_width": 20,
-        "decode_ns_per_1024_values": 106.929,
-        "decode_values_per_sec": 9576447923.388416,
-        "encode_ns_per_1024_values": 103.5035
+        "decode_ns_per_1024_values": 91.2115,
+        "decode_values_per_sec": 11226654533.693668,
+        "encode_ns_per_1024_values": 87.88
       },
       {
         "bit_width": 24,
-        "decode_ns_per_1024_values": 100.0095,
-        "decode_values_per_sec": 10239027292.40722,
-        "encode_ns_per_1024_values": 98.5665
+        "decode_ns_per_1024_values": 96.66,
+        "decode_values_per_sec": 10593834057.52121,
+        "encode_ns_per_1024_values": 81.9075
+      }
+    ],
+    "fastpfor_256int_uniform": [
+      {
+        "bit_width": 1,
+        "decode_ns_per_1024_values": 613.471,
+        "decode_values_per_sec": 1669190556.6848311,
+        "encode_ns_per_1024_values": 2326.595
+      },
+      {
+        "bit_width": 2,
+        "decode_ns_per_1024_values": 436.5015,
+        "decode_values_per_sec": 2345925500.8287487,
+        "encode_ns_per_1024_values": 2125.878
+      },
+      {
+        "bit_width": 4,
+        "decode_ns_per_1024_values": 454.241,
+        "decode_values_per_sec": 2254309936.7956657,
+        "encode_ns_per_1024_values": 2152.982
+      },
+      {
+        "bit_width": 6,
+        "decode_ns_per_1024_values": 432.0575,
+        "decode_values_per_sec": 2370054911.672636,
+        "encode_ns_per_1024_values": 2244.3945
+      },
+      {
+        "bit_width": 8,
+        "decode_ns_per_1024_values": 386.911,
+        "decode_values_per_sec": 2646603482.4546213,
+        "encode_ns_per_1024_values": 2087.51
+      },
+      {
+        "bit_width": 10,
+        "decode_ns_per_1024_values": 424.272,
+        "decode_values_per_sec": 2413546027.0769696,
+        "encode_ns_per_1024_values": 2075.578
+      },
+      {
+        "bit_width": 12,
+        "decode_ns_per_1024_values": 392.439,
+        "decode_values_per_sec": 2609322722.767105,
+        "encode_ns_per_1024_values": 1996.8715
+      },
+      {
+        "bit_width": 16,
+        "decode_ns_per_1024_values": 197.482,
+        "decode_values_per_sec": 5185282709.310216,
+        "encode_ns_per_1024_values": 1800.9755
+      },
+      {
+        "bit_width": 20,
+        "decode_ns_per_1024_values": 361.2195,
+        "decode_values_per_sec": 2834841419.1371174,
+        "encode_ns_per_1024_values": 2097.5655
+      },
+      {
+        "bit_width": 24,
+        "decode_ns_per_1024_values": 368.597,
+        "decode_values_per_sec": 2778101829.369203,
+        "encode_ns_per_1024_values": 1977.092
+      }
+    ],
+    "skewed_distribution_95pct_4bit_5pct_24bit": [
+      {
+        "codec": "fastpfor_256int",
+        "decode_ns_per_1024_values": 536.497,
+        "decode_values_per_sec": 1908677960.9205644,
+        "encode_ns_per_1024_values": 3459.087,
+        "compressed_bytes_per_1024_values": 178
+      },
+      {
+        "codec": "bitpacker8x_256int",
+        "decode_ns_per_1024_values": 73.292,
+        "decode_values_per_sec": 13971511215.412323,
+        "encode_ns_per_1024_values": 0.0,
+        "compressed_bytes_per_1024_values": 3072
       }
     ]
   }
