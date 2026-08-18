@@ -46,9 +46,12 @@ Lucene ForUtil/PForUtil and tantivy postings source.
 
 **R3 — Quantization.** Extended-RaBitQ (SIGMOD 2025) is the de-facto industry choice
 — Milvus, Faiss, Elasticsearch/Lucene ("BBQ", which removes the random rotation),
-turbopuffer, CockroachDB, VectorChord, Volcengine — and all three reference
-repositories are Apache-2.0 (verified via GitHub's license detection plus third-party
-corroboration; byte-for-byte header reads were blocked, noted as a caveat). The 1-bit
+turbopuffer, CockroachDB, VectorChord, Volcengine — and both reference repositories
+named below (an earlier draft said "all three"; no third repository was ever named
+anywhere in this project's text, and the claim is corrected here) are Apache-2.0,
+confirmed byte-exact via GitHub's license API
+(`references/rabitq-and-extended-rabitq.md`), resolving the earlier "byte-for-byte
+header reads were blocked" caveat. The 1-bit
 path uses FastScan-style LUT machinery; the multi-bit path computes distances exactly
 as classical scalar quantization, with 4/5/7-bit typically reaching 90/95/99% recall
 without reranking — two different kernels the spec must pin by bit-width. The

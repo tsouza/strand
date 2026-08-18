@@ -46,9 +46,13 @@ the honest one.
 
 **License: Apache-2.0.** Every file carries the header. Every dependency must be
 Apache-2.0-compatible. No exceptions. (The RaBitQ reference implementations were
-license-audited in R3: all three repositories are Apache-2.0. Standard obligations
-apply — retain LICENSE/NOTICE, state changes. The FastLanes license is unaudited and
-gates any R9 adoption.)
+license-audited in R3: the two repositories `docs/research/README.md` names
+(`RaBitQ-Library`, `gaoj0017/RaBitQ`) are confirmed Apache-2.0 via GitHub's license
+API, byte-exact (`references/rabitq-and-extended-rabitq.md`) — an earlier draft's
+"all three repositories" claim named no third repository anywhere in this project's
+own text and is corrected here rather than repeated. Standard obligations apply —
+retain LICENSE/NOTICE, state changes. The FastLanes license is unaudited and gates
+any R9 adoption.)
 
 ### What stays out of the format
 
