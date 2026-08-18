@@ -102,21 +102,58 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   source has been vendored for this yet — and gates M4's tantivy-fork parity work,
   not M1.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
-- **R9** — compute-native block layout (gates the R2 bake-off and therefore M1):
-  measure FastLanes against hand-vectorized BP128 and FastPFOR on postings
-  distributions (the margin is unmeasured — but a maintained, Apache-2.0, real-SIMD-
-  dispatch Rust implementation exists to measure against, `spiraldb/fastlanes`,
-  removing what would otherwise be FFI-or-reimplementation overhead before the
-  measurement could even start — `references/spiraldb-fastlanes-rust-crate.md`),
-  reconcile 1024-value granularity with
-  the block-max sibling design (1024-native or nested 8×128, preserving invariant
-  4), and assess ALP for the flat float-vector blob and the GPU decode path for
-  raw-mappable blobs (the DaMoN '24 GPU paper's own "1024 values too large for a
-  single GPU warp" caveat is a real constraint on that assessment, not a clean
-  win — `references/r9-fastlanes-core-alp-damon-license.md`). The license half of
-  this gate is now resolved: `cwida/FastLanes` is confirmed MIT
-  (`references/r9-fastlanes-core-alp-damon-license.md`), Apache-2.0-compatible;
-  only the measurement and application-fit halves remain open.
+- **R9** — compute-native block layout (gates the R2 bake-off and therefore M1): a
+  first decode-throughput measurement now exists
+  (`bench/src/codec_decode_throughput.rs`, `bench/results/codec-decode-throughput.json`,
+  2026-08-18) — `bitpacking`'s `BitPacker8x` (256-int blocks, hand-tuned AVX2
+  intrinsics) versus `spiraldb/fastlanes` (1024-int blocks, portable
+  auto-vectorizing scalar) versus `BitPacker4x` (128-int, SSE3), matched bit-width,
+  matched 1024-value comparison unit, on one AVX2-capable Intel machine (Core
+  i7-10510U). Result, averaged over 10 widths (1–24 bits) of synthetic uniform-random
+  data: `BitPacker8x` decodes at ~14.2B values/sec, `FastLanes` at ~10.8B (74–77% of
+  `BitPacker8x`'s throughput on average, never faster at any individual width
+  measured), `BitPacker4x` at ~8.0B (FastLanes beats this by ~35% on average). **On
+  this specific hardware, the hand-tuned AVX2 implementation wins outright** —
+  consistent with FastLanes' own pitch being portability (one layout, decent
+  performance via auto-vectorization on many ISAs) rather than peak performance on
+  any one ISA a hand-tuned kernel specifically targets, not a contradiction of the
+  paper's own claims (`references/r9-fastlanes-core-alp-damon-license.md`), which are
+  about auto-vectorization eliminating the *need* for hand intrinsics across
+  platforms, not about beating hand-tuned intrinsics where they already exist.
+  **Measurement reliability, checked rather than assumed:** this ran on a shared,
+  multi-user machine (10 concurrent users, load average 3.7–6.7 on 8 cores,
+  `powersave` CPU governor, not `performance`) — confirmed bare-metal, not a noisy
+  hypervisor (`systemd-detect-virt` reports none, `/proc/stat` steal time is zero),
+  but real process contention and frequency scaling are still live confounds. Rerun
+  three independent times rather than trusted on one pass: the per-codec average
+  throughput has a 0.9–1.8% coefficient of variation across runs, and the ratios
+  that actually matter for this comparison are far more stable than the absolute
+  numbers — FastLanes/BitPacker8x = 0.74–0.77 and BitPacker8x/BitPacker4x =
+  1.77–1.79 in all three runs. The qualitative finding (hand-tuned AVX2 beats both
+  portable options; FastLanes beats the SSE3 baseline) holds up under repeated
+  measurement on this machine; the precise absolute values/sec figures do not, and
+  are not the load-bearing claim here. GHA CI was considered and rejected as a fix:
+  its shared runners are also oversubscribed cloud VMs, with the added problem of an
+  unpinned, unpredictable CPU generation on every run, which is worse for
+  cross-run comparability than a consistent (if loaded) machine. The number that
+  actually decides the R2 bake-off default still needs dedicated, reserved hardware,
+  not this box and not GHA's shared pool — today's numbers are a directional first
+  measurement, not the final one. **What this does not yet answer:** real MS MARCO
+  postings distributions (skewed, not uniform-random — `docs/data-structures.md`'s
+  own bake-off target), ARM/non-AVX2 hardware (where `BitPacker8x`'s AVX2 path is
+  unavailable and FastLanes' portability story is the actual comparison that
+  matters), and FastPFOR are all still unmeasured; this is a first, honest data
+  point on one axis (raw decode speed, one CPU generation, one machine), not the
+  full R9 answer. The granularity question (1024-native vs. nested 8×128, preserving
+  invariant 4) and the flat-float-vector/GPU-decode assessment (ALP) below remain
+  fully open regardless of this measurement — the DaMoN '24 GPU paper's own "1024
+  values too large for a single GPU warp" caveat is a real constraint on that
+  assessment, not a clean win (`references/r9-fastlanes-core-alp-damon-license.md`).
+  The license half of this gate is separately resolved: `cwida/FastLanes` is
+  confirmed MIT (`references/r9-fastlanes-core-alp-damon-license.md`),
+  Apache-2.0-compatible. A first decode-speed measurement now exists (above), on
+  synthetic data and shared hardware — the real-corpus measurement, the granularity
+  question, and the ALP/GPU application-fit assessment all remain open.
 - **R10** — cross-segment scale: should the manifest carry optional per-segment
   summary metadata (term-statistics sketches, centroid summaries, min/max-style
   pruning stats) so a reader can prune segments before opening them, and what does
