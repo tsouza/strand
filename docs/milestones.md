@@ -116,8 +116,18 @@ codec bake-off lands here and confirms or swaps the postings default (including
 verifying tantivy's actual current codec, per `docs/data-structures.md`); the R9 layout evaluation and
 license audit MUST complete before the bake-off freezes the default, since a
 FastLanes outcome changes both the default and the block granularity — the license
-half is now resolved (`docs/ledger.md` R9), the layout-evaluation half is not.
-Benchmarks: MS
+half is now resolved (`docs/ledger.md` R9), the layout-evaluation half is now
+partially resolved: `bench/src/msmarco_index.rs` builds a real inverted index over
+a ~520K-passage (5.9%) stride-sampled subset of the actual MS MARCO passage corpus
+(8,841,823 passages, fetched via a Hugging Face mirror after Microsoft's own Azure
+blob access was found revoked mid-session) using RFC 0004's own analyzer chain, and
+feeds real doc-ID delta-gaps and term frequencies into
+`codec_decode_throughput.rs`: FastPFOR's real compression advantage over
+`BitPacker8x` is 4.26x on gaps and 5.2x on term frequencies — well under the
+earlier synthetic 95/5 split's 17x, while its ~7-8x decode-speed cost held steady
+between synthetic and real data (`docs/ledger.md` R9). Still not the full corpus or
+ARM hardware, so R9 remains open, but the "real, not synthetic" gap this milestone
+named is now measured, not asserted. Benchmarks: MS
 MARCO BM25 latency and size vs tantivy; Lucene parity per invariant 5;
 bytes-fetched vs bytes-used across term frequency deciles (the read-amplification
 number, `docs/data-structures.md`). Adapter-based results appear in this

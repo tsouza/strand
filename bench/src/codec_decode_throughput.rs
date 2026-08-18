@@ -46,6 +46,18 @@
 //! `BitPacker8x` (the fastest plain bit-packer measured) specifically to
 //! test FastPFOR's actual design target honestly rather than only on the
 //! distribution that disadvantages it.
+//!
+//! **Real MS MARCO postings distributions, no longer missing.** The
+//! `real_msmarco_d_gaps`/`real_msmarco_term_frequencies` results below read
+//! `bench/results/msmarco-real-postings-sample.json` (produced by
+//! `bench/src/msmarco_index.rs` from a real, stride-sampled ~520K-passage
+//! subset of the MS MARCO passage corpus, tokenized with STRAND's own
+//! analyzer chain) and run the same FastPFOR-vs-`BitPacker8x` comparison
+//! against every full 1024-value chunk of the actual doc-ID delta-gaps and
+//! term frequencies observed, averaged across chunks — not a synthetic
+//! stand-in. This still isn't the full corpus (8,841,823 passages; this
+//! sample is ~520K) or a full R2 bake-off, but it replaces guessed skew with
+//! measured skew for the specific margin R9 asks about.
 
 use bitpacking::{BitPacker, BitPacker4x, BitPacker8x};
 use fastlanes::BitPacking as FastLanesBitPacking;
@@ -87,6 +99,19 @@ struct SkewedResult {
 }
 
 #[derive(Serialize)]
+struct RealCorpusResult {
+    codec: String,
+    /// How many full 1024-value chunks of the real array this result
+    /// averages over — small for sparse fields (e.g. term frequencies from
+    /// a modest sample), stated rather than hidden.
+    chunks_measured: usize,
+    decode_ns_per_1024_values: f64,
+    decode_values_per_sec: f64,
+    encode_ns_per_1024_values: f64,
+    compressed_bytes_per_1024_values: f64,
+}
+
+#[derive(Serialize)]
 struct AllResults {
     values_per_unit: usize,
     iterations: usize,
@@ -96,6 +121,8 @@ struct AllResults {
     fastlanes_1024int: Vec<CodecResult>,
     fastpfor_256int_uniform: Vec<CodecResult>,
     skewed_distribution_95pct_4bit_5pct_24bit: Vec<SkewedResult>,
+    real_msmarco_d_gaps: Option<Vec<RealCorpusResult>>,
+    real_msmarco_term_frequencies: Option<Vec<RealCorpusResult>>,
 }
 
 fn random_values(rng: &mut StdRng, width: u8) -> Vec<u32> {
@@ -433,6 +460,64 @@ fn bench_bitpacker8x_skewed(values: &[u32]) -> SkewedResult {
     }
 }
 
+/// Loads `bench/results/msmarco-real-postings-sample.json` (produced by
+/// `bin/msmarco-index`) and pools every decile's `field` array (`d_gaps` or
+/// `term_frequencies`) into one `Vec<u32>`, in the file's own decile order.
+/// Returns `None` if the file doesn't exist yet — this measurement is
+/// optional, run only after `cargo run -p strand-bench --bin msmarco-index`.
+fn load_real_postings_field(field: &str) -> Option<Vec<u32>> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/results/msmarco-real-postings-sample.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let deciles = json.get("deciles")?.as_array()?;
+    let mut pooled = Vec::new();
+    for decile in deciles {
+        let values = decile.get(field)?.as_array()?;
+        for v in values {
+            pooled.push(v.as_u64()? as u32);
+        }
+    }
+    Some(pooled)
+}
+
+/// Runs `bench_fastpfor_skewed`'s exact encode/decode/round-trip logic
+/// against every full 1024-value chunk of real pooled data, averaging
+/// decode_ns and compressed size across chunks.
+fn bench_fastpfor_real(pooled: &[u32]) -> Option<RealCorpusResult> {
+    let chunks: Vec<&[u32]> = pooled.chunks_exact(VALUES_PER_UNIT).collect();
+    if chunks.is_empty() {
+        return None;
+    }
+    let results: Vec<SkewedResult> = chunks.iter().map(|c| bench_fastpfor_skewed(c)).collect();
+    Some(average_skewed_results("fastpfor_256int", &results))
+}
+
+/// `BitPacker8x` counterpart to `bench_fastpfor_real`.
+fn bench_bitpacker8x_real(pooled: &[u32]) -> Option<RealCorpusResult> {
+    let chunks: Vec<&[u32]> = pooled.chunks_exact(VALUES_PER_UNIT).collect();
+    if chunks.is_empty() {
+        return None;
+    }
+    let results: Vec<SkewedResult> = chunks.iter().map(|c| bench_bitpacker8x_skewed(c)).collect();
+    Some(average_skewed_results("bitpacker8x_256int", &results))
+}
+
+fn average_skewed_results(codec: &str, results: &[SkewedResult]) -> RealCorpusResult {
+    let n = results.len() as f64;
+    RealCorpusResult {
+        codec: codec.to_string(),
+        chunks_measured: results.len(),
+        decode_ns_per_1024_values: results.iter().map(|r| r.decode_ns_per_1024_values).sum::<f64>() / n,
+        decode_values_per_sec: results.iter().map(|r| r.decode_values_per_sec).sum::<f64>() / n,
+        encode_ns_per_1024_values: results.iter().map(|r| r.encode_ns_per_1024_values).sum::<f64>() / n,
+        compressed_bytes_per_1024_values: results
+            .iter()
+            .map(|r| r.compressed_bytes_per_1024_values as f64)
+            .sum::<f64>()
+            / n,
+    }
+}
+
 fn cpu_model() -> String {
     std::fs::read_to_string("/proc/cpuinfo")
         .ok()
@@ -470,6 +555,27 @@ fn main() {
     ];
     println!("skewed distribution done");
 
+    let real_msmarco_d_gaps = load_real_postings_field("d_gaps").map(|pooled| {
+        println!("real d_gaps: {} pooled values", pooled.len());
+        vec![bench_fastpfor_real(&pooled), bench_bitpacker8x_real(&pooled)]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+    });
+    let real_msmarco_term_frequencies = load_real_postings_field("term_frequencies").map(|pooled| {
+        println!("real term_frequencies: {} pooled values", pooled.len());
+        vec![bench_fastpfor_real(&pooled), bench_bitpacker8x_real(&pooled)]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+    });
+    if real_msmarco_d_gaps.is_none() {
+        println!(
+            "no bench/results/msmarco-real-postings-sample.json found — \
+             run `cargo run -p strand-bench --bin msmarco-index` first to include real-corpus results"
+        );
+    }
+
     write_report(
         "codec-decode-throughput",
         AllResults {
@@ -481,6 +587,8 @@ fn main() {
             fastlanes_1024int: fastlanes,
             fastpfor_256int_uniform: fastpfor,
             skewed_distribution_95pct_4bit_5pct_24bit: skewed_results,
+            real_msmarco_d_gaps,
+            real_msmarco_term_frequencies,
         },
     );
 }

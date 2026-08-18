@@ -151,27 +151,65 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   BitPacker8x's 3072** — a 17x size advantage, because plain bit-packing must size an
   entire 256-value block to its single largest outlier, and 5% exception density
   means nearly every block contains one. This 17x gap is a synthetic stress-test
-  figure, not a real-corpus one — the vendored Lemire & Boytsov grounding
-  (`references/lemire-boytsov-simd-bp128.md`) states FastPFOR's real advantage over
-  BP128-family codecs is "5–15% worse ratio" for BP128, i.e. a much narrower real gap
-  than this synthetic 95/5 split produces; the true figure for real postings sits
-  somewhere between these two measurements and needs the actual corpus to pin down,
-  not asserted from either extreme. **What this does not yet answer:** real MS MARCO
-  postings distributions (skewed with a real, not synthetic, shape —
-  `docs/data-structures.md`'s own bake-off target) and ARM/non-AVX2 hardware (where
-  `BitPacker8x`'s AVX2 path is unavailable and FastLanes' portability story is the
-  actual comparison that matters) are still unmeasured; this is a first, honest data
+  figure, not a real-corpus one. (A prior version of this entry compared that figure
+  against a claimed "FastPFOR's real advantage over BP128-family codecs is 5–15%
+  worse ratio for BP128," attributed to the vendored Lemire & Boytsov grounding —
+  re-checked while writing the real-corpus measurement below and found not to be in
+  that source: `references/lemire-boytsov-simd-bp128.md` states SIMD-FastPFOR's
+  ratio is "within 10% of a state-of-the-art scheme (Simple-8b)," a comparison
+  against Simple-8b, not BP128, and not the "5–15%" figure. Deleted per `CLAUDE.md`
+  §2 rather than left to stand uncorrected — caught by this session's own discipline
+  of re-verifying a citation before building on it, the same class of error the
+  worked-example TermInfo miscount and the RFC 0006 review's Roaring/CLAUDE.md-M3
+  misattribution were.) **Real MS MARCO measurement — 2026-08-18, resolving what the
+  entry above calls unmeasured.** `bench/src/msmarco_index.rs` builds a real
+  inverted index over a stride-sampled ~520,108-passage subset (every 17th passage,
+  spanning the full corpus rather than clustering on its topically-grouped front) of
+  the MS MARCO passage collection — fetched via `Tevatron/msmarco-passage-corpus`
+  on Hugging Face (the official `msmarco.blob.core.windows.net/msmarcoranking/
+  collection.tar.gz` returned HTTP 409 "Public access is not permitted on this
+  storage account" as of this fetch date; re-verify before reusing that URL), with
+  the exact same 8,841,823-passage count confirmed matching Microsoft's own
+  documented corpus size — tokenized with `strand_lexical::analyzer::
+  analyze_lucene_en_word_only`, the same chain RFC 0004 implements, not a
+  bench-only approximation. Real doc-ID delta-gaps and term frequencies were pooled
+  (300 terms sampled per document-frequency decile, all deciles) into 66 and 69 full
+  1024-value chunks respectively (68,143 and 71,143 raw pooled values; deciles 0–5
+  contributed no gap data since 300-term samples there are entirely doc_freq=1
+  hapax legomena, expected under Zipf's law, meaning this measurement is weighted
+  toward the mid-to-high document-frequency terms that also dominate real postings
+  byte volume). `codec_decode_throughput.rs`'s `real_msmarco_d_gaps`/
+  `real_msmarco_term_frequencies` results
+  (`bench/results/codec-decode-throughput.json`): on real delta-gaps, FastPFOR
+  compresses to 357 bytes/1024 values versus `BitPacker8x`'s 1522 — a **4.26x**
+  advantage, substantially narrower than the synthetic 95/5 split's 17x, and
+  FastPFOR decodes at ~2.23B values/sec versus `BitPacker8x`'s ~15.6B (7.0x
+  slower) — closely matching the synthetic skewed measurement's ~7.3x. On real
+  term frequencies, FastPFOR compresses to 77.9 bytes/1024 versus 404.9 (**5.2x**
+  advantage) and decodes ~8.3x slower. **The real figure lands well below the
+  synthetic 95/5 split's 17x, closer to the same order of magnitude as (though the
+  two are not a like-for-like comparison — Simple-8b is not `BitPacker8x`) the
+  corrected Lemire & Boytsov figure above**, confirming the synthetic skew
+  overstated FastPFOR's real-corpus compression edge while understating nothing
+  about its decode-speed cost, which held steady between synthetic and real
+  measurements. This is still a ~520K-passage sample (5.9% of the full 8.84M-passage
+  corpus), one CPU generation, one shared machine — not the full R2 bake-off, but a
+  real, not synthetic, first answer to the specific gap this entry named. ARM/
+  non-AVX2 hardware remains completely unmeasured; this is a first, honest data
   point on two axes now (raw decode speed and, for FastPFOR, the decode-speed-vs-
-  compression tradeoff), one CPU generation, one machine, not the full R9 answer. The granularity question (1024-native vs. nested 8×128, preserving
+  compression tradeoff, now on both synthetic and real data), one CPU generation,
+  one machine, not the full R9 answer. The granularity question (1024-native vs. nested 8×128, preserving
   invariant 4) and the flat-float-vector/GPU-decode assessment (ALP) below remain
   fully open regardless of this measurement — the DaMoN '24 GPU paper's own "1024
   values too large for a single GPU warp" caveat is a real constraint on that
   assessment, not a clean win (`references/r9-fastlanes-core-alp-damon-license.md`).
   The license half of this gate is separately resolved: `cwida/FastLanes` is
   confirmed MIT (`references/r9-fastlanes-core-alp-damon-license.md`),
-  Apache-2.0-compatible. A first decode-speed measurement now exists (above), on
-  synthetic data and shared hardware — the real-corpus measurement, the granularity
-  question, and the ALP/GPU application-fit assessment all remain open.
+  Apache-2.0-compatible. Decode-speed and compression measurements now exist on
+  both synthetic and real MS MARCO data (above), on shared hardware, one CPU
+  generation — the granularity question, the ALP/GPU application-fit assessment,
+  and ARM/non-AVX2 hardware all remain open, and the real-corpus measurement above
+  is a ~5.9% sample, not the full corpus.
 - **R10** — cross-segment scale: should the manifest carry optional per-segment
   summary metadata (term-statistics sketches, centroid summaries, min/max-style
   pruning stats) so a reader can prune segments before opening them, and what does

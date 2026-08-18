@@ -15,7 +15,14 @@ hash, machine-readable.
 
 **Datasets**: MS MARCO passage for lexical; BigANN/SIFT/GIST subsets and an embedding
 set (e.g., Cohere Wikipedia) for vectors. Small deterministic fixtures for CI; full
-runs on demand.
+runs on demand. MS MARCO passage's own canonical source,
+`msmarco.blob.core.windows.net/msmarcoranking/collection.tar.gz`, returned HTTP 409
+"Public access is not permitted on this storage account" as of 2026-08-18 —
+re-verify before assuming it works; `bench/src/msmarco_index.rs` currently fetches
+the same 8,841,823-passage corpus via the `Tevatron/msmarco-passage-corpus` mirror
+on Hugging Face instead (`corpus.jsonl.gz`, verified byte-for-byte passage count
+match). The corpus itself is never committed (`bench/data/`, gitignored,
+~1.07 GB); only derived numeric results land in `bench/results/`.
 
 **The metrics that matter**, in order: (1) cold end-to-end open cost — GETs and bytes
 from pointer read to first planned query against S3-class latency, broken out as
