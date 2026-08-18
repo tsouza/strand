@@ -71,7 +71,7 @@ fn commit_writes_a_real_segment_that_round_trips_through_the_container_format() 
     let read_back = read_snapshot(&store).unwrap().unwrap();
     assert_eq!(read_back, committed);
 
-    let (segment_bytes, _) = store.get(&segment_ref.path).unwrap();
+    let (segment_bytes, _) = store.get(&segment_ref.path).unwrap().unwrap();
     assert_eq!(segment_bytes.len() as u64, segment_ref.byte_length);
     assert_eq!(
         segment_ref.checksum,
@@ -116,7 +116,7 @@ fn two_commits_write_two_segments_with_continuous_non_overlapping_row_ids() {
     assert_eq!(second.segments[1].row_id_base, 2);
     assert_eq!(second.next_row_id, 5);
 
-    let (bytes_two, _) = store.get(&second.segments[1].path).unwrap();
+    let (bytes_two, _) = store.get(&second.segments[1].path).unwrap().unwrap();
     let (_, hotcache_two) = decode_hotcache(&bytes_two);
     assert_eq!(
         hotcache_two.row_id_base, 2,

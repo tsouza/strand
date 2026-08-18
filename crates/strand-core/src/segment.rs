@@ -176,6 +176,7 @@ mod tests {
         assert_eq!(segment_ref.byte_length, 102);
 
         let (stored_bytes, _) = crate::store::ConditionalStore::get(&store, "segments/a.bin")
+            .unwrap()
             .expect("segment must be written to the store");
         assert_eq!(stored_bytes.len(), 102);
         assert_eq!(

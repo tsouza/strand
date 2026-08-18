@@ -45,11 +45,13 @@ enum ReadAttempt {
 }
 
 fn try_read_current<S: ConditionalStore>(store: &S) -> ReadAttempt {
-    let Some((pointer_bytes, pointer_etag)) = store.get(CURRENT_POINTER_KEY) else {
+    let Some((pointer_bytes, pointer_etag)) =
+        store.get(CURRENT_POINTER_KEY).expect("store I/O failed")
+    else {
         return ReadAttempt::NoCommitsYet;
     };
     let snapshot_path = String::from_utf8(pointer_bytes).expect("pointer content is UTF-8");
-    let Some((snapshot_bytes, _)) = store.get(&snapshot_path) else {
+    let Some((snapshot_bytes, _)) = store.get(&snapshot_path).expect("store I/O failed") else {
         return ReadAttempt::Expired;
     };
     let snapshot: SnapshotMetadata =
@@ -362,7 +364,10 @@ mod tests {
     }
 
     impl<F: Fn(&str)> ConditionalStore for FaultInjectingStore<'_, F> {
-        fn get(&self, key: &str) -> Option<(Vec<u8>, crate::store::ETag)> {
+        fn get(
+            &self,
+            key: &str,
+        ) -> Result<Option<(Vec<u8>, crate::store::ETag)>, crate::store::StoreError> {
             (self.on_get)(key);
             self.inner.get(key)
         }
@@ -459,7 +464,7 @@ mod tests {
     }
 
     fn snapshot_key_for_test(store: &InMemoryStore, version: u64) -> String {
-        let (pointer_bytes, _) = store.get(CURRENT_POINTER_KEY).unwrap();
+        let (pointer_bytes, _) = store.get(CURRENT_POINTER_KEY).unwrap().unwrap();
         let path = String::from_utf8(pointer_bytes).unwrap();
         assert!(path.starts_with(&format!("_strand/snapshots/{version:020}-")));
         path

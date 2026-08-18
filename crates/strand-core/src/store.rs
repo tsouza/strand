@@ -24,15 +24,23 @@ use std::sync::Mutex;
 /// An opaque, store-assigned version tag for an object, used for CAS.
 pub type ETag = String;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
     /// The `If-None-Match: *` or `If-Match` precondition was not met.
     PreconditionFailed,
+    /// The backend failed for a reason that is not "the key is absent" —
+    /// a network error, a timeout, an unexpected response. Kept distinct
+    /// from `Ok(None)` deliberately: conflating the two would mean a
+    /// transient failure gets treated as an expired-snapshot 404 by the
+    /// reader retry logic in `manifest.rs`, silently masking a real error
+    /// as a routine compaction race.
+    Io(String),
 }
 
 pub trait ConditionalStore {
-    /// Returns the object's bytes and current ETag, or `None` if absent.
-    fn get(&self, key: &str) -> Option<(Vec<u8>, ETag)>;
+    /// Returns the object's bytes and current ETag, or `Ok(None)` if the
+    /// key is genuinely absent. A backend failure is `Err`, not `Ok(None)`.
+    fn get(&self, key: &str) -> Result<Option<(Vec<u8>, ETag)>, StoreError>;
 
     /// Creates `key` with `bytes`, only if `key` does not already exist.
     fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<ETag, StoreError>;
@@ -64,11 +72,11 @@ impl InMemoryStore {
 }
 
 impl ConditionalStore for InMemoryStore {
-    fn get(&self, key: &str) -> Option<(Vec<u8>, ETag)> {
+    fn get(&self, key: &str) -> Result<Option<(Vec<u8>, ETag)>, StoreError> {
         let objects = self.objects.lock().unwrap();
-        objects
+        Ok(objects
             .get(key)
-            .map(|(bytes, rev)| (bytes.clone(), rev.to_string()))
+            .map(|(bytes, rev)| (bytes.clone(), rev.to_string())))
     }
 
     fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<ETag, StoreError> {
@@ -99,7 +107,7 @@ mod tests {
     #[test]
     fn get_returns_none_for_absent_key() {
         let store = InMemoryStore::new();
-        assert_eq!(store.get("missing"), None);
+        assert_eq!(store.get("missing").unwrap(), None);
     }
 
     #[test]
@@ -109,7 +117,7 @@ mod tests {
 
         store.delete("key");
 
-        assert_eq!(store.get("key"), None);
+        assert_eq!(store.get("key").unwrap(), None);
     }
 
     #[test]
@@ -118,7 +126,7 @@ mod tests {
 
         store.delete("missing");
 
-        assert_eq!(store.get("missing"), None);
+        assert_eq!(store.get("missing").unwrap(), None);
     }
 
     #[test]
@@ -126,7 +134,7 @@ mod tests {
         let store = InMemoryStore::new();
 
         let etag = store.put_if_absent("key", b"hello").unwrap();
-        let (bytes, got_etag) = store.get("key").unwrap();
+        let (bytes, got_etag) = store.get("key").unwrap().unwrap();
 
         assert_eq!(bytes, b"hello");
         assert_eq!(got_etag, etag);
@@ -140,7 +148,7 @@ mod tests {
         let result = store.put_if_absent("key", b"second");
 
         assert_eq!(result, Err(StoreError::PreconditionFailed));
-        assert_eq!(store.get("key").unwrap().0, b"first");
+        assert_eq!(store.get("key").unwrap().unwrap().0, b"first");
     }
 
     #[test]
@@ -151,7 +159,7 @@ mod tests {
         let new_etag = store.put_if_match("key", b"second", &etag).unwrap();
 
         assert_ne!(new_etag, etag);
-        assert_eq!(store.get("key").unwrap().0, b"second");
+        assert_eq!(store.get("key").unwrap().unwrap().0, b"second");
     }
 
     #[test]
@@ -163,6 +171,6 @@ mod tests {
         let result = store.put_if_match("key", b"third", &stale_etag);
 
         assert_eq!(result, Err(StoreError::PreconditionFailed));
-        assert_eq!(store.get("key").unwrap().0, b"second");
+        assert_eq!(store.get("key").unwrap().unwrap().0, b"second");
     }
 }
