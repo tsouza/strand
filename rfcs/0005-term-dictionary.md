@@ -38,7 +38,7 @@ proven technique rather than design a third one.
 
 **The postings and positions blobs' own byte layout** is the R2 RFC's job, gated on
 R9's still-open measurement (`docs/ledger.md`). This RFC's term-info records name
-byte ranges *within* those future blobs (§2 below) without designing their internal
+byte ranges *within* those future blobs (§3 below) without designing their internal
 structure.
 
 **Block-max bounds** are a separate, sibling blob (invariant 4) and a separate RFC;
