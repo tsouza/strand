@@ -80,7 +80,10 @@ target store; see the open protocol below.
 with an explicit end, `Range: bytes={byte_length-N}-{byte_length-1}`, for a
 speculative tail size `N` — a **reader-side tuning parameter, not a format
 constant**, so no vendor- or deployment-specific number is baked into wire bytes (the
-Optane lesson, `docs/lineage.md`). This deliberately avoids relying on HTTP
+Optane lesson, `docs/lineage.md`). A reader MUST clamp N to byte_length — the
+request's first byte position is max(0, byte_length − N) — since a first position
+below zero is not a valid byte range (RFC 9110 §14.1.2 defines that clamping only
+for the suffix form this protocol does not use). This deliberately avoids relying on HTTP
 suffix-range syntax (`bytes=-N`, no explicit end): RFC 9110 §14.1.2 fully defines the
 suffix-range form as standard HTTP (`references/rfc9110-range-requests.txt`, vendored
 and read directly, not assumed), so the *protocol* is not in question — what is
@@ -342,8 +345,9 @@ non-trivial hash is not a source.
 | reserved        | 0 (7 bytes)             | `00 00 00 00 00 00 00`                   |
 | footer_checksum | xxHash3-64(bytes[0,32)) | computed by the reference implementation |
 
-Total file size: 102 bytes. A reader requesting the last 4096 bytes (any speculative
-size larger than the file) gets the whole file in one GET — the common case, one RTT.
+Total file size: 102 bytes. A reader whose speculative window is larger than the file
+clamps it to byte_length per §1's open protocol and gets the whole 102-byte file in
+one GET — the common case, one RTT.
 A production segment's hotcache will not fit an arbitrarily small speculative window
 once blob and chunk counts grow; that failure mode is addressed in "How this could be
 wrong" below.

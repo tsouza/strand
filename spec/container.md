@@ -57,7 +57,11 @@ before issuing any request against the segment itself.
 1. Issue an ordinary, explicit-end range request,
    `Range: bytes={byte_length-N}-{byte_length-1}`, for a speculative tail
    size `N`. `N` is a reader-side tuning parameter, not a format constant —
-   no vendor- or deployment-specific number appears in wire bytes. This is
+   no vendor- or deployment-specific number appears in wire bytes. A reader
+   MUST clamp N to byte_length — the request's first byte position is
+   max(0, byte_length − N) — since a first position below zero is not a
+   valid byte range (RFC 9110 §14.1.2 defines that clamping only for the
+   suffix form this protocol does not use). This is
    an ordinary range (not an HTTP suffix range, `bytes=-N` — a form RFC 9110
    §14.1.2 fully defines, `references/rfc9110-range-requests.txt`, but whose
    *server-side* support is confirmed for no target store here): AWS's own
