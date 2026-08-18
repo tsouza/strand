@@ -44,6 +44,23 @@ impl S3Store {
             runtime,
         }
     }
+
+    /// Unconditionally removes `key`. Not part of `ConditionalStore`, same
+    /// reasoning as `InMemoryStore::delete`: no reader or writer in the
+    /// commit protocol itself ever deletes an object. This exists for
+    /// crash/compaction tests and, later, the M3 orphan-sweep tool.
+    pub fn delete(&self, key: &str) -> Result<(), StoreError> {
+        self.runtime.block_on(async {
+            self.client
+                .delete_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .send()
+                .await
+                .map_err(|e| StoreError::Io(e.to_string()))?;
+            Ok(())
+        })
+    }
 }
 
 /// Was this PUT rejected by an `If-None-Match`/`If-Match` precondition?

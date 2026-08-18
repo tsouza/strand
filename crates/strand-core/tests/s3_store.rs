@@ -22,12 +22,28 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::Credentials;
-use strand_core::manifest::{commit, read_snapshot};
+use strand_core::container::{ChunkCodec, StorageClass, Tier};
+use strand_core::manifest::{SegmentRef, SnapshotMetadata, commit, read_snapshot};
 use strand_core::s3_store::S3Store;
 use strand_core::segment::{BlobSpec, SegmentBuilder, write_segment};
 use strand_core::store::{ConditionalStore, StoreError};
 use testcontainers_modules::minio::MinIO;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
+
+fn toy_builder(row_id_count: u64, tag: u8) -> SegmentBuilder {
+    let mut builder = SegmentBuilder::new(row_id_count);
+    builder.add_blob(BlobSpec {
+        family_id: 0,
+        blob_type_id: 0,
+        storage_class: StorageClass::RawMappable,
+        tier: Tier::NotApplicable,
+        alignment: 8,
+        chunk_codec: ChunkCodec::None,
+        chunk_codec_level: 0,
+        data: vec![tag, 0x00, 0x00, 0x00],
+    });
+    builder
+}
 
 const BUCKET: &str = "strand-test";
 
@@ -139,5 +155,169 @@ fn full_commit_and_read_round_trip_against_real_object_storage() {
 
         let (segment_bytes, _) = store.get("segments/one.bin").unwrap().unwrap();
         assert_eq!(segment_bytes.len(), 102);
+    });
+}
+
+/// Crash test per `docs/milestones.md` M0: a writer that dies after writing
+/// its segment and snapshot metadata (RFC 0001 §3 steps 1–2) but before
+/// advancing the pointer (step 3) leaves an orphan. `CLAUDE.md` §6 says this
+/// must be harmless to readers and cost only storage — proved here against
+/// real object storage, not simulated.
+#[test]
+fn orphaned_writer_crash_is_harmless_to_readers() {
+    with_store(|store| {
+        let baseline = commit(store, |next_row_id| {
+            vec![write_segment(
+                store,
+                "segments/baseline.bin",
+                &toy_builder(2, 0xA0),
+                next_row_id,
+            )]
+        })
+        .unwrap();
+
+        // Simulate the crash: write a segment and a snapshot object that
+        // together would be the *next* legitimate commit, but never touch
+        // `_strand/current` — step 3 of RFC 0001 §3 never happens.
+        let orphan_segment = write_segment(
+            store,
+            "segments/orphan.bin",
+            &toy_builder(3, 0xB0),
+            baseline.next_row_id,
+        );
+        let mut orphan_segments = baseline.segments.clone();
+        orphan_segments.push(orphan_segment);
+        let orphan_snapshot = SnapshotMetadata {
+            version: baseline.version + 1,
+            next_row_id: baseline.next_row_id + 3,
+            segments: orphan_segments,
+        };
+        store
+            .put_if_absent(
+                "_strand/snapshots/orphan-crash-test.json",
+                &serde_json::to_vec(&orphan_snapshot).unwrap(),
+            )
+            .unwrap();
+
+        // A reader must see only the baseline — the orphan is invisible.
+        let read_back = read_snapshot(store).unwrap().unwrap();
+        assert_eq!(read_back, baseline);
+
+        // A subsequent legitimate commit must proceed normally, oblivious
+        // to the orphan: it builds on the baseline, not the crashed
+        // writer's unreferenced snapshot.
+        let next = commit(store, |next_row_id| {
+            vec![write_segment(
+                store,
+                "segments/after-crash.bin",
+                &toy_builder(1, 0xC0),
+                next_row_id,
+            )]
+        })
+        .unwrap();
+
+        assert_eq!(next.version, baseline.version + 1);
+        assert_eq!(
+            next.segments.len(),
+            2,
+            "baseline's segment plus this one, not the orphan's"
+        );
+        assert!(
+            next.segments
+                .iter()
+                .all(|s: &SegmentRef| s.path != "segments/orphan.bin"),
+            "the orphan must never be referenced by a real commit"
+        );
+        assert_eq!(next.segments[1].row_id_base, baseline.next_row_id);
+    });
+}
+
+/// A `ConditionalStore` wrapper that runs a hook before delegating each
+/// `get` call to a real backend — the same seam `manifest.rs`'s own
+/// in-memory tests use, generalized over any inner store so it can wrap
+/// `S3Store`.
+struct FaultInjectingStore<'a, S: ConditionalStore, F: Fn(&str)> {
+    inner: &'a S,
+    on_get: F,
+}
+
+impl<S: ConditionalStore, F: Fn(&str)> ConditionalStore for FaultInjectingStore<'_, S, F> {
+    fn get(&self, key: &str) -> Result<Option<(Vec<u8>, strand_core::store::ETag)>, StoreError> {
+        (self.on_get)(key);
+        self.inner.get(key)
+    }
+
+    fn put_if_absent(
+        &self,
+        key: &str,
+        bytes: &[u8],
+    ) -> Result<strand_core::store::ETag, StoreError> {
+        self.inner.put_if_absent(key, bytes)
+    }
+
+    fn put_if_match(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        etag: &strand_core::store::ETag,
+    ) -> Result<strand_core::store::ETag, StoreError> {
+        self.inner.put_if_match(key, bytes, etag)
+    }
+}
+
+/// Crash test per `docs/milestones.md` M0: a reader whose pointer read named
+/// a snapshot that compaction has since removed must refresh and retry
+/// rather than report corruption (RFC 0001 §3, `CLAUDE.md` §6) — proved here
+/// against real object storage's actual 404 behavior, not the in-memory
+/// simulation `manifest.rs`'s own tests use. The fault is injected at the
+/// same point a genuinely interleaved reader would hit it: right as the
+/// reader fetches the snapshot object its (now-stale) pointer read named.
+#[test]
+fn reader_on_a_compacted_snapshot_recovers_against_real_object_storage() {
+    with_store(|store| {
+        let first = commit(store, |next_row_id| {
+            vec![write_segment(
+                store,
+                "segments/a.bin",
+                &toy_builder(2, 0xA0),
+                next_row_id,
+            )]
+        })
+        .unwrap();
+
+        let (pointer_bytes, _) = store.get("_strand/current").unwrap().unwrap();
+        let first_snapshot_path = String::from_utf8(pointer_bytes).unwrap();
+        let fired = std::cell::Cell::new(false);
+
+        let faulting = FaultInjectingStore {
+            inner: store,
+            on_get: |key: &str| {
+                if key == first_snapshot_path && !fired.get() {
+                    fired.set(true);
+                    // A newer commit lands, moving the pointer past
+                    // `first` — only then is deleting `first`'s snapshot
+                    // object safe under deletion-safety (`CLAUDE.md` §6).
+                    commit(store, |next_row_id| {
+                        vec![write_segment(
+                            store,
+                            "segments/b.bin",
+                            &toy_builder(3, 0xB0),
+                            next_row_id,
+                        )]
+                    })
+                    .unwrap();
+                    store.delete(&first_snapshot_path).unwrap();
+                }
+            },
+        };
+
+        let read_back = read_snapshot(&faulting).unwrap().unwrap();
+
+        assert_eq!(
+            read_back.version,
+            first.version + 1,
+            "recovered onto the newer snapshot"
+        );
+        assert_eq!(read_back.segments.len(), 2);
     });
 }
