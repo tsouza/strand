@@ -299,7 +299,10 @@ retry. That is the whole database ambition of this project. Anything more — sn
 expiry *policy*, schema evolution, multi-table transactions — is out of scope and
 stays out. Safety, unlike policy, cannot be out of scope, hence the following rules.
 Each is the smallest rule that closes a real data-loss or 404-mid-query scenario; the
-M0 crash tests exercise all of them.
+M0 crash tests exercise the orphan and 404-refresh rules, the deletion-safety rule
+becomes testable with M3's compaction (docs/milestones.md), and the one-declared-
+CAS-host rule is a conformance requirement on writers with no mechanical test
+(RFC 0001 §3).
 
 **One declared CAS host.** The table metadata declares where the pointer lives:
 native conditional writes on the store, or a named external catalog. All writers MUST
