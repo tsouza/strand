@@ -93,8 +93,8 @@ format's first non-Rust reader, with everything that implies.
 
 Lexical adapters, in priority order:
 
-**tantivy fork.** tantivy (MIT, verified byte-level 2026-08-18; LICENSE verified
-byte-level 2026-08-18; vendoring still owed (see docs/ledger.md), and the fork
+**tantivy fork.** tantivy (MIT, verified byte-level 2026-08-18; LICENSE vendored
+2026-08-18, `references/tantivy-LICENSE.txt`), and the fork
 carries tantivy's MIT notices alongside our Apache-2.0
 additions) has a storage-level `Directory` abstraction but, per current
 understanding, no pluggable codec SPI — a pending claim R11(a) settles by mapping
@@ -133,8 +133,8 @@ layer named as PISA.
 Vector and fusion adapters:
 
 **FAISS inverted-lists adapter.** FAISS (MIT, verified byte-level 2026-08-18;
-LICENSE verified byte-level 2026-08-18; vendoring still owed (see
-docs/ledger.md)) exposes an inverted-lists extension point
+LICENSE vendored 2026-08-18, `references/faiss-LICENSE.txt`) exposes an
+inverted-lists extension point
 (`faiss/invlists/InvertedLists.h`, with `OnDiskInvertedLists` as prior art), and
 `IndexIVFRaBitQ` runs on the generic `IndexIVF` list machinery — so a
 STRAND-cluster-blob-backed `InvertedLists` plausibly gives an engine-constant

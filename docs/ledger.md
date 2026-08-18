@@ -132,11 +132,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   measurable at all until a `tier: cold-fetchable` vector blob exists (M2); tantivy
   codec-SPI absence (R11(a)); FAISS FastScan external-list feasibility (R11(b)); the
   Quickwit inheritance hypothesis (R11(c)). The M0 vendoring deliverable is partially
-  done — `references/` holds the R2 and RFC-0002 grounding; the R1/R3–R8 sources and
-  both adapter LICENSE files and all turbopuffer pages remain owed, and every figure
-  resting on them (`CLAUDE.md` §7's ~100ms and 50–100 MB/s, invariant 9's turbopuffer
-  numbers, the turbopuffer targets table, R2's decode-rate figures) is provisional
-  until its source sentence lands; carries forward as an M1 prerequisite.
+  done — `references/` holds the R2 and RFC-0002 grounding, all four turbopuffer
+  pages (`CLAUDE.md` §7's ~100ms planning figure, the measured p50=874ms/14ms
+  cold/cached figures, the published p90s, invariant 9's batched-iterator numbers, and
+  the ANN v3 scale claims are now all vendored and checked, not provisional), and both
+  adapter LICENSE files (`references/tantivy-LICENSE.txt`,
+  `references/faiss-LICENSE.txt`). Still owed: the R1/R3–R8 primary-source papers and
+  pages themselves — R2's decode-rate figures and every other claim resting
+  specifically on those tracks (as opposed to the turbopuffer/license sources above)
+  remain provisional until vendored; carries forward as an M1 prerequisite.
 - **Retracted claim: "the full kickstart report."** `CLAUDE.md` and
   `docs/research/README.md` both asserted, at repository seeding, that a longer
   research report existed and would be vendored into `docs/research/` at M0, separate
