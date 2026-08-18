@@ -1,6 +1,9 @@
 # RFC 0001: Container format, row-ID space, and manifest
 
-- **Status:** Draft
+- **Status:** Approved — passed adversarial review (invariant compliance,
+  byte-arithmetic, protocol/concurrency, and citation-accuracy passes); every
+  blocking finding fixed and grounded against fetched primary sources. Residual
+  non-blocking items are tracked in "Open questions / follow-on RFCs" below.
 - **Milestone:** M0 — Container + manifest (`docs/milestones.md`)
 - **Spec chapters produced:** `spec/container.md`, `spec/row-ids.md`, `spec/manifest.md`
 - **Invariants exercised:** 1, 2, 3, 8, 10, 11 (`CLAUDE.md` §5); the manifest safety
