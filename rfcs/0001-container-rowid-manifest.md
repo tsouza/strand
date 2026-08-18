@@ -81,12 +81,15 @@ with an explicit end, `Range: bytes={byte_length-N}-{byte_length-1}`, for a
 speculative tail size `N` — a **reader-side tuning parameter, not a format
 constant**, so no vendor- or deployment-specific number is baked into wire bytes (the
 Optane lesson, `docs/lineage.md`). This deliberately avoids relying on HTTP
-suffix-range syntax (`bytes=-N`, no explicit end): AWS's own `GetObject` "Range"
-parameter documentation demonstrates only ordinary explicit-range requests and points
-readers to RFC 9110 §14.2 "Range" — which obsoletes RFC 7233 — for the header's
-semantics, but neither source was found, when checked, to confirm suffix-range
-support specifically; an explicit-end range has no such gap, since it is the form
-AWS's own documentation exercises directly. The last 40 bytes of the response are the
+suffix-range syntax (`bytes=-N`, no explicit end): RFC 9110 §14.1.2 fully defines the
+suffix-range form as standard HTTP (`references/rfc9110-range-requests.txt`, vendored
+and read directly, not assumed), so the *protocol* is not in question — what is
+unconfirmed is whether S3 and MinIO's *server-side* implementations honor that form.
+AWS's own `GetObject` "Range" parameter documentation demonstrates only the
+explicit-end form in its examples and points readers to RFC 9110 §14.2 "Range" — which
+obsoletes RFC 7233 — for the header's semantics, but an absent example is not evidence
+either way. An explicit-end range has no such gap, since it is the form AWS's own
+documentation exercises directly. The last 40 bytes of the response are the
 footer trailer. Because the hotcache always ends immediately before the footer, at
 `byte_length - 40`, a single check — `hotcache_length + 40 <= N` — is sufficient to
 guarantee the *entire* hotcache (not merely its start) landed inside the fetched
@@ -513,11 +516,12 @@ is what a reader actually needs to interpret order.
 
 **A suffix range GET (`bytes=-N`) instead of an explicit-end range.** Rejected on
 verification, not on principle: a suffix range would save the reader from needing
-`byte_length` up front, but neither RFC 9110 §14.2 nor AWS's `GetObject` "Range"
-documentation was confirmed, when checked, to demonstrate suffix-range support
-specifically — only ordinary explicit-range requests. Since the manifest already
-hands the reader `byte_length` for free before it opens any segment, there was no
-reason to depend on the unconfirmed form.
+`byte_length` up front, and RFC 9110 §14.1.2 confirms the HTTP protocol fully defines
+this form (`references/rfc9110-range-requests.txt`) — but whether S3 and MinIO's
+server-side implementations honor it was not confirmed either way; AWS's `GetObject`
+"Range" documentation demonstrates only ordinary explicit-range requests in its
+examples. Since the manifest already hands the reader `byte_length` for free before it
+opens any segment, there was no reason to depend on the unconfirmed server behavior.
 
 ## Open questions / follow-on RFCs
 
@@ -527,9 +531,10 @@ reason to depend on the unconfirmed form.
   pin a number; M0's crash tests should produce a recommended default.
 - GCS/Azure conditional-write header semantics and the external-catalog fallback
   protocol (R5) — follow-on RFC once a non-S3 target or catalog is in scope.
-- Whether S3 (or another target store) actually supports HTTP suffix-range requests
-  is worth confirming directly against primary source when `references/` is vendored
-  at M0 — this RFC no longer depends on the answer, but a confirmed "yes" would let
-  `strand-tools inspect` open a bare segment file in one RTT without a `HEAD` first.
+- Whether S3 (or another target store) actually *implements* the suffix-range form
+  RFC 9110 §14.1.2 defines (the protocol question is settled; the server-support
+  question is not) is worth confirming empirically — this RFC no longer depends on
+  the answer, but a confirmed "yes" would let `strand-tools inspect` open a bare
+  segment file in one RTT without a `HEAD` first.
 - Whether the manifest should eventually carry optional per-segment summary metadata
   for cross-segment pruning is R10 and stays explicitly out of this RFC's scope.

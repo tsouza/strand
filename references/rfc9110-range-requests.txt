@@ -1,0 +1,137 @@
+Vendored excerpt, not the full RFC. Source: RFC 9110, "HTTP Semantics",
+sections 14.1.2 ("Byte Ranges") and 14.2 ("Range"). Fetched 2026-08-18
+from https://www.rfc-editor.org/rfc/rfc9110.txt. RFC 9110 obsoletes
+RFC 7233 (HTTP/1.1 Range Requests); AWS's own S3 GetObject documentation
+cites RFC 9110's Range section, not RFC 7233, as of the same fetch date.
+Reproduced per the IETF Trust's boilerplate permission (BCP 78/79) to
+copy and distribute RFC text for the purpose of implementing the
+technology it describes.
+
+Cited by rfcs/0001-container-rowid-manifest.md and spec/container.md's
+open protocol (invariant 3): this excerpt confirms that HTTP itself
+fully defines the suffix-range form (`bytes=-N`, section 14.1.2) as a
+standard part of the Range header, with worked examples. What remained
+unconfirmed when RFC 0001 was drafted, and remains open, is specifically
+whether S3 and MinIO's *server-side* implementations honor the
+suffix-range form — AWS's own GetObject documentation demonstrates only
+the explicit-end form in its examples, which is not itself evidence
+either way. RFC 0001's open protocol design does not depend on the
+answer: it uses the explicit-end form exclusively, since the manifest
+already provides the segment's exact byte length before any request
+against the segment is issued.
+
+===============================================================================
+
+14.1.2.  Byte Ranges
+
+   The "bytes" range unit is used to express subranges of a
+   representation data's octet sequence.  Each byte range is expressed
+   as an integer range at some offset, relative to either the beginning
+   (int-range) or end (suffix-range) of the representation data.  Byte
+   ranges do not use the other-range specifier.
+
+   The first-pos value in a bytes int-range gives the offset of the
+   first byte in a range.  The last-pos value gives the offset of the
+   last byte in the range; that is, the byte positions specified are
+   inclusive.  Byte offsets start at zero.
+
+   If the representation data has a content coding applied, each byte
+   range is calculated with respect to the encoded sequence of bytes,
+   not the sequence of underlying bytes that would be obtained after
+   decoding.
+
+   Examples of bytes range specifiers:
+
+   *  The first 500 bytes (byte offsets 0-499, inclusive):
+
+           bytes=0-499
+
+   *  The second 500 bytes (byte offsets 500-999, inclusive):
+
+           bytes=500-999
+
+   A client can limit the number of bytes requested without knowing the
+   size of the selected representation.  If the last-pos value is
+   absent, or if the value is greater than or equal to the current
+   length of the representation data, the byte range is interpreted as
+   the remainder of the representation (i.e., the server replaces the
+   value of last-pos with a value that is one less than the current
+   length of the selected representation).
+
+   A client can refer to the last N bytes (N > 0) of the selected
+   representation using a suffix-range.  If the selected representation
+   is shorter than the specified suffix-length, the entire
+   representation is used.
+
+   Additional examples, assuming a representation of length 10000:
+
+   *  The final 500 bytes (byte offsets 9500-9999, inclusive):
+
+           bytes=-500
+
+      Or:
+
+           bytes=9500-
+
+   *  The first and last bytes only (bytes 0 and 9999):
+
+           bytes=0-0,-1
+
+   *  The first, middle, and last 1000 bytes:
+
+           bytes= 0-999, 4500-5499, -1000
+
+   *  Other valid (but not canonical) specifications of the second 500
+      bytes (byte offsets 500-999, inclusive):
+
+           bytes=500-600,601-999
+           bytes=500-700,601-999
+
+   For a GET request, a valid bytes range-spec is satisfiable if it is
+   either:
+
+   *  an int-range with a first-pos that is less than the current length
+      of the selected representation or
+
+   *  a suffix-range with a non-zero suffix-length.
+
+   When a selected representation has zero length, the only satisfiable
+   form of range-spec in a GET request is a suffix-range with a non-zero
+   suffix-length.
+
+   In the byte-range syntax, first-pos, last-pos, and suffix-length are
+   expressed as decimal number of octets.  Since there is no predefined
+   limit to the length of content, recipients MUST anticipate
+   potentially large decimal numerals and prevent parsing errors due to
+   integer conversion overflows.
+
+14.2.  Range
+
+   The "Range" header field on a GET request modifies the method
+   semantics to request transfer of only one or more subranges of the
+   selected representation data (Section 8.1), rather than the entire
+   selected representation.
+
+     Range = ranges-specifier
+
+   A server MAY ignore the Range header field.  However, origin servers
+   and intermediate caches ought to support byte ranges when possible,
+   since they support efficient recovery from partially failed transfers
+   and partial retrieval of large representations.
+
+   A server MUST ignore a Range header field received with a request
+   method that is unrecognized or for which range handling is not
+   defined.  For this specification, GET is the only method for which
+   range handling is defined.
+
+   [... conditional/negotiation clauses omitted, not load-bearing for
+   STRAND's use, which issues unconditional range GETs only ...]
+
+   If all of the preconditions are true, the server supports the Range
+   header field for the target resource, the received Range field-value
+   contains a valid ranges-specifier with a range-unit supported for
+   that target resource, and that ranges-specifier is satisfiable with
+   respect to the selected representation, the server SHOULD send a 206
+   (Partial Content) response with content containing one or more
+   partial representations that correspond to the satisfiable
+   range-spec(s) requested.
