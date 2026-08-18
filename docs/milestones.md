@@ -43,15 +43,28 @@ rounds through the protocol's safety invariants.
 
 **M1 — Lexical.** BP128 postings + positions + FST term dictionary + block-max
 sibling blob + Roaring filter bitmaps. The R2 RFC pins the exact d-gap variant
-(invariant 11) and the block-max RFC pins the raw-statistics fields (invariant 4).
-The **scoring-profiles chapter** defines the `bm25` profile normatively and the
-Lucene-parity profile. **Analyzer descriptor schema and the normative token-stream
+(invariant 11) and the block-max RFC pins the raw-statistics fields (invariant 4);
+neither is drafted yet, both gated on R9's still-unmeasured margin
+(`docs/ledger.md`) — though a maintained, Apache-2.0 Rust FastLanes implementation
+now exists to measure against (`references/spiraldb-fastlanes-rust-crate.md`),
+lowering what running that measurement actually costs. The **scoring-profiles
+chapter** (RFC 0003, `rfcs/0003-scoring-profiles.md`, Approved) defines the `bm25`
+profile normatively and the Lucene-parity profile, both grounded byte-exact against
+Robertson & Zaragoza's own formula and Lucene 10.5.1's real source, with a worked
+example. **Analyzer descriptor schema and the normative token-stream
 vectors in `conformance/analyzers/` are gating deliverables of this milestone, not
-metadata afterthoughts** — without them invariant 6 is a label. Tantivy importer. R2
+metadata afterthoughts** — without them invariant 6 is a label; the schema and
+per-document-length definition are now RFC 0004 (`rfcs/0004-analyzer-descriptors.md`,
+Approved), with one real worked example as the first conformance vector, though the
+full vector suite across languages and scripts is still M1 execution work, not done
+by the RFC alone, and the CJK/Thai/Lao segmentation-dictionary choice remains
+unresolved (RFC 0004's own Non-goals). Tantivy importer. R2
 codec bake-off lands here and confirms or swaps the postings default (including
 verifying tantivy's actual current codec, per `docs/data-structures.md`); the R9 layout evaluation and
 license audit MUST complete before the bake-off freezes the default, since a
-FastLanes outcome changes both the default and the block granularity. Benchmarks: MS
+FastLanes outcome changes both the default and the block granularity — the license
+half is now resolved (`docs/ledger.md` R9), the layout-evaluation half is not.
+Benchmarks: MS
 MARCO BM25 latency and size vs tantivy; Lucene parity per invariant 5;
 bytes-fetched vs bytes-used across term frequency deciles (the read-amplification
 number, `docs/data-structures.md`). Adapter-based results appear in this
