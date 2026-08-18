@@ -8,6 +8,7 @@ description = "STRAND lexical-family blobs: term-dictionary FST and term-info st
 
 [dependencies]
 fst = "0.4.7"
+roaring = "0.11.5"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

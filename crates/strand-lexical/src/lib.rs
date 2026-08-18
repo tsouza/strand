@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Reference implementation of STRAND's lexical-family blobs (`family_id = 1`):
-//! the term-dictionary FST and term-info store, per `spec/term-dictionary.md`
-//! (RFC 0005).
+//! Reference implementation of STRAND's lexical (`family_id = 1`) and filter
+//! (`family_id = 2`) blob families: the term-dictionary FST and term-info
+//! store (`spec/term-dictionary.md`, RFC 0005), and the value-dictionary FST
+//! and filter-bitmap store (`spec/filter-bitmaps.md`, RFC 0006).
 
+pub mod filter_bitmaps;
 pub mod term_dictionary;

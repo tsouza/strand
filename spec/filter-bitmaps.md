@@ -7,7 +7,10 @@ RFC for the worked example, alternatives considered, and the adversarial review.
 Registered in `spec/container.md` §9: `family_id = 2` ("filter"), `blob_type_id =
 0` (value-dictionary FST), `blob_type_id = 1` (filter-bitmap store).
 
-Reference implementation: not yet implemented.
+Reference implementation: `crates/strand-lexical/src/filter_bitmaps.rs`. Golden
+files: `conformance/filter-bitmaps/toy-values.fst` and
+`conformance/filter-bitmaps/toy-bitmap-store.bin`, matching RFC 0006's worked
+example exactly, byte for byte.
 
 ## 1. Scope: one pair per filterable field, low-to-medium cardinality only
 
@@ -88,12 +91,19 @@ cold-fetchable wave invariant 3 already budgets for after the segment open.
 
 ## 6. Conformance status
 
-Not yet implemented. Golden-file status for the value-dictionary FST is provisional
-on the cross-version/cross-platform `fst`-crate determinism question RFC 0005 and
-RFC 0006's "How this could be wrong" both name. For the filter-bitmap store, the
-same-version/same-platform risk (run-container promotion, §3 above) is closed
-normatively by this chapter's MUST rule; what remains open is the narrower
-cross-version/cross-platform question already named for the `fst` half.
+Implemented (`crates/strand-lexical`), with both blobs' worked-example bytes pinned
+as `conformance/` golden files and confirmed byte-exact against
+`crates/strand-lexical/tests/filter_bitmaps_worked_example.rs`. The no-run-
+containers MUST (§3 above) is mechanically checked, not merely asserted: `crates/
+strand-lexical/tests/filter_bitmaps_round_trip.rs` builds the identical logical
+bitmap through two different `roaring` insertion APIs (one that stays array/
+bitmap, one that can select a run container) and asserts the serialized bytes are
+identical. Golden-file status for the value-dictionary FST is provisional on the
+cross-version/cross-platform `fst`-crate determinism question RFC 0005 and RFC
+0006's "How this could be wrong" both name. For the filter-bitmap store, the
+same-version/same-platform risk (run-container promotion) is closed normatively by
+this chapter's MUST rule and confirmed by the test above; what remains open is the
+narrower cross-version/cross-platform question already named for the `fst` half.
 
 ## 7. Open dependencies
 

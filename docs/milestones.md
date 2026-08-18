@@ -69,7 +69,16 @@ crate's own source and closed with a normative MUST to always serialize without
 run containers — the same class of risk RFC 0005 named for the `fst` crate, but
 sharper: same build, same platform, different insertion API, different bytes,
 absent the MUST. Cross-platform/cross-version determinism for both the `fst` and
-`roaring` halves remains open (RFC 0006's own Open questions). The R2 RFC pins the exact d-gap variant
+`roaring` halves remains open (RFC 0006's own Open questions). Both RFCs now also
+have a reference implementation (`crates/strand-lexical`): value-dictionary FST
+build/lookup reuses the term-dictionary FST code directly (validating RFC 0006's
+own "identical in shape" claim in working code), `build_filter_bitmap_store`
+normalizes every bitmap with `remove_run_compression` before serializing, and a
+dedicated test builds the identical logical bitmap through two different `roaring`
+insertion APIs and asserts byte-identical output — a mechanical, not merely
+prose, check that the no-run-containers MUST actually closes the gap the RFC 0006
+review found. The blue/red worked example is pinned as `conformance/filter-
+bitmaps/` golden files and reproduced byte-exact. The R2 RFC pins the exact d-gap variant
 (invariant 11) and the block-max RFC pins the raw-statistics fields (invariant 4);
 neither is drafted yet, both gated on R9's still-unmeasured margin
 (`docs/ledger.md`) — though a maintained, Apache-2.0 Rust FastLanes implementation

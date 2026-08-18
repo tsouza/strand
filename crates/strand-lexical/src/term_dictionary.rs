@@ -127,14 +127,27 @@ impl std::error::Error for TermDictionaryError {}
 pub fn build_term_dictionary(
     terms: &[(&[u8], TermInfo)],
 ) -> Result<(Vec<u8>, Vec<u8>), TermDictionaryError> {
-    let mut builder = fst::MapBuilder::memory();
+    let fst_bytes = build_ordinal_fst(terms.iter().map(|(term, _)| *term))?;
     let mut term_info_bytes = Vec::with_capacity(terms.len() * TERM_INFO_RECORD_LEN);
-    for (ordinal, (term, info)) in terms.iter().enumerate() {
-        builder.insert(term, ordinal as u64)?;
+    for (_, info) in terms {
         term_info_bytes.extend_from_slice(&info.encode());
     }
-    let fst_bytes = builder.into_inner()?;
     Ok((fst_bytes, term_info_bytes))
+}
+
+/// Builds an `fst` crate `Map` blob from keys already in unsigned UTF-8 byte
+/// order, each assigned its position as a dense `u64` ordinal. Shared by
+/// `build_term_dictionary` (above) and `filter_bitmaps::build_value_dictionary`
+/// — `spec/filter-bitmaps.md` §2 states the value dictionary is "identical in
+/// shape" to the term dictionary's FST, so both build the same way.
+pub(crate) fn build_ordinal_fst<'a>(
+    keys: impl Iterator<Item = &'a [u8]>,
+) -> Result<Vec<u8>, TermDictionaryError> {
+    let mut builder = fst::MapBuilder::memory();
+    for (ordinal, key) in keys.enumerate() {
+        builder.insert(key, ordinal as u64)?;
+    }
+    Ok(builder.into_inner()?)
 }
 
 /// A resident term-dictionary FST blob (`spec/term-dictionary.md` §2).
