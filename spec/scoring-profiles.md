@@ -22,7 +22,15 @@ chapter — that is the R2/postings RFC's decision, bound by the constraint in �
 
 ## 2. The `bm25` profile
 
-`parameters`: `k1` (float, default `1.2`), `b` (float, `0 ≤ b ≤ 1`, default `0.75`).
+`parameters`: `k1` (float, `k1 ≥ 0`, finite, default `1.2`), `b` (float, `0 ≤ b ≤ 1`,
+default `0.75`).
+
+`N`, `n`, and `avdl` below are **per-segment statistics**, computed over the
+segment's own documents only, never aggregated across a multi-segment index — the
+same per-segment scope invariant 3 and the manifest layer already hold to
+(`CLAUDE.md` §5, §7; `docs/ledger.md` R10). A multi-segment comparison against an
+engine that aggregates statistics globally (Lucene's `IndexSearcher` ordinarily
+does) is out of this format's scope; RFC 0003 states the M1 benchmark implication.
 
 For a query term with document frequency `n` in a field-level collection of `N`
 documents carrying that field, and a document with term frequency `tf` and field
@@ -38,6 +46,10 @@ A document's score for a query is the sum of `score(...)` over the query's terms
 present in that document. This is Robertson & Zaragoza's own canonical BM25 form; it
 carries no `(k1 + 1)` numerator factor, since that factor is a documented variant
 that does not affect ranking (RFC 0003 explains why it is deliberately omitted).
+
+Negative `idf` (for a term with `n > N/2`) is intentional. A conforming
+implementation MUST NOT clip a negative `idf` value or a negative term-score
+contribution to zero.
 
 ## 3. The `lucene-parity` profile
 

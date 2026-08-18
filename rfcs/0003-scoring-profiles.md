@@ -1,6 +1,11 @@
 # RFC 0003: Scoring profiles
 
-- **Status:** Draft
+- **Status:** Approved — passed adversarial review (independent re-fetch and
+  re-derivation of every primary-source claim and worked-example number; citation,
+  process-conformance, and design-completeness passes); the two Important findings
+  (a missing `docs/lineage.md` grave citation, and the unstated segment-vs-global
+  scope of `N`/`n`/`avdl`) and all Minor findings fixed and grounded. No blocking
+  findings remain.
 - **Milestone:** M1 — Lexical (`docs/milestones.md`)
 - **Spec chapters produced:** `spec/scoring-profiles.md`
 - **Invariants exercised:** 5 (`CLAUDE.md` §5)
@@ -91,13 +96,26 @@ bit-exactness.
 
 ### 2. The `bm25` profile
 
-Parameters: `k1` (float, default `1.2`), `b` (float, `0 ≤ b ≤ 1`, default `0.75`).
-These defaults are Lucene's own (`references/lucene-bm25similarity-and-smallfloat.md`)
-and sit inside Robertson & Zaragoza's own stated "reasonably good" range, `1.2 < k1 <
-2` and `0.5 < b < 0.8` (`references/robertson-zaragoza-bm25-and-beyond.md`) —
-choosing them is not an independent decision this RFC makes casually, it is picking
-the one combination already validated by both the framework's own authors and the
-most widely deployed implementation.
+Parameters: `k1` (float, `k1 ≥ 0`, finite, default `1.2`), `b` (float, `0 ≤ b ≤ 1`,
+default `0.75`). These defaults are Lucene's own
+(`references/lucene-bm25similarity-and-smallfloat.md`); `b`'s default sits strictly
+inside Robertson & Zaragoza's own stated "reasonably good" range, `0.5 < b < 0.8`,
+while `k1`'s default sits exactly at that range's lower boundary, `1.2 < k1 < 2`
+(`references/robertson-zaragoza-bm25-and-beyond.md`) — not strictly interior, worth
+stating precisely rather than rounding up to "inside." Choosing them is not an
+independent decision this RFC makes casually, it is picking the one combination
+already validated by both the framework's own authors (as at-or-inside their stated
+good range) and the most widely deployed implementation. The `k1 ≥ 0, finite`
+constraint mirrors Lucene's own constructor, which validates and rejects negative or
+non-finite `k1` (`references/lucene-bm25similarity-and-smallfloat.md`).
+
+**Negative idf is intentional, not a bug to clip.** For a term occurring in more than
+half the collection (`n > N/2`), `idf(n, N)` is negative — a well-known property of
+the classic RSJ/idf form real engines have handled inconsistently (some clip
+term-score contributions to zero, some don't). A conforming `bm25` implementation
+MUST NOT clip a negative idf value or a negative term-score contribution to zero;
+the canonical formula's negative contributions for very common terms are part of its
+definition, not an edge case to special-case away.
 
 For a query term with document frequency `n` in a collection of `N` documents
 carrying the term's field, and a document with term frequency `tf` and length `dl` in
@@ -121,7 +139,26 @@ quantization) instead of burying them under an unrelated numerator constant.
 
 A document's full score for a query is the sum of `score(...)` over the query's
 terms present in that document — the classic sum-of-term-weights structure both
-profiles share (`references/robertson-zaragoza-bm25-and-beyond.md` §2.4).
+profiles share, stated by the paper itself immediately after eq. 3.15
+(`references/robertson-zaragoza-bm25-and-beyond.md`, end of §3.4.5).
+
+**`N`, `n`, and `avdl` are per-segment statistics, not collection-global.** STRAND's
+architecture is per-segment throughout — invariant 3 caps a single segment's open at
+≤2 RTT, `CLAUDE.md` §7 reports segment-count amplification rather than hiding it, and
+the manifest carries no cross-segment aggregation (R10 is open research, not v0.1,
+`docs/ledger.md`). A scoring-profile descriptor's `N` (documents carrying the field),
+`n` (documents containing the term), and `avdl` (average field length) are therefore
+computed per segment, over that segment's own documents only — never aggregated
+across a multi-segment index. This is load-bearing for what "parity" (§5 below) can
+even mean: Lucene's own `IndexSearcher` ordinarily computes `CollectionStatistics`
+over however many segments a merge policy has produced, which for a multi-segment
+corpus (the M1 MS MARCO benchmark, `docs/milestones.md`, will not be single-segment
+at realistic scale) will not equal any one STRAND segment's local statistics. The M1
+Lucene-parity benchmark MUST either pin the Lucene comparison index to a single
+segment for a fair per-descriptor comparison, or treat cross-segment idf/avgdl
+divergence as an acknowledged, out-of-format-scope source of non-parity — a
+query-planner/fusion concern `CLAUDE.md` §1 already excludes from the format, not a
+defect in this RFC's own per-segment definition.
 
 ### 3. The `lucene-parity` profile
 
@@ -249,14 +286,25 @@ This RFC's own drafting process caught, in itself, the exact failure mode `CLAUD
 §3 exists to prevent: an initial assumption that Lucene's one-byte norm uses the
 widely-blogged-about `byte315` float encoding, corrected only by fetching and reading
 Lucene's actual current source
-(`references/lucene-bm25similarity-and-smallfloat.md`). Nearest grave: this is the
-same texture of error as the SIMD-BP128 misnaming and the Gorder misapplication
-`CLAUDE.md` §3 already names — a model blending adjacent, plausible-sounding
-technique names from memory instead of the actual, checked one. Had this RFC shipped
-the wrong quantization function, every `lucene-parity` score for a document over 23
-tokens would have silently diverged from real Lucene, and the parity benchmark would
-either falsely fail (blocking M1) or, worse, pass by coincidence on a test corpus
-whose documents all happened to be short.
+(`references/lucene-bm25similarity-and-smallfloat.md`). Nearest grave
+(`docs/lineage.md`): **CIFF**, whose own named flaw list includes, verbatim, "lossy
+doc lengths" — CIFF exports a length figure with no normative precision guarantee,
+so two engines round-tripping through it can silently disagree on document length,
+and by extension on any score depending on it. Invariant 5's design is the
+deliberate fix for exactly that grave: STRAND stores document length losslessly
+always, and Lucene's lossy one-byte quantization is never stored — only recomputed,
+on demand, by a parity harness that already holds the lossless value. Had this RFC
+instead let `lucene-parity` treat the quantized value as STRAND's own stored length
+(rather than a value derived fresh from the lossless one at parity-check time), it
+would have reintroduced CIFF's exact grave under a different name. Compounding the
+same near-miss at the implementation level: shipping the wrong quantization function
+(the `byte315` scheme this RFC's own drafting first, wrongly, assumed) would have
+made every `lucene-parity` score for a document over 23 tokens silently diverge from
+real Lucene, and the parity benchmark would either falsely fail (blocking M1) or,
+worse, pass by coincidence on a test corpus whose documents all happened to be short
+— the same texture of error as the SIMD-BP128 misnaming and the Gorder misapplication
+`CLAUDE.md` §3 already names: a model blending adjacent, plausible-sounding technique
+names from memory instead of the actual, checked one.
 
 **Grounding against `main` instead of a released version.** Lucene's `main` branch
 carries an unreleased `k3` query-term-saturation parameter this RFC's own research
@@ -275,15 +323,15 @@ matches either `bm25` or `lucene-parity` here without checking that engine's own
 source the same way this RFC checked Lucene's; the paper is explicit that both
 conventions are in real use.
 
-**The classic idf formula's exact citation is honestly incomplete.** This RFC's
-`bm25` idf formula is grounded in the widely-established Robertson–Sparck-Jones form,
-but `references/robertson-zaragoza-bm25-and-beyond.md` states plainly that this
-research pass did not independently re-derive that formula's exact equation number
-from the primary source's earlier binary-independence-model sections — the paper's
-own eq. 3.15 (the term-weighting formula) was read directly and is fully confirmed;
-the idf component plugged into it was not re-traced to its own numbered equation in
-the same pass. A future session should close this gap before treating the citation
-as complete, rather than assume it already was.
+**The classic idf formula's exact citation, closed by adversarial review.** An
+earlier draft of this RFC flagged its `bm25` idf formula as grounded only in the
+widely-established Robertson–Sparck-Jones form, without an exact equation number from
+the primary source. The adversarial review traced it: §3.1 ("The Binary Independence
+Model") derives the RSJ weight (eq. 3.2), then shows that setting `R = r_i = 0` (no
+relevance information available) is equivalent to setting `P(t_i|rel) = 0.5`, giving
+**eq. 3.3**: `w_i^IDF = log((N − n_i + 0.5) / (n_i + 0.5))` — an exact match to the
+formula this RFC uses. `references/robertson-zaragoza-bm25-and-beyond.md` is updated
+accordingly; the citation is now complete, not honestly-incomplete.
 
 ## Alternatives considered
 

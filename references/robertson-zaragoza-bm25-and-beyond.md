@@ -57,14 +57,24 @@ experiments suggest a somewhat lower value of `k1` and a somewhat higher value o
 0.75` (`references/lucene-bm25similarity-and-smallfloat.md`), which sit inside the
 paper's own "reasonably good" range.
 
-## What this vendoring does not independently re-confirm
+## The RSJ-to-idf reduction (§3.1, eq. 3.2–3.3) — closed by adversarial review
 
-The RSJ weight `w_i^RSJ`, in the absence of relevance feedback, "reduces... to a form
-of idf" (§3.5, already quoted in the source material read for this vendoring) — but
-this pass did not independently re-derive or re-quote the RSJ-to-idf reduction's
-exact equation number from the paper's earlier sections (§2.4–3.1, the binary
-independence model derivation). The classic Robertson–Sparck-Jones idf form, `log((N
-- n + 0.5) / (n + 0.5))`, is used in the scoring-profiles RFC on the strength of its
-wide, independent citation elsewhere in the IR literature, not on a byte-exact
-equation-number match confirmed from this specific PDF in this pass — flagged
-honestly rather than asserted as independently re-verified here.
+An earlier version of this file flagged the classic idf formula's exact equation
+number as unconfirmed. The RFC 0003 adversarial review (2026-08-18) traced it: §3.1
+("The Binary Independence Model") derives the RSJ weight (eq. 3.2), then shows that
+setting `R = r_i = 0` (no relevance information available) is equivalent to setting
+`P(t_i|rel) = 0.5`, giving eq. 3.3:
+
+> w_i^IDF = log((N − n_i + 0.5) / (n_i + 0.5))
+
+This is an exact match, verbatim, to the classic Robertson–Sparck-Jones idf form the
+`bm25` profile uses. The citation is complete as of this update; earlier text in this
+file describing it as unconfirmed no longer applies.
+
+## `sum-of-term-weights`'s exact location (§3.4.5, not §2.4)
+
+A document's full score is the sum of term weights over query terms present in the
+document — stated by the paper immediately after eq. 3.15, at the end of §3.4.5, not
+in §2.4 (which covers general notation and the "removing the zeros" arithmetic trick,
+not this specific summation statement). An earlier version of the scoring-profiles
+RFC cited §2.4 for this; corrected during adversarial review.

@@ -87,6 +87,15 @@ overlaps). This already differs from a literal token count whenever a field carr
 overlapping tokens, which any invariant-6 conformance work computing "per-document
 length" for Lucene parity must account for, not assume away.
 
+`computeNorm` actually has a third branch this file's earlier text omitted (found by
+the RFC 0003 adversarial review, 2026-08-18): when `state.getIndexOptions() ==
+IndexOptions.DOCS` (a field indexed with no term frequencies at all), Lucene uses
+`state.getUniqueTermCount()` instead of `length - numOverlap`. This branch is out of
+scope for BM25 parity — BM25 requires term frequencies, so a DOCS-only field cannot
+be BM25-scored meaningfully regardless of which norm it carries — but it is a real
+branch of the exact function this file quotes in full above, and is noted here for
+completeness rather than left silently missing from the commentary.
+
 ## Norm encoding: `SmallFloat.intToByte4`/`byte4ToInt` — NOT the classic `byte315`
 
 **This is the load-bearing correction this vendoring pass exists to make.** An
