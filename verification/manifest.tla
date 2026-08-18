@@ -11,7 +11,12 @@ EXTENDS Naturals, Sequences
 CONSTANTS
     Writers,             \* finite, nonempty set of writer ids
     Readers,             \* finite set of reader ids (may be empty)
-    ReaderRetryLimit,    \* mirrors manifest.rs's READER_REFRESH_RETRY_LIMIT
+    \* Mirrors the SHAPE of manifest.rs's READER_REFRESH_RETRY_LIMIT -- a
+    \* bounded retry count after which the reader gives up -- not its value.
+    \* The .cfg sets it to 2; the real Rust constant is 5. The smaller stand-in
+    \* keeps the model fast to check, and nothing here depends on the exact
+    \* bound, only on its being finite.
+    ReaderRetryLimit,
     DistinguishedWriter, \* one member of Writers; see RowIdCounts below
     NoProposalVal,       \* sentinel model value, see note below
     NoResultVal,         \* sentinel model value, see note below
@@ -47,8 +52,9 @@ SnapshotRec == [version: Nat, nextRowId: Nat, segments: Seq(SegmentRec)]
 \* check equality of record ... with non-record" -- a real TLC limitation on
 \* mixed string/record equality, not a hypothetical one. Model values don't
 \* have this problem.
-NoProposal == NoProposalVal  \* wLocal[w].proposed before ProposeSnapshot has run
-NoResult == NoResultVal      \* rLocal[r].result before a reader finishes
+NoProposal == NoProposalVal    \* wLocal[w].proposed before ProposeSnapshot has run
+NoResult == NoResultVal        \* rLocal[r].result before a reader finishes
+NoCommitsYet == NoCommitsYetVal \* rLocal[r].result when the pointer does not exist
 
 Init ==
     /\ snapshots = <<>>
@@ -68,7 +74,7 @@ TypeOK ==
     /\ \A r \in Readers :
         /\ rLocal[r].retries \in Nat
         /\ rLocal[r].ptrVersion \in Nat
-        /\ rLocal[r].result = NoResult \/ rLocal[r].result = NoCommitsYetVal \/ rLocal[r].result \in SnapshotRec
+        /\ rLocal[r].result = NoResult \/ rLocal[r].result = NoCommitsYet \/ rLocal[r].result \in SnapshotRec
 
 \* RFC 0002 SS4 gives ReadCurrent no explicit outcome set, but the real
 \* read_current() propagates a store.get() failure as CommitError::Io
@@ -96,10 +102,22 @@ ProposeSnapshot(w) ==
     /\ UNCHANGED <<snapshots, rPc, rLocal>>
 
 \* RFC 0002 SS4: outcome in {Success, PreconditionFailed, DefiniteFailure, Ambiguous}.
-\* PreconditionFailed is forced (a stale CAS token always fails, never ambiguously
-\* succeeds -- RFC 0002 SS3's drift table treats a definite service response, which
-\* this is, as distinct from a genuinely ambiguous one). The other three outcomes
-\* are a real writer's environment-injected choice, independent of staleness.
+\* A stale CAS token always fails, never ambiguously succeeds -- RFC 0002 SS3's
+\* drift table treats a definite service response, which this is, as distinct
+\* from a genuinely ambiguous one.
+\*
+\* Deliberate narrowing, stated plainly because the code below does not say it:
+\* the other three outcomes are modeled ONLY when the CAS is not stale. A stale
+\* attempt is modeled as forcing PreconditionFailed, even though the real store
+\* could also return Io or Ambiguous on a stale attempt -- the backend can fail,
+\* or the ack can be lost, whatever the etag's freshness. This narrowing is
+\* safety-neutral for the invariants this model checks, worked through rather
+\* than assumed: a stale+Io path only reaches a "Failed" state, which no
+\* invariant here observes, and a stale+Ambiguous path would resolve to "not
+\* landed" (ResolveAmbiguity's landed branch needs Len(snapshots) = baseVersion,
+\* which staleness denies) and loop back to "Read" -- the same successor the
+\* plain stale branch already produces. Widening the outcome space here would
+\* add states, not reachable invariant violations.
 TryAdvancePointer(w) ==
     /\ wPc[w] = "Advance"
     /\ LET stale == Len(snapshots) # wLocal[w].baseVersion IN
@@ -116,11 +134,31 @@ TryAdvancePointer(w) ==
               /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
 
 \* manifest.rs's real disambiguation: a follow-up read of the pointer resolves
-\* the ambiguity completely, because the CAS is atomic server-side. "Landed" is
-\* only still possible if no rival has committed since this writer's read. The
+\* the ambiguity completely, because the CAS is atomic server-side. The
 \* follow-up read can itself fail (manifest.rs lines ~178-182, also
 \* CommitError::Io) -- the third branch below, missing from the first draft
 \* per the second adversarial review (see above).
+\*
+\* Deliberate abstraction, stated plainly because the shape below invites the
+\* opposite reading: this action models the OUTCOME of the disambiguation
+\* (landed or not landed), not the read-only recheck the real function
+\* performs. The real StoreError::Ambiguous means the CAS may already have
+\* landed on the store, and commit() then merely observes which; here the
+\* Append is deferred into the "landed" branch, so the model's
+\* ResolveAmbiguity has a write side effect its real counterpart does not, and
+\* it decides "landed" by asking whether anyone else has committed since this
+\* writer's read rather than whether the committed thing is this writer's own.
+\* One real scenario is therefore unreachable in the model: this writer's write
+\* actually lands, a rival builds on it, and this writer then retries and
+\* commits a duplicate.
+\*
+\* The reason is state-space finiteness, confirmed empirically rather than
+\* assumed. Modeling this more literally -- append nondeterministically at the
+\* ambiguous CAS, then resolve by reading -- makes the state space unbounded
+\* (>4M states and still growing when the whole-branch review measured it),
+\* because a writer can append, fail to observe it, and append again without
+\* bound. Bounding it properly (a CONSTRAINT on Len(snapshots), or a per-writer
+\* attempt cap) is follow-on work for a later plan, not this model.
 ResolveAmbiguity(w) ==
     /\ wPc[w] = "ResolveAmbiguity"
     /\ \/ /\ Len(snapshots) = wLocal[w].baseVersion
@@ -144,7 +182,7 @@ ReadPointer(r) ==
     /\ rPc[r] = "ReadPtr"
     /\ \/ /\ Len(snapshots) = 0
           /\ rPc' = [rPc EXCEPT ![r] = "Done"]
-          /\ rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYetVal]
+          /\ rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
           /\ UNCHANGED <<snapshots, wPc, wLocal>>
        \/ /\ Len(snapshots) > 0
           /\ rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
@@ -180,6 +218,11 @@ Next ==
     \/ \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
     \/ \E r \in Readers : ReadPointer(r) \/ ReadSnapshotObject(r)
 
+\* Not referenced by manifest.cfg, which drives INIT/NEXT directly -- and so
+\* not dead code by accident but by design. It is here as groundwork for the
+\* follow-on liveness plan (RFC 0002 Open Questions): a temporal property needs
+\* a full Spec with its fairness conditions, not just INIT/NEXT, and writing
+\* the Spec formula now keeps the module honest about what it is a spec OF.
 Spec == Init /\ [][Next]_<<snapshots, wPc, wLocal, rPc, rLocal>>
 
 \* RFC 0002 Open Questions: "no two SegmentRefs across the full committed
@@ -202,6 +245,25 @@ NoOverlappingRowIds ==
             \/ segs[j].base + segs[j].count <= segs[i].base
 
 \* RFC 0002 Open Questions: "next_row_id [is] strictly monotonic across commits."
+\* Checked here as <= rather than <, deliberately weaker than that phrasing: a
+\* commit that adds zero rows is legal in the real protocol, and <= is the
+\* property that survives it. In this model every writer's RowIdCounts is >= 1,
+\* so < would hold too -- the weaker form is chosen for the real protocol's
+\* sake, not because the model needs it.
+\*
+\* Not redundant against NextRowIdMatchesSegments/VersionsMatchIndex, which is
+\* worth recording because it looks like it should be: those two are checks on
+\* a single snapshot (the latest), while this one is the only cross-snapshot
+\* ordering check. A mutation that makes each snapshot individually consistent
+\* but the sequence disordered is caught here and nowhere else. Confirmed by
+\* mutation test: replacing ProposeSnapshot's `proposed` with one built from
+\* scratch rather than from the snapshot the writer read --
+\*   proposed == [version |-> base, nextRowId |-> RowIdCounts[w],
+\*                segments |-> <<[base |-> 0, count |-> RowIdCounts[w]]>>]
+\* -- leaves every snapshot self-consistent (one segment, next_row_id equal to
+\* its count, version equal to its index) and so passes all six other
+\* invariants clean at the full 561 states, while this invariant catches it:
+\* w2 (2 rows) committing before w1 (1 row) yields next_row_id 2 then 1.
 MonotonicNextRowId ==
     \A i, j \in 1..Len(snapshots) : i < j => snapshots[i].nextRowId <= snapshots[j].nextRowId
 
@@ -234,7 +296,22 @@ NextRowIdMatchesSegments ==
 \* writer-side ground truth, the property a reader-safety bug would break.
 ReaderSeesOnlyCommitted ==
     \A r \in Readers :
-        (rPc[r] = "Done" /\ rLocal[r].result # NoCommitsYetVal) =>
+        (rPc[r] = "Done" /\ rLocal[r].result # NoCommitsYet) =>
             \E i \in 1..Len(snapshots) : snapshots[i] = rLocal[r].result
+
+\* The writer-side counterpart of ReaderSeesOnlyCommitted, and the one
+\* property that makes a lost update visible: a writer that reports success
+\* must have actually put its own proposed snapshot into committed history.
+\* Without this, nothing in the model reads wPc or wLocal outside TypeOK, so a
+\* writer could reach "Done" having committed nothing at all and every other
+\* invariant would still hold -- confirmed by mutation test (deleting the
+\* Append from TryAdvancePointer's Success branch passes clean without this
+\* invariant, and is caught by it). RFC 0002's Summary names exactly this
+\* failure ("lose a writer's data") as motivating the model; NoOverlappingRowIds
+\* covers the other half of that sentence.
+WriterSuccessIsCommitted ==
+    \A w \in Writers :
+        wPc[w] = "Done" =>
+            \E i \in 1..Len(snapshots) : snapshots[i] = wLocal[w].proposed
 
 ====

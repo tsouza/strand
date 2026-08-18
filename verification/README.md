@@ -19,10 +19,32 @@ Then, from the repository root:
     java -jar /path/to/tla2tools.jar -workers auto -config verification/manifest.cfg verification/manifest.tla
 
 Expect `Model checking completed. No error has been found.` and exit code
-`0`. A parse-only check (no model checking, just confirms the module is
-well-formed) is also available:
+`0`, with **561 distinct states** found (1487 generated, search depth 14).
+That state count is the baseline: a future session scaling the model up
+should expect it to move, and a change that leaves it identical has probably
+not reached the state space it meant to. A parse-only check (no model
+checking, just confirms the module is well-formed) is also available:
 
     java -cp /path/to/tla2tools.jar tla2sany.SANY verification/manifest.tla
+
+## Invariants checked
+
+Seven, all listed in `verification/manifest.cfg` and each carrying its
+grounding and its mutation test in a comment beside it in `manifest.tla`:
+
+- `TypeOK` — every variable stays in its declared domain.
+- `NoOverlappingRowIds` — no two committed segments claim overlapping
+  row-ID ranges.
+- `MonotonicNextRowId` — `next_row_id` never goes backwards across commits.
+- `VersionsMatchIndex` — a snapshot's recorded version equals its position
+  in committed history.
+- `NextRowIdMatchesSegments` — `next_row_id` equals the summed row counts of
+  the committed segments.
+- `ReaderSeesOnlyCommitted` — a reader that finishes with a result reports a
+  snapshot that is really in committed history.
+- `WriterSuccessIsCommitted` — a writer that reports success really did
+  commit its own proposed snapshot. This is the one that makes a lost update
+  visible; without it nothing outside `TypeOK` reads writer state at all.
 
 ## Scope
 
@@ -36,11 +58,30 @@ parameter tweak, once M3 lands. Liveness (a writer retrying under bounded
 contention eventually commits) is explicitly out of scope — a follow-on plan
 covers it; see RFC 0002's Open Questions.
 
+One abstraction in the writer path is worth knowing before reading the
+model, because its shape invites the wrong reading. `ResolveAmbiguity` models
+the *outcome* of resolving an ambiguous CAS — landed or not landed — rather
+than the read-only recheck the real `commit` performs; the append is deferred
+into its "landed" branch. This is deliberate and is about keeping the state
+space finite: modeling it literally (append nondeterministically at the
+ambiguous CAS, then read to resolve) lets a writer append, fail to observe
+it, and append again without bound, which was measured during review at over
+4M states and still growing. The cost is that one real scenario — a writer's
+write lands, a rival builds on it, and the writer then retries and commits a
+duplicate — is unreachable here. Bounding the literal model properly is
+follow-on work, not a defect to patch in place. `TryAdvancePointer` carries a
+smaller, safety-neutral narrowing of the same kind, documented at the action.
+
 ## Model size
 
 `verification/manifest.cfg` uses a small, fast-checking configuration (2
 writers, 1 reader, `DistinguishedWriter` claiming 1 row per segment and the
-other writer claiming 2). This is deliberate, not an unexamined default: an
+other writer claiming 2, `ReaderRetryLimit` 2). That retry limit is the one
+constant whose value visibly diverges from its real counterpart:
+`manifest.rs`'s `READER_REFRESH_RETRY_LIMIT` is 5, and the model mirrors the
+shape of a bounded retry, not the number — nothing checked here depends on
+the exact bound, only on its being finite. The rest is deliberate too, not an
+unexamined default: an
 adversarial review of this model's design confirmed every guard in this
 protocol is a single boolean comparison with no quorum/threshold logic
 depending on rival *count* (unlike Raft), and readers never interact with
