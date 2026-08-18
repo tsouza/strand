@@ -132,7 +132,53 @@ ResolveAmbiguity(w) ==
        \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
           /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
 
-Next == \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
+\* RFC 0002 SS4: outcome in {Found, Absent, DefiniteFailure}. Absent and Found
+\* are mutually exclusive, guarded by Len(snapshots); DefiniteFailure is an
+\* environment-injected possibility independent of either. Terminates at
+\* "Failed_DefiniteFailure" (not a bare "Failed"): the real ReadError enum
+\* has two distinct variants (Io, RetriesExhausted), and a first draft of
+\* this model collapsed both into one indistinguishable terminal state --
+\* found by the second adversarial review (see above) and fixed here and in
+\* ReadSnapshotObject below.
+ReadPointer(r) ==
+    /\ rPc[r] = "ReadPtr"
+    /\ \/ /\ Len(snapshots) = 0
+          /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+          /\ rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYetVal]
+          /\ UNCHANGED <<snapshots, wPc, wLocal>>
+       \/ /\ Len(snapshots) > 0
+          /\ rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+          /\ rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+          /\ UNCHANGED <<snapshots, wPc, wLocal>>
+       \/ /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+          /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+
+\* RFC 0002 SS4: outcome in {Found, Expired, DefiniteFailure}. Nothing in this
+\* model ever deletes a snapshot (compaction is M3, out of scope -- RFC 0002
+\* Non-goals), so Expired is modeled as a pure environment-injected fault, the
+\* same way DefiniteFailure is -- never derived from real deletion state, per
+\* RFC 0002's own explanation of why this action exists ahead of M3. Confirmed
+\* by the second adversarial review as an acceptable stand-in for now, with
+\* the explicit caveat that M3 will need a structural rework here (Expired
+\* conditioned on real retention state), not a parameter tweak.
+ReadSnapshotObject(r) ==
+    /\ rPc[r] = "ReadSnap"
+    /\ \/ /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+          /\ rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+          /\ UNCHANGED <<snapshots, wPc, wLocal>>
+       \/ /\ rLocal[r].retries < ReaderRetryLimit
+          /\ rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+          /\ rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+          /\ UNCHANGED <<snapshots, wPc, wLocal>>
+       \/ /\ rLocal[r].retries >= ReaderRetryLimit
+          /\ rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+          /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+       \/ /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+          /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+
+Next ==
+    \/ \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
+    \/ \E r \in Readers : ReadPointer(r) \/ ReadSnapshotObject(r)
 
 Spec == Init /\ [][Next]_<<snapshots, wPc, wLocal, rPc, rLocal>>
 
