@@ -5,9 +5,16 @@ length. Approved by RFC 0004 (`rfcs/0004-analyzer-descriptors.md`); this chapter
 states the settled result — see the RFC for the worked example, alternatives
 considered, and the adversarial review.
 
-Reference implementation: not yet implemented; lands with the R2 lexical blob (M1,
-`docs/ledger.md`). Conformance vectors: `conformance/analyzers/`, not yet created —
-RFC 0004's worked example is the first.
+Reference implementation: `crates/strand-lexical/src/analyzer.rs` — the one
+descriptor RFC 0004's worked example names (UAX29-word tokenization with
+`"word-only"` retention, `"lower"` case folding, `lucene-en-10.5.1` stopwords,
+`snowball-porter2-en` stemming), built on the real `unicode-segmentation` and
+`rust-stemmers` crates rather than hand-rolled algorithms. The descriptor's own
+wire placement (which blob carries these bytes) still lands with the R2 lexical
+blob (M1, `docs/ledger.md`). Conformance vectors: `conformance/analyzers/` —
+`lucene-en-word-only-01.json` pins RFC 0004's worked example (raw text,
+descriptor, expected token stream, expected `dl`) as the first normative vector,
+checked in `crates/strand-lexical/tests/analyzer_conformance_vectors.rs`.
 
 ## 1. The descriptor
 
@@ -108,4 +115,10 @@ budget.
 
 ## 7. Conformance status
 
-Not yet implemented.
+One descriptor implemented and pinned (`crates/strand-lexical/src/analyzer.rs`,
+`conformance/analyzers/lucene-en-word-only-01.json`) — the `lucene-en-10.5.1`
+English chain RFC 0004's worked example describes. Every other declared
+combination this schema permits (other languages, other stopword lists,
+`token_retention: "all-segments"`, `case_folding: "full-case-fold"`, dictionary
+segmentation) remains unimplemented and unvectored; each is real, separate M1
+execution work, not covered by this one vector's presence.

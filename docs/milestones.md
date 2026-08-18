@@ -99,10 +99,19 @@ description, tested to 1e-6 against the RFC's own worked-example numbers
 vectors in `conformance/analyzers/` are gating deliverables of this milestone, not
 metadata afterthoughts** — without them invariant 6 is a label; the schema and
 per-document-length definition are now RFC 0004 (`rfcs/0004-analyzer-descriptors.md`,
-Approved), with one real worked example as the first conformance vector, though the
-full vector suite across languages and scripts is still M1 execution work, not done
-by the RFC alone, and the CJK/Thai/Lao segmentation-dictionary choice remains
-unresolved (RFC 0004's own Non-goals). Tantivy importer. R2
+Approved), with one real worked example as the first conformance vector. That
+vector is now implemented and checked, not just described:
+`crates/strand-lexical/src/analyzer.rs` runs the exact chain the worked example
+names (UAX #29 `"word-only"` tokenization via `unicode-segmentation`, `"lower"`
+case folding, `lucene-en-10.5.1` stopword removal, `snowball-porter2-en` stemming
+via `rust-stemmers`) against `conformance/analyzers/lucene-en-word-only-01.json`,
+reproducing `"The whales swim quickly."` → `["whale", "swim", "quick"]`,
+`dl = 3`, byte-for-byte with the RFC. Both new crate dependencies are real,
+licensed implementations (`unicode-rs/unicode-segmentation`,
+`CurrySoftware/rust-stemmers`, both Apache-2.0-compatible), not hand-rolled
+algorithms. The full vector suite across languages and scripts is still M1
+execution work, not done by this one vector, and the CJK/Thai/Lao segmentation-
+dictionary choice remains unresolved (RFC 0004's own Non-goals). Tantivy importer. R2
 codec bake-off lands here and confirms or swaps the postings default (including
 verifying tantivy's actual current codec, per `docs/data-structures.md`); the R9 layout evaluation and
 license audit MUST complete before the bake-off freezes the default, since a

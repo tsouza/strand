@@ -1,0 +1,26 @@
+{
+  "vector_id": "lucene-en-word-only-01",
+  "source": "rfcs/0004-analyzer-descriptors.md, Worked example",
+  "descriptor": {
+    "unicode_version": "17.0.0",
+    "icu_version": "78.3",
+    "cldr_version": "48.2",
+    "tokenizer_profile": {
+      "algorithm": "UAX29-word",
+      "unicode_version": "17.0.0",
+      "token_retention": "word-only",
+      "case_folding": "lower",
+      "deviations": []
+    },
+    "stopword_list_id": "lucene-en-10.5.1",
+    "stemmer": {
+      "name": "snowball-porter2-en",
+      "version": "snowballstem/snowball, confirmed against snowball-data test vectors 2026-08-18"
+    },
+    "segmentation_dictionary": null,
+    "counts_overlaps_in_length": false
+  },
+  "input": "The whales swim quickly.",
+  "expected_tokens": ["whale", "swim", "quick"],
+  "expected_document_length": 3
+}

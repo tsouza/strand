@@ -17,5 +17,6 @@
 //! store (`spec/term-dictionary.md`, RFC 0005), and the value-dictionary FST
 //! and filter-bitmap store (`spec/filter-bitmaps.md`, RFC 0006).
 
+pub mod analyzer;
 pub mod filter_bitmaps;
 pub mod term_dictionary;

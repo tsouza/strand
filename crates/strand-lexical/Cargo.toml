@@ -9,9 +9,12 @@ description = "STRAND lexical-family blobs: term-dictionary FST and term-info st
 [dependencies]
 fst = "0.4.7"
 roaring = "0.11.5"
+rust-stemmers = "1.2.0"
+unicode-segmentation = "1.13.3"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
 
 [dev-dependencies]
 proptest = "1.11.0"
+serde_json = "1.0.151"
