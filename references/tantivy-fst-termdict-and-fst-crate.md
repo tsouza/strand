@@ -71,8 +71,10 @@ pub struct TermInfo {
 ```
 
 Serialized as `doc_freq: u32`, `postings_range.start: u64`, `postings_num_bytes:
-u32`, `positions_range.start: u64`, `positions_num_bytes: u32` — 24 bytes per entry,
-uncompressed. The struct's own doc comment states the real on-disk encoding is not
+u32`, `positions_range.start: u64`, `positions_num_bytes: u32` — `3 * 4 + 2 * 8 =
+28` bytes per entry (the struct's own `FixedSize` impl states this as `3 *
+u32::SIZE_IN_BYTES + 2 * u64::SIZE_IN_BYTES`, computed here rather than asserted —
+an earlier version of this file miscalculated it as 24 bytes), uncompressed. The struct's own doc comment states the real on-disk encoding is not
 this fixed-size form directly: "in practice, `TermInfo` are encoded in blocks and
 only the first `TermInfo` of a block is serialized uncompressed. The subsequent
 `TermInfo` are delta encoded and bitpacked" — a block-delta scheme layered on top of
