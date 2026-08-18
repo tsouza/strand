@@ -42,12 +42,23 @@ the amendment), and a `proptest`-based fuzzer drives randomized concurrent-write
 rounds through the protocol's safety invariants.
 
 **M1 — Lexical.** BP128 postings + positions + FST term dictionary + block-max
-sibling blob + Roaring filter bitmaps. The R2 RFC pins the exact d-gap variant
+sibling blob + Roaring filter bitmaps. The **term-dictionary FST and term-info
+store** are now RFC 0005 (`rfcs/0005-term-dictionary.md`, Approved) — adopts
+tantivy's real two-part design (dense per-term FST, separate ordinal-indexed
+term-info array) directly rather than inventing one, with a worked example built
+from the actual `fst` crate (not illustrative bytes) and independently reproduced
+byte-for-byte during review; also the first RFC to populate the blob-type registry
+(`spec/container.md` §9). FST size at realistic vocabulary scale and the `fst`
+crate's cross-platform byte-determinism are both still open (RFC 0005's own Open
+questions). The R2 RFC pins the exact d-gap variant
 (invariant 11) and the block-max RFC pins the raw-statistics fields (invariant 4);
 neither is drafted yet, both gated on R9's still-unmeasured margin
 (`docs/ledger.md`) — though a maintained, Apache-2.0 Rust FastLanes implementation
 now exists to measure against (`references/spiraldb-fastlanes-rust-crate.md`),
-lowering what running that measurement actually costs. The **scoring-profiles
+lowering what running that measurement actually costs, and a first real
+decode-throughput measurement (`bench/results/codec-decode-throughput.json`) now
+covers `BitPacker4x`/`BitPacker8x`/`FastLanes`/`FastPFOR` on both uniform and
+synthetic-skewed data. The **scoring-profiles
 chapter** (RFC 0003, `rfcs/0003-scoring-profiles.md`, Approved) defines the `bm25`
 profile normatively and the Lucene-parity profile, both grounded byte-exact against
 Robertson & Zaragoza's own formula and Lucene 10.5.1's real source, with a worked
