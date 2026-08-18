@@ -229,4 +229,12 @@ NextRowIdMatchesSegments ==
     snapshots = <<>> \/
     snapshots[Len(snapshots)].nextRowId = SumCounts(snapshots[Len(snapshots)].segments)
 
+\* A reader that finishes with an actual result never reports a snapshot
+\* that isn't really in the committed history -- ties the reader model to
+\* writer-side ground truth, the property a reader-safety bug would break.
+ReaderSeesOnlyCommitted ==
+    \A r \in Readers :
+        (rPc[r] = "Done" /\ rLocal[r].result # NoCommitsYetVal) =>
+            \E i \in 1..Len(snapshots) : snapshots[i] = rLocal[r].result
+
 ====
