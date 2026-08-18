@@ -80,7 +80,14 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   compressed bytes at all via precomputed bounds, not an operation performed on
   bytes once touched (`references/ding-suel-block-max-shallow-pointers.md`, which
   also pins the "shallow" vs "deep" pointer-movement terminology this project
-  should use consistently).
+  should use consistently). A separate, narrower question raised alongside this
+  grounding — whether a single codec could combine BP128's compression/decode
+  speed with Elias-Fano's genuine compressed-domain searchability, since no
+  published construction achieving both has been found (PISA offers them as
+  separate per-index choices, not one fused codec) — has a phased, gated
+  investigation methodology at `docs/research/r2-hybrid-codec-methodology.md`.
+  No phase has been executed; it is a plan, not a result, and does not change
+  R2's BP128 default or require an RFC on its own.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
