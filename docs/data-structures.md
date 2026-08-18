@@ -37,7 +37,10 @@ exactly R9's job. Per the §2 rule, no order-of-magnitude margin over BP128 is c
 until it is measured. FastLanes carries two further open questions that gate adoption (R9): its 1024-value
 granularity conflicts with the 128-int block lineage — the block-max sibling blob must
 be redesigned to 1024-granularity or a nested 8×128 scheme, and either must preserve
-invariant 4 — and its license is unaudited. If R9 resolves these favorably and the
+invariant 4. (Its license is resolved: `cwida/FastLanes` is confirmed MIT,
+Apache-2.0-compatible — `references/r9-fastlanes-core-alp-damon-license.md`, 2026-08-18
+— leaving only the granularity question and the measured margin open.) If R9
+resolves these favorably and the
 bake-off confirms a real margin on postings, the default swaps and the conformance
 story changes with it; until then BP128 stands.
 
