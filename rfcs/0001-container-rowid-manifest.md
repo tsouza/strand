@@ -538,3 +538,36 @@ opens any segment, there was no reason to depend on the unconfirmed server behav
   segment file in one RTT without a `HEAD` first.
 - Whether the manifest should eventually carry optional per-segment summary metadata
   for cross-segment pruning is R10 and stays explicitly out of this RFC's scope.
+
+## Discussion — post-approval amendments
+
+Per `CLAUDE.md` §3, design problems revealed by implementation are recorded here,
+in the RFC, rather than folded silently into spec text. Two such changes landed
+after this RFC was approved. The Design sections above are unmodified; this section
+is the record of what changed and why, and `spec/manifest.md` cites it.
+
+**Definite vs. ambiguous store failures, and the pointer-CAS disambiguation.** The
+commit protocol as approved (Design §3, step 3) enumerated two CAS outcomes:
+success, and `412 Precondition Failed`. Implementation revealed a third: the store
+abstraction conflated "the backend definitely failed" with "the request timed out
+and its outcome is unknown." These demand different handling — a pointer CAS in the
+second state may already have landed server-side, and a writer that retries blindly
+after a landed-but-unacknowledged CAS commits a redundant duplicate version on top
+of its own success. The fix added a distinct `Ambiguous` outcome to the store
+trait's error type and a disambiguating follow-up `GET` of the pointer in
+`commit()`: because the CAS is atomic on the backend, one read fully resolves the
+ambiguity — the pointer either names this attempt's own snapshot path (landed;
+return success) or it does not (proceed exactly as on `412`). Landed in commit
+`1879b52`, test-first, with a mutation test confirming the naive blind-retry
+version produces the predicted duplicate commit. `spec/manifest.md` §2 was updated
+in the same commit and is the normative statement of the amended protocol.
+
+**Provenance of the `Io`-vs-`PreconditionFailed` retry fix.** An earlier version of
+`spec/manifest.md` attributed this fix to this RFC's pre-approval adversarial
+review. That was wrong. The review's genuine protocol finding was the step-1
+snapshot-filename collision (resolved by the `writer_nonce`, Design §3). The
+retry bug — `commit()`'s CAS loop treating a permanent backend failure the same as
+a lost race and retrying forever — was found during M0 implementation by writing a
+failing test against the unfixed code (the `a0994b7`-era error-propagation work),
+not by the review. Both provenances are stated here so the record is honest about
+which safeguards caught which defects.

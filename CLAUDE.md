@@ -40,7 +40,7 @@ independent fetches, never dependent pointer-chasing.* Cold vector search in v0.
 cluster-shaped. Graph indexes are in the format as a warm-tier blob family and are
 explicitly not the cold-open story. The v0.1 cold story is additionally **per-segment**:
 the format makes each segment cheap to open and query cold, and reports segment-count
-amplification honestly (§8); a manifest-level cross-segment navigation layer is open
+amplification honestly (§7); a manifest-level cross-segment navigation layer is open
 research (R10), not a v0.1 promise. This is a narrower claim, deliberately, and it is
 the honest one.
 
@@ -58,7 +58,7 @@ statistics, block-max bounds, scoring-profile descriptors, distance-metric metad
 quantization codebooks and kernel selection, analyzer *descriptors with normative
 conformance vectors*, per-blob storage-class and tier declarations, per-blob-family
 merge semantics, the blob-type registry, and the snapshot manifest with its safety
-rules (§7).
+rules (§6).
 
 ---
 
@@ -134,7 +134,7 @@ it most risks repeating. Fuzzing and round-trip property tests are not optional.
 
 **Do the arithmetic before the design.** The single most expensive error caught while
 drafting this document — a graph-ANN cold path over S3 — would have been killed by one
-line of multiplication. The napkin-math rule (§8) is the institutionalized form of that
+line of multiplication. The napkin-math rule (§7) is the institutionalized form of that
 lesson, extended to include the manifest layer, because "roundtrips per query" that
 start after the metadata is magically in hand are an engine's accounting, not a
 format's.
@@ -165,11 +165,11 @@ These are settled. A session may propose changing one only via RFC, never by dri
    stated honestly per family, not glossed by the word "compaction."
 2. **Immutable segments + deletion vectors.** No in-place mutation, ever. Deletes are
    deletion-vector blobs (Roaring); updates are delete + reinsert; physical removal is
-   deferred to compaction and governed by §7's deletion-safety rule.
+   deferred to compaction and governed by §6's deletion-safety rule.
 3. **Object storage is the primary target, and cold access is chunk-shaped and
    wave-addressable.** Opening a segment MUST cost at most two round trips before
    query planning can begin, counted from the segment footer read (the manifest layer
-   above it has its own accounting, §8). Beyond the open, no cold read path may depend
+   above it has its own accounting, §7). Beyond the open, no cold read path may depend
    on data-dependent pointer chasing: cold structures are navigable from a small tier
    fetched wholesale, followed by a bounded number of independent, parallelizable
    fetches. The one-wave rule: after the open, **every byte range a cold query may
@@ -177,7 +177,7 @@ These are settled. A session may propose changing one only via RFC, never by dri
    navigation tier — with no offset lookup that costs a round trip, so that a
    conforming reader can issue each fetch stage as one parallel wave. The format can
    only make the wave possible; the M0 benchmark asserts a reader that actually issues
-   it, and every cold-path RFC includes the round-trip arithmetic of §8. Design
+   it, and every cold-path RFC includes the round-trip arithmetic of §7. Design
    decisions are justified in GETs and bytes read, not only in CPU.
 4. **Pruning metadata is codec-independent and scoring-independent.** Block-max bounds
    live beside postings as a sibling blob, never inside a codec's private structures —
@@ -216,7 +216,7 @@ These are settled. A session may propose changing one only via RFC, never by dri
 7. **Flat vectors are separate from index structures, and every vector blob declares
    its tier.** Raw full-precision vectors are one blob, fetched only for reranking.
    Index blobs declare `tier: cold-fetchable` (the whole navigation tier fits the
-   cold-open byte budget of §8 and is fetched wholesale) or `tier: warm` (assumes
+   cold-open byte budget of §7 and is fetched wholesale) or `tier: warm` (assumes
    NVMe-class latency; graph families live here). Quantization codebooks, kernel
    selection, and distance-metric metadata travel with the index blob.
 8. **Don't invent encodings.** Postings compression, adjacency layouts, and
@@ -326,7 +326,7 @@ at M3; until then the rule is stated so no one invents a more clever, less safe 
 snapshot-at-load. Freshness costs one conditional GET of the pointer per refresh; the
 format defines no push or notification mechanism, on purpose. A "warm query with
 read-your-writes" therefore costs one pointer round trip more than a query against a
-cached snapshot, and §8's metrics report both numbers. This is one of the places the
+cached snapshot, and §7's metrics report both numbers. This is one of the places the
 comparison engine's warm figures embed machinery (a WAL tail and a caching fleet) the
 format does not have; `docs/benchmarks.md` says so.
 
@@ -335,7 +335,7 @@ segments mean a commit per tiny batch produces a segment per tiny batch, and col
 query cost grows with segment count until compaction. The format ships no WAL and no
 memtable; a production writer batches on its own side. This is a real cost of the
 design, stated rather than hidden, and it is one reason the segment-count
-amplification metric exists in §8.
+amplification metric exists in §7.
 
 ---
 

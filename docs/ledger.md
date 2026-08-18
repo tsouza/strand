@@ -1,7 +1,8 @@
 # Settled vs open ledger
 
-Extracted verbatim (with version self-references removed) from `CLAUDE.md` Appendix B
-at repository seeding. This is the ledger `CLAUDE.md` §5 and `docs/data-structures.md`
+Extracted (with version self-references removed) at repository seeding from the
+seed constitution's ledger appendix — now the first half of `CLAUDE.md`'s single
+Appendix, which points here. This is the ledger `CLAUDE.md` §5 and `docs/data-structures.md`
 point to: what's settled and not to be re-litigated, and what's open and requires an
 RFC backed by the research tracks in `docs/research/README.md`.
 
@@ -81,11 +82,14 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   bytes once touched (`references/ding-suel-block-max-shallow-pointers.md`, which
   also pins the "shallow" vs "deep" pointer-movement terminology this project
   should use consistently). A separate, narrower question raised alongside this
-  grounding — whether a single codec could combine BP128's compression/decode
-  speed with Elias-Fano's genuine compressed-domain searchability, since no
-  published construction achieving both has been found (PISA offers them as
-  separate per-index choices, not one fused codec) — has a phased, gated
-  investigation methodology at `docs/research/r2-hybrid-codec-methodology.md`.
+  grounding — whether a single codec could combine the PFOR/BP128 family's raw
+  full-scan decode speed with Elias-Fano's genuine compressed-domain
+  searchability, since no published construction achieving both has been found
+  (PISA offers them as separate per-index choices, not one fused codec; on
+  compression the measured direction favors partitioned Elias-Fano, which is
+  the smaller of the two on the reference collections —
+  `references/ottaviano-venturini-partitioned-elias-fano.md`) — has a phased,
+  gated investigation methodology at `docs/research/r2-hybrid-codec-methodology.md`.
   No phase has been executed; it is a plan, not a result, and does not change
   R2's BP128 default or require an RFC on its own.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
@@ -128,3 +132,19 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   measurable at all until a `tier: cold-fetchable` vector blob exists (M2); tantivy
   codec-SPI absence (R11(a)); FAISS FastScan external-list feasibility (R11(b)); the
   Quickwit inheritance hypothesis (R11(c)).
+- **Batch-shaped reader trait** (invariant 9's frozen `next_batch()` API shape):
+  not yet implemented anywhere in `strand-core`, despite M0's original deliverable
+  list claiming it. Carries forward as an M1 prerequisite — M1's postings kernels
+  are its first real consumer, and the trait should land with them rather than as
+  an unconsumed abstraction (`docs/milestones.md` M0 records the same).
+- **TLA+ model correspondence gap, to close before the TLAPS proof phase** (RFC
+  0002): `verification/manifest.tla`'s `ProposeSnapshot(w)` models the snapshot-
+  object write as always succeeding, but the real `put_if_absent` in `commit()`
+  can fail definitely or ambiguously and end the attempt
+  (`crates/strand-core/src/manifest.rs:131-139`). The omission traces to RFC 0002
+  §4's approved action grammar, which — unlike every sibling action — listed no
+  outcome set for `ProposeSnapshot`. Harmless to the current TLC-checked safety
+  invariants (a failed propose reaches a terminal state no invariant observes),
+  but a TLAPS proof built on the current grammar would entrench the gap; add the
+  failure outcome to the model (and record it against RFC 0002) before that phase
+  starts.

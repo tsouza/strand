@@ -4,10 +4,14 @@ This is a research plan, not a result. It does not commit STRAND to any codec
 decision and does not require an RFC — R2's own ledger entry already establishes
 that BP128 is the postings-codec default under active grounding, and this document
 investigates a narrower, separate question raised alongside that grounding: whether
-a single codec could combine BP128's compression ratio and decode speed with
-Elias-Fano's compressed-domain searchability, since no published construction
-achieving both has been found (PISA offers both as separate per-index choices, not
-one fused codec). No phase below has been executed. If a later session runs any
+a single codec could combine the block-based PFOR/BP128 family's raw full-scan
+decode speed with Elias-Fano's compressed-domain searchability, since no published
+construction achieving both has been found (PISA offers both as separate per-index
+choices, not one fused codec). On compression the measured direction is the
+reverse of what an earlier draft of this document assumed: partitioned Elias-Fano
+is the *smaller* of the two on the reference collections
+(`references/ottaviano-venturini-partitioned-elias-fano.md`), so full-scan decode
+speed, not size, is the axis a hybrid would need to win back. No phase below has been executed. If a later session runs any
 phase and finds something load-bearing for R2's actual codec choice, that finding
 gets its own ledger entry and, if it changes the registered codec, its own RFC —
 this document is scoped to the investigation, not its outcome.
@@ -111,7 +115,9 @@ resembling whole-corpus dual encoding.
    explicitly treated as "no signal found," not as a third, ambiguous outcome. (This
    replaces an earlier three-way outcome list that left one branch — "strong
    separation, unclear if generalizable" — without a mapped decision; the ACPR pass
-   caught this as the pipeline's central undecidable gate, and this fix closes it.)
+   (Adversarial Critic Pass Review — the final independent critique pass this
+   document went through before being treated as finished, per the intro) caught
+   this as the pipeline's central undecidable gate, and this fix closes it.)
 4. Before treating a failed Step 3 as final, run one cheap extension: check a single
    pairwise-interaction term (e.g., length × skew) in addition to the univariate
    signals already tried. This exists specifically because Phase 1's method is
@@ -187,10 +193,16 @@ in a future re-telling):
 - *Stage 0 → Stage 1:* proceed only if a cost model, calibrated against real
   measured baseline numbers, predicts — in at least one clearly bounded regime —
   either a ≥2× compressed-domain-search advantage over decode-then-search, or
-  recovery of EF's ~11–12% compression disadvantage against BP128-family codecs
-  without giving back more than half of EF's selective-query latency advantage. A
-  predicted win under roughly 20% in the best-case regime does not justify writing
-  code.
+  closure of partitioned EF's full-scan decode deficit against block-based
+  PFOR-family codecs (the 7–17% OR-query edge Ottaviano & Venturini measured for
+  block-based indexes) while keeping most of EF's measured advantages — its
+  compression edge (OptPFD is 11.6–12.3% *larger* than partitioned EF on
+  ClueWeb09/Gov2) and its 14–40% AND-query speed edge
+  (`references/ottaviano-venturini-partitioned-elias-fano.md`; an earlier
+  version of this gate stated the compression direction backwards, as an EF
+  "disadvantage" — the vendored paper says the opposite, and the gate now
+  reflects it). A predicted win under roughly 20% in the best-case regime does
+  not justify writing code.
 - *Stage 1 → Stage 2:* proceed only if a minimal scalar prototype clears all three,
   simultaneously, reproducibly across a cross-collection check (a second collection
   with a different skew profile — sign reversal means the result is

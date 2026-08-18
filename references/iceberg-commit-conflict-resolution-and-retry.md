@@ -1,8 +1,11 @@
 # Apache Iceberg — Commit Conflict Resolution and Retry
 
 Vendored excerpt, not the full spec. Source: `apache/iceberg`,
-`format/spec.md`, section "Commit Conflict Resolution and Retry" and its
-"Metastore Tables" subsection. Fetched 2026-08-18 from
+`format/spec.md`, sections "Optimistic Concurrency" (added 2026-08-18 in
+a second fetch — the whole-project convergence audit found RFC 0001
+quoting this section's sentences while only the two sections below had
+been vendored), "Commit Conflict Resolution and Retry", and its
+"Metastore Tables" subsection. Both fetches 2026-08-18 from
 `https://raw.githubusercontent.com/apache/iceberg/main/format/spec.md`.
 License: Apache-2.0 (verified byte-level against the `apache/iceberg`
 repository's `LICENSE` file, matching the license claim already recorded
@@ -14,6 +17,25 @@ retry on conflict, and — confirmed by this excerpt, not assumed — the
 same version-plus-random-component snapshot filename pattern.
 
 ---
+
+### Optimistic Concurrency
+
+An atomic swap of one table metadata file for another provides the basis
+for serializable isolation. Readers use the snapshot that was current
+when they load the table metadata and are not affected by changes until
+they refresh and pick up a new metadata location.
+
+Writers create table metadata files optimistically, assuming that the
+current version will not be changed before the writer's commit. Once a
+writer has created an update, it commits by swapping the table's
+metadata file pointer from the base version to the new version.
+
+If the snapshot on which an update is based is no longer current, the
+writer must retry the update based on the new current version. Some
+operations support retry by re-applying metadata changes and committing,
+under well-defined conditions. For example, a change that rewrites files
+can be applied to a new table snapshot if all of the rewritten files are
+still in the table.
 
 ### Commit Conflict Resolution and Retry
 

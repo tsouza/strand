@@ -1,9 +1,9 @@
 # Design lineage
 
 The prior-art map for STRAND's design. Extracted verbatim from `CLAUDE.md` §4 at
-repository seeding (the repository shape originally planned this extraction for M0;
-it was pulled forward so `CLAUDE.md` stays a governable size — see
-`docs/provenance.md`, "Provenance of the seed split"). Referenced from `CLAUDE.md`.
+repository seeding: the repository shape originally planned this extraction for M0,
+but it was pulled forward at seed time so `CLAUDE.md` stays a governable size.
+Referenced from `CLAUDE.md`.
 Each RFC names the prior art it evolves from; the spec's introduction credits this
 lineage.
 

@@ -84,3 +84,44 @@ are the same author's work on the same hardware at two points in time,
 and should not be cited as two separately-corroborating benchmarks. The
 figures are useful as a real, in-Rust, plausible order of magnitude, not
 as independent confirmation.
+
+---
+
+## aarch64 NEON path (source-level, fetched 2026-08-18)
+
+The convergence audit found `docs/ledger.md` claiming an "aarch64 NEON
+path" for this crate with no support in this file. Confirmed directly
+against the crate's own source, `src/bitpacker4x.rs`, fetched 2026-08-18
+from `raw.githubusercontent.com/quickwit-oss/bitpacking/master/src/bitpacker4x.rs`:
+
+A native NEON module exists, gated on aarch64 (line 81):
+
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    mod neon {
+        ...
+        use std::arch::aarch64::{ ... };
+        ...
+        declare_bitpacker!(target_feature(enable = "neon"));
+
+        impl Available for UnsafeBitPackerImpl {
+            fn available() -> bool {
+                std::arch::is_aarch64_feature_detected!("neon")
+            }
+        }
+    }
+
+and `BitPacker4x::new()` dispatches to it at runtime alongside the x86
+SSE3 path, with the scalar fallback last (lines 376–386):
+
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    {
+        if neon::UnsafeBitPackerImpl::available() {
+            return BitPacker4x(InstructionSet::NEON);
+        }
+    }
+    BitPacker4x(InstructionSet::Scalar)
+
+So the crate's runtime dispatch covers x86 SSE3, aarch64 NEON, and
+scalar. No ARM benchmark numbers are published in the README; the NEON
+claim is source-confirmed for existence and dispatch only, not for
+throughput.

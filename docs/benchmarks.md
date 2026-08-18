@@ -1,10 +1,11 @@
 # Performance and benchmarks — detail
 
 The napkin-math rule, the cold-open byte budget, and the segment-count-reporting rule
-are load-bearing enough to stay in `CLAUDE.md` §8. This file holds the rest: datasets,
+are load-bearing enough to stay in `CLAUDE.md` §7. This file holds the rest: datasets,
 the full metrics list, named baselines, and the benchmark-engine/adapter strategy.
-Extracted verbatim from `CLAUDE.md` §8 at repository seeding, plus Appendix A
-(turbopuffer benchmark targets).
+Extracted at repository seeding from the seed constitution's performance section
+(now `CLAUDE.md` §7 — the seed's numbering differed) plus its turbopuffer-targets
+appendix.
 
 **No performance claim without a reproducible benchmark in-repo.** If a README sentence
 says "fast", a `bench/` target backs it: pinned datasets, pinned hardware description,

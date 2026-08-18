@@ -7,9 +7,12 @@ that make multi-writer, multi-reader interop actually safe rather than
 merely possible. Approved by RFC 0001
 (`rfcs/0001-container-rowid-manifest.md`); this chapter states the settled
 result — see the RFC for alternatives considered and the adversarial
-review, including the two protocol defects the review found and fixed
-(the step-1 filename collision, and the pointer-CAS `Io`-vs-
-`PreconditionFailed` retry bug).
+review, whose protocol finding was the step-1 filename collision. Two
+further protocol changes were found during implementation, not by the
+review — the pointer-CAS `Io`-vs-`PreconditionFailed` retry bug, and the
+definite-vs-ambiguous failure distinction with its disambiguating
+follow-up read (§2 step 3) — and are recorded in the RFC's Discussion
+section.
 
 Reference implementation: `crates/strand-core/src/manifest.rs`. Backends:
 `crates/strand-core/src/store.rs` (the `ConditionalStore` trait and an
@@ -37,11 +40,12 @@ invents a different one.
 **Snapshot metadata** (`_strand/snapshots/{version:020}-{writer_nonce}.json`,
 immutable, one per *proposed* commit — §3 explains the nonce). Fields:
 
-| field       | type                | notes                                                     |
-| ----------- | ------------------- | --------------------------------------------------------- |
-| version     | u64                 | this snapshot's version                                   |
-| next_row_id | u64                 | one past the highest row-ID any referenced segment claims |
-| segments    | array of SegmentRef | the segment set (below)                                   |
+| field          | type                | notes                                                     |
+| -------------- | ------------------- | --------------------------------------------------------- |
+| version        | u64                 | this snapshot's version                                   |
+| next_row_id    | u64                 | one past the highest row-ID any referenced segment claims |
+| segments       | array of SegmentRef | the segment set (below)                                   |
+| index_versions | per-blob-family map | each blob family's index version (below)                  |
 
 A `SegmentRef`:
 
@@ -53,11 +57,15 @@ A `SegmentRef`:
 | byte_length  | u64    | the segment object's total size             |
 | checksum     | u64    | xxHash3-64 over the segment's on-disk bytes |
 
-Per the Lance model (`docs/lineage.md`), a blob family's index version is
-referenced without embedding that family's internal structure —
-index-aware, index-internals-agnostic. No blob-family-specific fields
-belong in `SegmentRef`; a family's own internal state lives inside the
-segment (`spec/container.md`), not the manifest.
+Per the Lance model (`docs/lineage.md`), `index_versions` references each
+blob family's index version without embedding that family's internal
+structure — index-aware, index-internals-agnostic, as RFC 0001 decided.
+*Not yet implemented in the reference implementation* — the field becomes
+real when the first blob families with versioned index state land (M1
+lexical, M2 vector); its exact key/value shape is pinned then, in those
+milestones' RFCs, not here. No blob-family-specific fields belong in
+`SegmentRef`; a family's own internal state lives inside the segment
+(`spec/container.md`), not the manifest.
 
 **Current pointer** (`_strand/current`): the single object every reader
 and writer reads first. Its content is the path (key) of the current

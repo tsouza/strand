@@ -4,8 +4,9 @@ Invariant 8 (`CLAUDE.md` §5) says don't invent encodings. This section names th
 starting defaults so they aren't re-litigated inside every RFC. Each default is a
 specific, published, production-proven technique, verified against primary sources in
 the R-track research (`docs/research/README.md`). A session may swap one for a named
-alternative via RFC backed by a benchmark; it may not invent one. Extracted verbatim
-from `CLAUDE.md` §6 at repository seeding.
+alternative via RFC backed by a benchmark; it may not invent one. Extracted at
+repository seeding from the seed constitution's data-structure section (pointed to
+from what is now the end of `CLAUDE.md` §5 — the seed's numbering differed).
 
 **Postings (provisional default, confirmed by in-repo benchmark — R2).** Fixed
 128-integer blocks encoded with **SIMD-BP128**: plain vectorized binary packing at a

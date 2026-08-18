@@ -2,8 +2,9 @@
 
 For each track: the findings the constitution depends on, and the primary sources to
 vendor into `references/` at M0. This is the condensed form sessions cite until the
-full research report is vendored into `docs/research/` at M0. Extracted verbatim from
-`CLAUDE.md` Appendix C at repository seeding.
+full research report is vendored into `docs/research/` at M0. Extracted at repository seeding
+from the seed constitution's research-grounding appendix — now the second half of
+`CLAUDE.md`'s single Appendix, which points here.
 
 **R1 — Cold vector search over object storage.** The entire cloud-native evidence
 base converges on cluster-shaped indexes for cold object-storage access: turbopuffer's
