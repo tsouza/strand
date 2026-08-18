@@ -1,0 +1,16 @@
+[package]
+name = "strand-lexical"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "STRAND lexical-family blobs: term-dictionary FST and term-info store (RFC 0005)"
+
+[dependencies]
+fst = "0.4.7"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[dev-dependencies]
+proptest = "1.11.0"

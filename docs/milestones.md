@@ -50,7 +50,14 @@ from the actual `fst` crate (not illustrative bytes) and independently reproduce
 byte-for-byte during review; also the first RFC to populate the blob-type registry
 (`spec/container.md` §9). FST size at realistic vocabulary scale and the `fst`
 crate's cross-platform byte-determinism are both still open (RFC 0005's own Open
-questions). The **filter-bitmap blobs** are now RFC 0006
+questions). A reference implementation now exists (`crates/strand-lexical`,
+new crate): `TermInfo` encode/decode, `TermInfoStore`'s direct-indexed reads, and
+`TermDictionary`'s FST build/lookup, with the cat/dog/fish worked example pinned as
+`conformance/term-dictionary/` golden files and reproduced byte-exact by the crate's
+own tests — a third independent reproduction of the same bytes (RFC draft, ACPR
+review, now the library) — plus a `proptest` round-trip property test over
+arbitrary term sets. The postings/positions blobs those `TermInfo` offsets point
+into remain unimplemented, gated on the still-open R2 codec RFC. The **filter-bitmap blobs** are now RFC 0006
 (`rfcs/0006-filter-bitmaps.md`, Approved) — a value-dictionary FST (identical shape
 to RFC 0005 §2) paired with a small directory plus one standard 32-bit Roaring
 bitmap per distinct value, indexed by local ordinal; the second RFC to extend the

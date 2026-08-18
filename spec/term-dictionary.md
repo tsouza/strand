@@ -7,8 +7,12 @@ RFC for the worked example, alternatives considered, and the adversarial review.
 Registered in `spec/container.md` §9: `family_id = 1` (lexical), `blob_type_id = 0`
 (term-dictionary FST), `blob_type_id = 1` (term-info store).
 
-Reference implementation: not yet implemented; lands with the R2 lexical blob (M1,
-`docs/ledger.md`).
+Reference implementation: `crates/strand-lexical/src/term_dictionary.rs`. Golden
+files: `conformance/term-dictionary/toy-terms.fst` and
+`conformance/term-dictionary/toy-terms.terminfo`, matching this chapter's RFC's
+worked example exactly, byte for byte. The postings and positions blobs
+`postings_offset`/`positions_offset` point into are not yet implemented; they land
+with the R2 lexical blob (M1, `docs/ledger.md`).
 
 ## 1. Scope: one pair per field
 
@@ -64,11 +68,13 @@ no additional round trip.
 
 ## 6. Conformance status
 
-Not yet implemented. Golden-file status for the term-dictionary FST blob is
-provisional on the cross-version/cross-platform determinism question RFC 0005's "How
-this could be wrong" names — confirmed same-version, same-platform only, by an
-actual test (`references/tantivy-fst-termdict-and-fst-crate.md`), not yet across
-either axis that matters for independent-implementation conformance.
+Implemented (`crates/strand-lexical`), with both blobs' worked-example bytes pinned
+as `conformance/` golden files and confirmed byte-exact against `crates/strand-lexical/tests/worked_example.rs`.
+Golden-file status is provisional on the cross-version/cross-platform determinism
+question RFC 0005's "How this could be wrong" names — confirmed same-version,
+same-platform only, by an actual test
+(`references/tantivy-fst-termdict-and-fst-crate.md`), not yet across either axis
+that matters for independent-implementation conformance.
 
 ## 7. Open dependencies
 
