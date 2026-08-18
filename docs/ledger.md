@@ -142,9 +142,12 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   object write as always succeeding, but the real `put_if_absent` in `commit()`
   can fail definitely or ambiguously and end the attempt
   (`crates/strand-core/src/manifest.rs:131-139`). The omission traces to RFC 0002
-  §4's approved action grammar, which — unlike every sibling action — listed no
-  outcome set for `ProposeSnapshot`. Harmless to the current TLC-checked safety
-  invariants (a failed propose reaches a terminal state no invariant observes),
-  but a TLAPS proof built on the current grammar would entrench the gap; add the
-  failure outcome to the model (and record it against RFC 0002) before that phase
-  starts.
+  §4's approved action grammar, which — like ReadCurrent, and unlike the pointer
+  and reader actions — listed no outcome set for `ProposeSnapshot`. Harmless to
+  the current TLC-checked safety invariants (a failed propose reaches a terminal
+  state no invariant observes), but a TLAPS proof built on the current grammar
+  would entrench the gap; add the failure outcome to the model (and record it
+  against RFC 0002) before that phase starts. Same class, writer side:
+  `ReadCurrent(w)` models no `Expired` outcome, though the real `read_current`
+  loops on one unboundedly; safety-neutral, add alongside the `ProposeSnapshot`
+  failure outcome before the TLAPS phase.

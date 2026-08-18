@@ -82,7 +82,10 @@ header semantics are R5, open — `docs/ledger.md`):
    absent, treat both as `0`. Derive this attempt's version
    (`version + 1`, or `0` if absent), row-ID range
    (`[next_row_id, next_row_id + count)`, or `[0, count)` if absent), and
-   a fresh random `writer_nonce`.
+   a fresh random `writer_nonce`. If the snapshot the pointer names is
+   gone (the §3 404 race), the writer re-reads and retries this step;
+   unlike the reader path, this retry is unbounded, because the writer's
+   real bound is the pointer CAS it is about to contend on.
 2. Write the new segment(s), then create the snapshot metadata object at
    `_strand/snapshots/{version:020}-{writer_nonce}.json` with
    `If-None-Match: *`. Because the nonce makes this path unique to this

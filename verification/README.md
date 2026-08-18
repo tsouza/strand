@@ -29,8 +29,11 @@ checking, just confirms the module is well-formed) is also available:
 
 ## Invariants checked
 
-Seven, all listed in `verification/manifest.cfg` and each carrying its
-grounding and its mutation test in a comment beside it in `manifest.tla`:
+Seven, all listed in `verification/manifest.cfg`, each carrying its
+grounding in a comment beside it in `manifest.tla`: three
+(`MonotonicNextRowId`, `VersionsMatchIndex`, `WriterSuccessIsCommitted`)
+additionally record their mutation test inline — the others' mutation tests
+live in the commit log (`9fcf963`, `d3d3139`), not in comments.
 
 - `TypeOK` — every variable stays in its declared domain.
 - `NoOverlappingRowIds` — no two committed segments claim overlapping
