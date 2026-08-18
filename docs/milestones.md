@@ -14,12 +14,12 @@ merge-semantics declarations, **manifest chapter with the CAS commit protocol an
 `CLAUDE.md` §6 safety rules (declared CAS host, deletion-safety retention, reader 404-refresh,
 orphan rule)**. `strand-core` read/write; `strand-tools inspect`. Golden files. Vendor
 `references/` and `docs/research/` from `docs/research/README.md` — **partially done**:
-`references/` holds the R2 and RFC-0002 grounding, all four turbopuffer pages, and
-both adapter LICENSE files (the "full kickstart report" this entry previously also
-listed as owed was a retracted phantom deliverable, never a real document —
-`docs/ledger.md`); the R1/R3–R8 sources remain owed (`docs/ledger.md`), and every
-figure resting specifically on those tracks stays provisional until its source
-sentence lands. The batch-shaped
+`references/` holds the R2 and RFC-0002 grounding, all four turbopuffer pages, both
+adapter LICENSE files, and — as of 2026-08-18 — R1/R3–R9's core primary sources (the
+"full kickstart report" this entry previously also listed as owed was a retracted
+phantom deliverable, never a real document — `docs/ledger.md`). A small residue of
+paper-body-only figures and two lower-priority R4 sources remain flagged as owed;
+`docs/ledger.md` lists them precisely. The batch-shaped
 reader trait (invariant 9's frozen API shape) was originally listed here but is **not
 yet implemented** — no `next_batch()` interface exists in the code; it carries forward
 as an M1 prerequisite, since M1's postings kernels are its first real consumer

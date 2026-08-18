@@ -99,10 +99,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1):
   measure FastLanes against hand-vectorized BP128 and FastPFOR on postings
-  distributions (the margin is unmeasured), audit the cwida/FastLanes license
-  against Apache-2.0-only, reconcile 1024-value granularity with the block-max
-  sibling design (1024-native or nested 8×128, preserving invariant 4), and assess
-  ALP for the flat float-vector blob and the GPU decode path for raw-mappable blobs.
+  distributions (the margin is unmeasured), reconcile 1024-value granularity with
+  the block-max sibling design (1024-native or nested 8×128, preserving invariant
+  4), and assess ALP for the flat float-vector blob and the GPU decode path for
+  raw-mappable blobs (the DaMoN '24 GPU paper's own "1024 values too large for a
+  single GPU warp" caveat is a real constraint on that assessment, not a clean
+  win — `references/r9-fastlanes-core-alp-damon-license.md`). The license half of
+  this gate is now resolved: `cwida/FastLanes` is confirmed MIT
+  (`references/r9-fastlanes-core-alp-damon-license.md`), Apache-2.0-compatible;
+  only the measurement and application-fit halves remain open.
 - **R10** — cross-segment scale: should the manifest carry optional per-segment
   summary metadata (term-statistics sketches, centroid summaries, min/max-style
   pruning stats) so a reader can prune segments before opening them, and what does
@@ -137,10 +142,17 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   cold/cached figures, the published p90s, invariant 9's batched-iterator numbers, and
   the ANN v3 scale claims are now all vendored and checked, not provisional), and both
   adapter LICENSE files (`references/tantivy-LICENSE.txt`,
-  `references/faiss-LICENSE.txt`). Still owed: the R1/R3–R8 primary-source papers and
-  pages themselves — R2's decode-rate figures and every other claim resting
-  specifically on those tracks (as opposed to the turbopuffer/license sources above)
-  remain provisional until vendored; carries forward as an M1 prerequisite.
+  `references/faiss-LICENSE.txt`). R1, R3, R4, R5, R6, R7, R8, and R9's core sources
+  are now also vendored (2026-08-18; see each track's own `references/r{N}-*.md`
+  file). A handful of specific numbers that live in paper bodies rather than
+  abstracts were flagged as still-unverified within those files rather than silently
+  asserted confirmed: SPANN's replica-vs-index-size figures and its I/O-congestion
+  QPS figure, SPFresh's centroid-drift-under-load claim, and Extended-RaBitQ's
+  per-bit-width recall figures. `unicode-rs/unicode-segmentation` and the Lucene/ICU
+  versioning docs (R4, lower-priority implementation references) were not fetched.
+  Remaining M0 vendoring debt is narrow: those flagged numbers, plus whatever R2's
+  eventual bake-off and R9's eventual measurement/adoption RFC need beyond what's
+  vendored here.
 - **Retracted claim: "the full kickstart report."** `CLAUDE.md` and
   `docs/research/README.md` both asserted, at repository seeding, that a longer
   research report existed and would be vendored into `docs/research/` at M0, separate

@@ -51,8 +51,11 @@ license-audited in R3: the two repositories `docs/research/README.md` names
 API, byte-exact (`references/rabitq-and-extended-rabitq.md`) — an earlier draft's
 "all three repositories" claim named no third repository anywhere in this project's
 own text and is corrected here rather than repeated. Standard obligations apply —
-retain LICENSE/NOTICE, state changes. The FastLanes license is unaudited and gates
-any R9 adoption.)
+retain LICENSE/NOTICE, state changes. The `cwida/FastLanes` code repository is
+confirmed MIT via GitHub's license API — Apache-2.0-compatible, the same status
+already accepted for tantivy and FAISS — resolving the license half of R9's
+adoption gate (`references/r9-fastlanes-core-alp-damon-license.md`); the
+measured-margin and inverted-index-application halves of that gate remain open.)
 
 ### What stays out of the format
 
