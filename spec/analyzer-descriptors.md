@@ -42,10 +42,20 @@ descriptor that omits a field this table marks required) is invalid, per invaria
 
 `deviations` MUST be present even when empty. An empty list is a normative claim —
 this tokenizer follows stock UAX #29 at the declared `unicode_version` with no
-property overrides — not merely the absence of a claim. `case_folding` distinguishes
-no case transformation (`"none"`), ordinary lowercasing (`"lower"`), and Unicode's
-full case-folding algorithm (`"full-case-fold"`, which normalizes cases simple
-lowercasing does not, e.g. German ß).
+property overrides — not merely the absence of a claim.
+
+`token_retention: "word-only"` MUST use the following criterion, not an appeal to
+any word/non-word classification in UAX #29 itself (the annex defines only
+break/no-break positions between characters and has no such classification): a
+boundary segment is retained if and only if it contains at least one character with
+the Unicode `Alphabetic` property or `General_Category = Number`
+(`references/unicode-segmentation-word-filter-criterion.md`).
+
+`case_folding` distinguishes no case transformation (`"none"`), ordinary lowercasing
+(`"lower"`), and Unicode's full case-folding algorithm (`"full-case-fold"`, which
+normalizes cases simple lowercasing does not — e.g. U+00DF LATIN SMALL LETTER SHARP
+S has only a full case-folding mapping, to `"ss"`, no simple one,
+`references/unicode-casefolding-sharp-s.md`).
 
 ## 3. `stopword_list_id` and `stemmer`
 
@@ -80,11 +90,14 @@ a segment declaring `true` while claiming `lucene-parity` scoring is non-conform
 ## 5. `segmentation_dictionary`
 
 ```
-{ "script": <string>, "identity": <string>, "version": <string> } | null
+{ "script": <string, a Unicode Script property value>, "identity": <string>, "version": <string> } | null
 ```
 
-MUST be non-null when the field's content uses a dictionary-segmented script (CJK,
-Thai, Lao). This chapter does not yet pin a default dictionary (RFC 0004 Non-goals);
+`script` names one Script value (e.g. `"Han"`, `"Thai"`, `"Lao"`, `"Hiragana"`,
+`"Katakana"`, `"Hangul"`), not the umbrella term "CJK" — content mixing scripts
+needs per-script handling. MUST be non-null when the field's content uses a
+dictionary-segmented script (CJK, Thai, Lao). This chapter does not yet pin a
+default dictionary (RFC 0004 Non-goals);
 a conforming segment states one explicitly regardless.
 
 ## 6. Placement constraint

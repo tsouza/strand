@@ -102,11 +102,12 @@ Not yet implemented. `references/lucene-bm25similarity-and-smallfloat.md` and
 chapter is grounded against. RFC 0003's worked example is the first golden test
 vector once implemented (`conformance/`, not yet created for this family).
 
-## 7. Open dependencies
+## 7. Per-document length — resolved by `spec/analyzer-descriptors.md`
 
-**Per-document length.** This chapter does not define which tokens count toward
-`dl`, at which point in the analysis chain, or per which field — that is the M1
-analyzer-descriptor RFC's job (invariant 6, not yet drafted). `lucene-parity`
-additionally inherits Lucene's own `discountOverlaps = true` default (excluding
-zero-position-increment tokens) once that RFC lands; this chapter states the
-dependency rather than resolving it.
+Per-document length — which tokens count toward `dl`, at which point in the analysis
+chain, per field — is defined in `spec/analyzer-descriptors.md` §4 (RFC 0004,
+`rfcs/0004-analyzer-descriptors.md`), not restated here. `lucene-parity` requires
+`counts_overlaps_in_length = false` on the field's analyzer descriptor
+(`spec/analyzer-descriptors.md` §4) — matching Lucene's own `discountOverlaps =
+true` default, which excludes zero-position-increment tokens from the counted
+length.

@@ -95,7 +95,12 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
-  definition (needs primary-source confirmation).
+  definition. The Lucene half is resolved: RFC 0004
+  (`rfcs/0004-analyzer-descriptors.md`) grounds `discountOverlaps` byte-exact against
+  Lucene 10.5.1 source and maps it to the descriptor's own
+  `counts_overlaps_in_length` field. The tantivy half remains open — no tantivy
+  source has been vendored for this yet — and gates M4's tantivy-fork parity work,
+  not M1.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1):
   measure FastLanes against hand-vectorized BP128 and FastPFOR on postings

@@ -1,10 +1,21 @@
 # RFC 0004: Analyzer descriptors and per-document length
 
-- **Status:** Draft
+- **Status:** Approved — passed adversarial review (independent re-fetch and
+  re-derivation of every primary-source claim and the worked example; citation-
+  hygiene, undeclared-processing-step, and ledger-consistency passes). One Critical
+  finding (three broken internal/cross-document section citations — the same defect
+  class RFC 0003 was sent back for, found recurring here despite this RFC's own
+  stated intent to apply that lesson) and two Important findings (an undeclared
+  `"word-only"` retention criterion with no normative source, structurally identical
+  to the case-folding gap this RFC caught in itself; and an overstated claim to
+  fully resolve `docs/ledger.md` R4 when only its Lucene half was grounded) fixed
+  and grounded. All Minor findings fixed. No blocking findings remain.
 - **Milestone:** M1 — Lexical (`docs/milestones.md`)
 - **Spec chapters produced:** `spec/analyzer-descriptors.md`
-- **Invariants exercised:** 6 (`CLAUDE.md` §5); resolves the per-document-length
-  dependency invariant 5 and RFC 0003 both name as open.
+- **Invariants exercised:** 6 (`CLAUDE.md` §5), which invariant 5 depends on;
+  resolves the per-document-length dependency RFC 0003's Non-goals section named as
+  open, for Lucene parity specifically — the tantivy half of `docs/ledger.md` R4
+  remains open (see Non-goals below).
 
 ## Summary
 
@@ -47,8 +58,20 @@ based break iterator, and others are all live candidates, none audited in this
 pass). A conforming segment MUST populate the field if its content uses a
 dictionary-segmented script; this RFC does not yet say with what.
 
+**tantivy's own doc-length accounting** is not grounded here, though `docs/ledger.md`
+R4 lists "precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
+definition" as one open item. This RFC grounds the Lucene half fully (§6:
+`counts_overlaps_in_length`, mapped directly to Lucene's real `discountOverlaps`
+behavior, `references/lucene-bm25similarity-and-smallfloat.md`) and leaves the
+tantivy half of R4 genuinely open — found during this RFC's own adversarial review,
+not resolved by it. A future session must vendor tantivy's actual length-accounting
+source before M4's tantivy-fork parity work can rely on this chapter being complete
+for that engine; `docs/ledger.md` R4 is updated to reflect this narrower scope
+(Lucene resolved, tantivy still owed) rather than left implying the whole item is
+closed.
+
 **A catalog of every possible UAX #29 deviation** is not enumerated. The descriptor
-carries a `deviations` list (§1 below) as an open-ended, self-describing mechanism;
+carries a `deviations` list (§2 below) as an open-ended, self-describing mechanism;
 this RFC does not attempt to pre-list every deviation a future tokenizer might
 declare, the same way invariant 4 pins the raw-statistics *principle* for block-max
 bounds without this RFC needing to pin every field STRAND's own postings layer will
@@ -63,8 +86,10 @@ further.
 **Where the descriptor physically lives inside a segment** is deferred to the R2
 RFC, for the same reason RFC 0003 deferred its own descriptor's placement: the
 lexical blob's byte layout doesn't exist yet, and pinning an offset into a
-not-yet-designed structure would be premature. The placement constraint from RFC
-0003 (§4 below) applies identically here.
+not-yet-designed structure would be premature. The placement constraint
+`spec/scoring-profiles.md` §4 states (zero added round trips beyond invariant 3's
+≤2-RTT budget) applies identically here; Napkin math, below, restates it for this
+RFC's own descriptor.
 
 ## Design
 
@@ -101,11 +126,22 @@ split:
 `unicode_version`, applied with **no property overrides** unless `deviations` names
 one explicitly — an empty `deviations` list is itself a normative claim (this
 descriptor's tokenizer follows stock UAX #29 exactly at this Unicode version), not
-merely the absence of a claim. `token_retention` states whether boundary segments
-that are not "words" under UAX #29's own classification (whitespace, punctuation)
-become indexed tokens (`"all-segments"`) or are discarded (`"word-only"`) — a real
-behavioral fork invariant 6 does not itself resolve, so this RFC makes it an
-explicit, declared field rather than an unstated default. `case_folding` states
+merely the absence of a claim. `token_retention` states whether every boundary
+segment UAX #29 produces becomes an indexed token (`"all-segments"`) or only
+"word-like" ones do (`"word-only"`) — a real behavioral fork invariant 6 does not
+itself resolve, so this RFC makes it an explicit, declared field rather than an
+unstated default. **UAX #29 itself defines only break/no-break positions between
+characters — it has no normative concept of a segment being a "word" versus not**
+(confirmed by reading the annex directly: no rule-status or word/non-word
+classification exists in its own text). `"word-only"` therefore MUST use a pinned,
+external criterion rather than an appeal to "UAX #29's own classification," which
+does not exist: a segment is retained if and only if it contains at least one
+character with the Unicode `Alphabetic` property or `General_Category = Number` —
+`unicode_words()`'s own documented filter
+(`references/unicode-segmentation-word-filter-criterion.md`), adopted here as the
+normative rule so two conformant descriptors cannot disagree on an edge case (an
+isolated combining-mark run, a standalone symbol) with no criterion to appeal to.
+`case_folding` states
 whether tokens are left as-is (`"none"`), simply lowercased (`"lower"`, ordinary
 `String::to_lowercase`-style mapping), or run through Unicode's full case-folding
 algorithm (`"full-case-fold"`, which additionally normalizes cases simple
@@ -131,9 +167,11 @@ worked example below uses `"lucene-en-10.5.1"`, naming the exact vendored list
 
 `version` MUST anchor to something byte-reproducible — a specific released version or
 commit hash of the stemmer's own algorithm definition, not a vague "latest." The
-worked example uses `{"name": "snowball-porter2-en", "version":
-"snowballstem/snowball @ releases confirmed against snowball-data test vectors,
-2026-08-18"}` — Snowball's algorithm is a stable specification with periodic
+worked example uses `{"name": "snowball-porter2-en", "version": "snowballstem/
+snowball, confirmed against snowball-data test vectors 2026-08-18"}` (identical,
+byte-for-byte, to the JSON in the worked example below — this description and that
+literal value MUST NOT drift, since both are meant to describe the same conformance
+vector) — Snowball's algorithm is a stable specification with periodic
 refinements, so a real conformance harness needs a commit-pinned reference the same
 way this RFC's own worked example does
 (`references/snowball-porter2-english-stemmer.md`).
@@ -141,10 +179,15 @@ way this RFC's own worked example does
 ### 5. `segmentation_dictionary`
 
 ```
-{ "script": <string, e.g. "Han", "Thai", "Lao">, "identity": <string>, "version": <string> } | null
+{ "script": <string, a Unicode Script value>, "identity": <string>, "version": <string> } | null
 ```
 
-Schema only — §Non-goals above states this RFC does not choose a default.
+`script` is a single Unicode Script property value (e.g. `"Han"`, `"Thai"`, `"Lao"`,
+`"Hiragana"`, `"Katakana"`, `"Hangul"`) — "CJK" is invariant 6's own umbrella term
+for the whole dictionary-segmentation problem, not one Script value; content mixing
+scripts (Japanese text using Han, Hiragana, and Katakana together, for instance)
+would need per-script handling this RFC does not design. Schema only — §Non-goals
+above states this RFC does not choose a default dictionary for any of them.
 
 ### 6. `counts_overlaps_in_length` and per-document length, precisely
 
@@ -198,7 +241,7 @@ Raw text: `"The whales swim quickly."`
 
 | stage | output |
 | ----- | ------ |
-| UAX #29 word tokenization, `token_retention: "word-only"` | `["The", "whales", "swim", "quickly"]` — the trailing `.` is a boundary, not a word segment under UAX #29, and is discarded per `"word-only"` |
+| UAX #29 word tokenization, `token_retention: "word-only"` | `["The", "whales", "swim", "quickly"]` — the trailing `.` is a boundary segment with no `Alphabetic`/`Number` character, so it fails `"word-only"`'s retention criterion (§2) and is discarded |
 | `case_folding: "lower"` | `["the", "whales", "swim", "quickly"]` |
 | Stopword removal, `lucene-en-10.5.1` (`references/lucene-english-stopwords.md`, confirmed to contain `"the"`) | `["whales", "swim", "quickly"]` |
 | Stemming, `snowball-porter2-en` (`references/snowball-porter2-english-stemmer.md`: `whales → whale`, `swim → swim`, `quickly → quick`, all confirmed against real test vectors, not predicted) | `["whale", "swim", "quick"]` |
@@ -207,8 +250,8 @@ Final indexed token stream: `["whale", "swim", "quick"]`. Per-document length fo
 this field, this document: **`dl = 3`** (§6's definition — three tokens survived the
 full declared chain). This is the first real, checkable analyzer-conformance vector
 this project has; it becomes a `conformance/analyzers/` golden file once implemented
-(§Conformance status below), the same status RFC 0003's worked example holds for
-scoring.
+(`spec/analyzer-descriptors.md` §7, "Conformance status"), the same status RFC
+0003's worked example holds for scoring.
 
 ## Napkin math (`CLAUDE.md` §7)
 
