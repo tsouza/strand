@@ -108,16 +108,20 @@ the MIT option). Current version `0.4.7` (crates.io). tantivy vendors its own fo
 `tantivy-fst` (`github.com/phiresky/tantivy-fst`), Unlicense-licensed, confirmed via
 GitHub's license API.
 
-**Not resolved by this vendoring pass, flagged honestly:** whether the `fst` crate's
-compiled binary output is byte-for-byte deterministic given the same sorted input
-keys inserted in the same order — i.e., whether two independent builds (potentially
-on different crate versions, different platforms) of the same logical term set
-produce identical bytes, which invariant 11 would require if a term-dictionary FST
-blob is `storage-class: raw-mappable` (uncompressed, byte-exact golden-file
-comparison) rather than `chunk-compressed` (round-trip-and-checksum verified only).
-A search of the crate's own `src/raw/build.rs` found no explicit hashing or
-randomization in the construction path, which is reassuring but not a
-verification — determinism was not independently confirmed by an actual
-build-twice-and-byte-compare test in this pass. A future RFC finalizing this design
-MUST run that test before claiming invariant 11 conformance, not assume it from the
-absence of an obvious counter-signal.
+**Determinism — empirically confirmed, same-process-and-version, same-platform
+only.** Built a real 3-key `fst::Map` (`fst` `0.4.7`, `keys: "cat"->0, "dog"->1,
+"fish"->2`) twice independently — once via two separate `MapBuilder` instances in
+the same process, once via two completely separate process invocations of the same
+binary — and byte-compared the compiled output both times: **identical in both
+cases** (60 bytes, `03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 10 81 C5 00
+10 97 C4 00 10 8E C6 C8 02 01 00 01 06 0A 66 64 63 11 03 03 00 00 00 00 00 00 00 27
+00 00 00 00 00 00 00 0A 09 42 D9`), and `map.get()` correctly resolves each key back
+to its ordinal. This resolves the "no explicit hashing found in source" hedge an
+earlier version of this file carried with a real test rather than an absence-of-
+counter-signal argument. **What remains genuinely unverified**: cross-crate-version
+determinism (does `fst` `0.4.8` compile the same 60 bytes?) and cross-platform
+determinism (same bytes on ARM as on this x86_64 machine?) — the FST format's
+node-minimization algorithm is deterministic in principle for sorted input, but
+neither of those two axes was actually tested here, and a future RFC finalizing
+invariant-11 conformance for a raw-mappable FST blob should test both, not assume
+them from this narrower same-version-same-platform result.
