@@ -15,8 +15,10 @@ merge-semantics declarations, **manifest chapter with the CAS commit protocol an
 orphan rule)**. `strand-core` read/write; `strand-tools inspect`. Golden files. Vendor
 `references/` and `docs/research/` from `docs/research/README.md` — **partially done**:
 `references/` holds the R2 and RFC-0002 grounding; the R1/R3–R8 sources, both adapter
-LICENSE files, all turbopuffer pages, and the full kickstart report remain owed
-(`docs/ledger.md`), and every figure resting on them stays provisional until its
+LICENSE files, and all turbopuffer pages remain owed (`docs/ledger.md`; the "full
+kickstart report" this entry previously also listed as owed was a retracted phantom
+deliverable, never a real document — `docs/ledger.md`), and every figure resting on
+them stays provisional until its
 source sentence lands. The batch-shaped
 reader trait (invariant 9's frozen API shape) was originally listed here but is **not
 yet implemented** — no `next_batch()` interface exists in the code; it carries forward

@@ -132,12 +132,19 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   measurable at all until a `tier: cold-fetchable` vector blob exists (M2); tantivy
   codec-SPI absence (R11(a)); FAISS FastScan external-list feasibility (R11(b)); the
   Quickwit inheritance hypothesis (R11(c)). The M0 vendoring deliverable is partially
-  done — `references/` holds the R2 and RFC-0002 grounding; the R1/R3–R8 sources, both
-  adapter LICENSE files, all turbopuffer pages, and the full kickstart report remain
-  owed, and every figure resting on them (`CLAUDE.md` §7's ~100ms and 50–100 MB/s,
-  invariant 9's turbopuffer numbers, the turbopuffer targets table, R2's decode-rate
-  figures) is provisional until its source sentence lands; carries forward as an M1
-  prerequisite.
+  done — `references/` holds the R2 and RFC-0002 grounding; the R1/R3–R8 sources and
+  both adapter LICENSE files and all turbopuffer pages remain owed, and every figure
+  resting on them (`CLAUDE.md` §7's ~100ms and 50–100 MB/s, invariant 9's turbopuffer
+  numbers, the turbopuffer targets table, R2's decode-rate figures) is provisional
+  until its source sentence lands; carries forward as an M1 prerequisite.
+- **Retracted claim: "the full kickstart report."** `CLAUDE.md` and
+  `docs/research/README.md` both asserted, at repository seeding, that a longer
+  research report existed and would be vendored into `docs/research/` at M0, separate
+  from the condensed `README.md` already there. No such document was ever produced,
+  and its author confirms none exists — the claim traces to an earlier session
+  inventing a deliverable rather than to any real artifact. Both files were corrected
+  to drop the claim (2026-08-18); `docs/research/README.md` is the standing research
+  source, full stop.
 - **Batch-shaped reader trait** (invariant 9's frozen `next_batch()` API shape):
   not yet implemented anywhere in `strand-core`, despite M0's original deliverable
   list claiming it. Carries forward as an M1 prerequisite — M1's postings kernels

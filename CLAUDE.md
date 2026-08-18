@@ -9,8 +9,8 @@ acting. When an instruction here conflicts with anything else, this file wins. T
 detailed reference material this file draws on — design lineage, the data-structure
 baseline, benchmark and adapter detail, per-milestone deliverables, the settled/open
 ledger, and the condensed research grounding — lives in `docs/`, cited by pointer
-throughout. The full research report and the vendored primary sources are brought into
-`docs/research/` and `references/` at M0.
+throughout. The vendored primary sources are brought into `references/` at M0, cited
+from `docs/research/README.md`'s condensed grounding.
 
 ---
 
@@ -421,8 +421,8 @@ strand/
     milestones.md        full per-milestone deliverables and gates (exists, §10)
     ledger.md            settled vs open ledger (exists, §5)
     research/
-      README.md          condensed research grounding, R1-R11 (exists); the full
-                         kickstart report and R9+ memos are vendored here at M0
+      README.md          condensed research grounding, R1-R11 (exists); this is the
+                         standing source — no separate full report exists
   references/          vendored primary sources (populated at M0 from
                        docs/research/README.md's source lists — the §2
                        source-sentence rule lives here)

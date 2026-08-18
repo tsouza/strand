@@ -1,8 +1,10 @@
 # Research grounding (condensed)
 
 For each track: the findings the constitution depends on, and the primary sources to
-vendor into `references/` at M0. This is the condensed form sessions cite until the
-full research report is vendored into `docs/research/` at M0. Extracted at repository seeding
+vendor into `references/` at M0. This is the standing source sessions cite — no
+separate, longer report exists to supersede it; an earlier draft of this repo's
+governance docs claimed one was owed, but nothing behind that claim was ever produced,
+and it was retracted (`docs/ledger.md`). Extracted at repository seeding
 from the seed constitution's research-grounding appendix — now the second half of
 `CLAUDE.md`'s single Appendix, which points here.
 
