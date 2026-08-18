@@ -90,20 +90,29 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   the smaller of the two on the reference collections —
   `references/ottaviano-venturini-partitioned-elias-fano.md`) — has a phased,
   gated investigation methodology at `docs/research/r2-hybrid-codec-methodology.md`.
-  **Phase 0 attempted 2026-08-18**: a real, structurally on-point candidate was
-  found (LICO, SIGMOD/PACMMOD 2026 — a learned codec with a genuine compressed-
-  domain `NextGeq`, confirmed by reading its actual source, plus SIMD decode/
-  intersection), but its measured numbers against Phase 0's fixed bar could not be
-  checked — the paper is blocked by a Cloudflare bot-challenge despite
-  contradictory open-access metadata (Unpaywall says CC-BY, DBLP says closed), no
-  preprint or mirror exists, and this session's hardware lacks the AVX-512 its
-  reference implementation requires to build at all
-  (`references/lico-simd-learned-inverted-index-appendix.md` has the full trail).
-  Inconclusive, not negative — genuinely unresolved, not a "candidate found but
-  fails" verdict. Standing decision, not made here: pursue LICO specifically
-  (licensed access or borrowed AVX-512 hardware) versus treat Phase 0 as
-  inconclusive and proceed to the Track A/B fork. Does not change R2's BP128
-  default or require an RFC on its own.
+  **Phase 0 executed 2026-08-18, resolved.** A real, structurally on-point
+  candidate was found (LICO, SIGMOD/PACMMOD 2026 — a learned codec with a genuine
+  compressed-domain `NextGeq`, confirmed by reading its actual source, plus SIMD
+  decode/intersection). This session's own automated attempts to read the paper
+  were blocked by ACM's Cloudflare bot-challenge (despite contradictory
+  open-access metadata — Unpaywall says CC-BY, DBLP says closed, neither
+  resolved); the project owner then obtained the full paper directly and it was
+  read in full. **Verdict: candidate found, checked against real numbers, fails
+  the bar** — clears compressed-domain search with real margin (up to 2.64×
+  faster intersection than the fastest non-learned SIMD baseline the paper
+  itself tests, 5.52× aggregate) but fails full-scan decode throughput by roughly
+  an order of magnitude: LICO's own best configuration decodes at 0.61 ns/int
+  (Table 7, AVX-512) against this project's own real, measured `BitPacker8x`
+  throughput of 0.052–0.070 ns/int
+  (`bench/results/codec-decode-throughput.json`) — an 8.7–11.7× gap computed
+  directly from real numbers on both sides, not estimated. This confirms, with a
+  concrete measured number, the same conclusion this entry already recorded from
+  the Lemire/Boytsov literature before the investigation started: no established
+  technique fuses BP128-class decode speed with compressed-domain searchability.
+  Full detail: `references/zhu-etal-2026-lico-learned-inverted-index-compression.md`.
+  Per Phase 0's own GO/NO-GO, the investigation now proceeds to the Track A/B fork
+  (`docs/research/r2-hybrid-codec-methodology.md`) — neither started. Does not
+  change R2's BP128 default or require an RFC on its own.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length

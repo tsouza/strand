@@ -16,31 +16,38 @@ phase and finds something load-bearing for R2's actual codec choice, that findin
 gets its own ledger entry and, if it changes the registered codec, its own RFC —
 this document is scoped to the investigation, not its outcome.
 
-**Phase 0 — attempted 2026-08-18, inconclusive on its strongest candidate for a
-genuine access-barrier reason, not a design or measurement failure.** Before
-searching, the bar was fixed as instructed (Step 1): the same yardstick Phase 3
-Stage 1 states explicitly — full-scan decode throughput within 15% of BP128-class
-speed, and compressed-domain search at least 25% faster than decode-then-search,
-both required simultaneously. A real, structurally on-point candidate was found —
-LICO (Zhu et al., SIGMOD/PACMMOD 2026, `references/lico-simd-learned-inverted-index-appendix.md`):
-a learned piecewise-linear-model codec with both a genuine compressed-domain
-`NextGeq` operation (binary search over the model's own encoded segments, no full
-decode) and SIMD decode/intersection paths, confirmed by reading the actual source
-code, not a description. Its precise numbers against the stated bar could not be
-checked: the paper's Experiments section sits behind a Cloudflare bot-challenge
-that blocked every automated fetch attempt despite Unpaywall reporting the paper
-CC-BY (DBLP's own record for the same DOI contradicts this, reporting "closed" —
-neither claim was resolved, both are stated), no arXiv or author-mirrored copy
-exists, and this session's hardware lacks the AVX-512 the reference implementation
-hard-requires to build or run at all. Full detail, including exactly which access
-routes were tried and ruled out, is in the vendored reference file. Per Step 4's
-verdict-mapping, this is neither "candidate passes" nor "candidate found but
-fails" — it is a genuine third outcome the original mapping did not anticipate: a
-real candidate the plan cannot currently rule in or out. **Standing, not yet
-decided:** whether to keep pursuing LICO specifically (a licensed/paywall-cleared
-copy, or borrowed AVX-512 hardware) versus treating Phase 0 as inconclusive and
-proceeding to the Track A/B fork on that basis. This document does not decide that
-on its own — see `docs/ledger.md` R9 for the standing status.
+**Phase 0 — executed 2026-08-18, resolved: candidate found, checked against real
+numbers, fails the bar.** Before searching, the bar was fixed as instructed
+(Step 1): the same yardstick Phase 3 Stage 1 states explicitly — full-scan decode
+throughput within 15% of BP128-class speed, and compressed-domain search at least
+25% faster than decode-then-search, both required simultaneously. A real,
+structurally on-point candidate was found — LICO (Zhu et al., SIGMOD/PACMMOD 2026,
+`references/zhu-etal-2026-lico-learned-inverted-index-compression.md`): a learned
+piecewise-linear-model codec with a genuine compressed-domain `NextGeq` operation
+(binary search over the model's own encoded segments, no full decode first) and
+SIMD decode/intersection paths, confirmed both by reading the actual source and,
+once the full paper became available (obtained directly by the project owner after
+this session's own automated-access attempts were blocked by ACM's Cloudflare
+bot-challenge), by its own reported numbers. Checked against the fixed bar: it
+clears the compressed-domain-search axis with real margin (the paper reports
+NextGeq-based intersection up to 2.64× faster than the fastest non-learned SIMD
+baseline it tested, and up to 5.52× on aggregate query performance) but fails the
+decode-throughput axis by roughly an order of magnitude, not a narrow miss — its
+own best configuration decodes at 0.61 ns/int (Table 7, SIMD/AVX-512, Xeon Gold
+6430) against this project's own real, measured `BitPacker8x` throughput of
+0.052–0.070 ns/int (`bench/results/codec-decode-throughput.json`), computed
+directly from real numbers on both sides. This is Phase 0's second verdict bucket
+exactly as specified — **candidate found but fails, logged as a negative data
+point** — not the access-blocked inconclusive status this document recorded
+earlier the same day, before the full paper arrived. Full detail, including the
+exact numbers and the reasoning for why the cross-machine comparison is still
+trustworthy despite LICO's hardware being the more capable of the two, is in the
+vendored reference file.
+
+**GO/NO-GO reached: proceed to the fork.** Per Phase 0's own stated outcome
+(Step 3 did not find a construction clearing the bar), the investigation proceeds
+to Track A and/or Track B, neither yet started, per the appetite for each track's
+cost — see `docs/ledger.md` R9 for the standing status and next-step options.
 
 The plan was produced by generating four independent methodologies from different
 angles (structural/theoretical feasibility, adaptive composition of the two existing
