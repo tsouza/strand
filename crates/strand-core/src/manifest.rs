@@ -131,6 +131,12 @@ pub fn commit<S: ConditionalStore>(
         match store.put_if_absent(&path, &snapshot_bytes) {
             Ok(_) => {}
             Err(StoreError::Io(msg)) => return Err(CommitError::Io(msg)),
+            // No disambiguation needed here, unlike the pointer CAS below:
+            // `path` is attempt-unique, so whether this write actually
+            // landed or not, nothing will ever reference it under a wrong
+            // assumption. Landed-but-unacked just leaves a harmless orphan
+            // object (CLAUDE.md §6) once this attempt is abandoned.
+            Err(StoreError::Ambiguous(msg)) => return Err(CommitError::Io(msg)),
             Err(StoreError::PreconditionFailed) => panic!(
                 "snapshot path {path} collided despite the per-attempt nonce — \
                  this should be statistically impossible"
@@ -154,6 +160,31 @@ pub fn commit<S: ConditionalStore>(
                 // on the assumption a rival will eventually stop contending
                 // would turn a permanent outage into an infinite loop.
                 return Err(CommitError::Io(msg));
+            }
+            Err(StoreError::Ambiguous(msg)) => {
+                // We don't know whether this pointer write applied before
+                // the failure — the CAS itself is atomic on the backend, so
+                // a plain read now resolves it completely: either our path
+                // is current (the write landed, the ack was lost) or it
+                // isn't (it didn't land, or a rival won first).
+                match store.get(CURRENT_POINTER_KEY) {
+                    Ok(Some((pointer_bytes, _))) if pointer_bytes == path.as_bytes() => {
+                        return Ok(snapshot);
+                    }
+                    Ok(_) => {
+                        // Did not land. Loop back and recompute against
+                        // fresh state, same as losing the CAS outright.
+                    }
+                    Err(StoreError::Io(follow_up) | StoreError::Ambiguous(follow_up)) => {
+                        return Err(CommitError::Io(format!(
+                            "pointer write was ambiguous ({msg}) and the follow-up \
+                             read to resolve it also failed: {follow_up}"
+                        )));
+                    }
+                    Err(StoreError::PreconditionFailed) => {
+                        unreachable!("ConditionalStore::get never returns PreconditionFailed")
+                    }
+                }
             }
         }
     }
@@ -180,7 +211,10 @@ pub enum CommitError {
 impl CommitError {
     fn from_store_error(e: StoreError) -> CommitError {
         match e {
-            StoreError::Io(msg) => CommitError::Io(msg),
+            // A `get` has no side effect to reconcile, so per `StoreError`'s
+            // own doc comment a conforming `get` treats ambiguity the same
+            // as a definite failure here.
+            StoreError::Io(msg) | StoreError::Ambiguous(msg) => CommitError::Io(msg),
             StoreError::PreconditionFailed => {
                 unreachable!("ConditionalStore::get never returns PreconditionFailed")
             }
@@ -208,7 +242,9 @@ pub fn read_snapshot<S: ConditionalStore>(
                 }));
             }
             Ok(ReadAttempt::Expired) => continue,
-            Err(StoreError::Io(msg)) => return Err(ReadError::Io(msg)),
+            Err(StoreError::Io(msg) | StoreError::Ambiguous(msg)) => {
+                return Err(ReadError::Io(msg));
+            }
             Err(StoreError::PreconditionFailed) => {
                 unreachable!("ConditionalStore::get never returns PreconditionFailed")
             }
@@ -635,6 +671,152 @@ mod tests {
             }
             self.inner.put_if_match(key, bytes, etag)
         }
+    }
+
+    /// A store that behaves normally but reports the pointer CAS as
+    /// `StoreError::Ambiguous` on its first attempt — the write is still
+    /// forwarded to (and actually applied against) the inner store, exactly
+    /// like a request whose response was lost after the server processed
+    /// it. Models the case `commit` must resolve rather than blindly retry.
+    struct AmbiguousThenNormalPointerWrite<'a> {
+        inner: &'a InMemoryStore,
+        already_fired: std::cell::Cell<bool>,
+    }
+
+    impl ConditionalStore for AmbiguousThenNormalPointerWrite<'_> {
+        fn get(
+            &self,
+            key: &str,
+        ) -> Result<Option<(Vec<u8>, crate::store::ETag)>, crate::store::StoreError> {
+            self.inner.get(key)
+        }
+
+        fn put_if_absent(
+            &self,
+            key: &str,
+            bytes: &[u8],
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            let result = self.inner.put_if_absent(key, bytes);
+            if key == CURRENT_POINTER_KEY && !self.already_fired.get() {
+                self.already_fired.set(true);
+                return Err(crate::store::StoreError::Ambiguous(
+                    "simulated: response lost after the write applied".into(),
+                ));
+            }
+            result
+        }
+
+        fn put_if_match(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            etag: &crate::store::ETag,
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            let result = self.inner.put_if_match(key, bytes, etag);
+            if key == CURRENT_POINTER_KEY && !self.already_fired.get() {
+                self.already_fired.set(true);
+                return Err(crate::store::StoreError::Ambiguous(
+                    "simulated: response lost after the write applied".into(),
+                ));
+            }
+            result
+        }
+    }
+
+    #[test]
+    fn commit_resolves_an_ambiguous_pointer_write_that_actually_landed_as_success() {
+        let inner = InMemoryStore::new();
+        let store = AmbiguousThenNormalPointerWrite {
+            inner: &inner,
+            already_fired: std::cell::Cell::new(false),
+        };
+
+        let committed = commit(&store, |next_row_id| {
+            vec![SegmentRef {
+                path: "segments/a.bin".to_string(),
+                row_id_base: next_row_id,
+                row_id_count: 2,
+                byte_length: 102,
+                checksum: 0xdead_beef,
+            }]
+        })
+        .unwrap();
+
+        assert_eq!(committed.version, 0, "the ambiguous write was the real commit");
+        assert_eq!(committed.segments.len(), 1);
+        // No duplicate: a second, unnecessary commit built on top of the
+        // (actually-successful) first one would show up as version 1 here.
+        assert_eq!(read_snapshot(&inner), Ok(Some(committed)));
+    }
+
+    /// The other resolution of the same ambiguity: the pointer write is
+    /// reported `Ambiguous` but never actually reaches the inner store, the
+    /// same way a request that failed before the server ever saw it would.
+    /// `commit` must not mistake the earlier `Ambiguous` for success.
+    struct AmbiguousAndNeverAppliedPointerWrite<'a> {
+        inner: &'a InMemoryStore,
+        already_fired: std::cell::Cell<bool>,
+    }
+
+    impl ConditionalStore for AmbiguousAndNeverAppliedPointerWrite<'_> {
+        fn get(
+            &self,
+            key: &str,
+        ) -> Result<Option<(Vec<u8>, crate::store::ETag)>, crate::store::StoreError> {
+            self.inner.get(key)
+        }
+
+        fn put_if_absent(
+            &self,
+            key: &str,
+            bytes: &[u8],
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            if key == CURRENT_POINTER_KEY && !self.already_fired.get() {
+                self.already_fired.set(true);
+                return Err(crate::store::StoreError::Ambiguous(
+                    "simulated: request never reached the server".into(),
+                ));
+            }
+            self.inner.put_if_absent(key, bytes)
+        }
+
+        fn put_if_match(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            etag: &crate::store::ETag,
+        ) -> Result<crate::store::ETag, crate::store::StoreError> {
+            if key == CURRENT_POINTER_KEY && !self.already_fired.get() {
+                self.already_fired.set(true);
+                return Err(crate::store::StoreError::Ambiguous(
+                    "simulated: request never reached the server".into(),
+                ));
+            }
+            self.inner.put_if_match(key, bytes, etag)
+        }
+    }
+
+    #[test]
+    fn commit_retries_an_ambiguous_pointer_write_that_never_landed() {
+        let inner = InMemoryStore::new();
+        let store = AmbiguousAndNeverAppliedPointerWrite {
+            inner: &inner,
+            already_fired: std::cell::Cell::new(false),
+        };
+
+        let committed = commit(&store, |next_row_id| {
+            vec![SegmentRef {
+                path: "segments/a.bin".to_string(),
+                row_id_base: next_row_id,
+                row_id_count: 2,
+                byte_length: 102,
+                checksum: 0xdead_beef,
+            }]
+        })
+        .unwrap();
+
+        assert_eq!(committed.version, 0);
+        assert_eq!(read_snapshot(&inner), Ok(Some(committed)));
     }
 
     #[test]

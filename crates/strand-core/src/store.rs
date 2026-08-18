@@ -26,15 +26,32 @@ pub type ETag = String;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
-    /// The `If-None-Match: *` or `If-Match` precondition was not met.
+    /// The `If-None-Match: *` or `If-Match` precondition was not met. A
+    /// definite outcome: the backend told us, plainly, that the write did
+    /// not apply.
     PreconditionFailed,
-    /// The backend failed for a reason that is not "the key is absent" —
-    /// a network error, a timeout, an unexpected response. Kept distinct
-    /// from `Ok(None)` deliberately: conflating the two would mean a
-    /// transient failure gets treated as an expired-snapshot 404 by the
-    /// reader retry logic in `manifest.rs`, silently masking a real error
-    /// as a routine compaction race.
+    /// The backend failed in a way that is definite: either the request was
+    /// never dispatched (so it certainly did not apply), or a well-formed
+    /// error response came back from the service. Kept distinct from
+    /// `Ok(None)` deliberately: conflating the two would mean a transient
+    /// failure gets treated as an expired-snapshot 404 by the reader retry
+    /// logic in `manifest.rs`, silently masking a real error as a routine
+    /// compaction race.
     Io(String),
+    /// The backend failed in a way that leaves the write's outcome unknown:
+    /// a timeout, a dropped connection, a response that stopped arriving
+    /// mid-stream. The request may have been sent and processed before the
+    /// failure occurred — there is no guarantee it did not apply. Kept
+    /// distinct from `Io` because the two demand different caller behavior:
+    /// `Io` means "this definitely did not happen, retry is safe"; a caller
+    /// treating `Ambiguous` the same way risks silently duplicating a write
+    /// that actually landed. A caller mutating state through a conditional
+    /// write (`put_if_absent`/`put_if_match`) MUST resolve this by reading
+    /// the key back and checking whether its own write is the one present,
+    /// rather than assuming failure and retrying blind. `get` and `delete`
+    /// have no side effect to reconcile and MAY treat this the same as
+    /// `Io`.
+    Ambiguous(String),
 }
 
 pub trait ConditionalStore {

@@ -90,12 +90,25 @@ header semantics are R5, open — `docs/ledger.md`):
      reuse) this attempt's version and row-ID range from that fresh
      state, write a new snapshot object under a new nonce, and retry
      from step 3.
-   - Any other failure (a network or backend error, not a precondition
-     failure): the backend itself failed. A conforming writer MUST NOT
-     treat this the same as a lost CAS and retry indefinitely — that
-     would turn a permanent outage into an infinite loop, mistaking it
-     for a rival writer that will eventually stop contending. It MUST
-     surface the failure to its caller.
+   - A definite backend failure (a well-formed error response from the
+     store, or a request that never left the client — not a precondition
+     failure): a conforming writer MUST NOT treat this the same as a lost
+     CAS and retry indefinitely — that would turn a permanent outage into
+     an infinite loop, mistaking it for a rival writer that will
+     eventually stop contending. It MUST surface the failure to its
+     caller.
+   - An ambiguous outcome (a timeout, a dropped connection, a response
+     that stopped arriving mid-stream — the request may have reached the
+     store and been applied before the failure occurred): a conforming
+     writer MUST NOT treat this as either success or failure without
+     checking. Because the pointer CAS is atomic on the backend, a plain
+     follow-up `GET _strand/current` resolves the ambiguity completely: if
+     it now names the path this attempt just wrote, the write landed and
+     this commit succeeded (the response was merely lost); otherwise it
+     did not land, and the writer proceeds exactly as on `412` — re-read,
+     recompute, retry under a new nonce. A writer that instead retries
+     blindly on ambiguity risks committing a redundant, wasted extra
+     version on top of one that already succeeded.
 
 Every I/O a `build_segments`-style callback performs (writing a segment,
 say) MUST be safe to run more than once per logical commit, since a
@@ -169,6 +182,9 @@ step-3 recompute-on-retry requirement under genuine concurrent writers
 the reader 404-refresh recovery path. Not yet implemented: table metadata
 itself (`_strand/metadata.json`), retention-policy-driven snapshot
 expiry, and the orphan-sweep tool — all M3 scope. `commit`/`read_snapshot`
-currently propagate backend I/O failures as typed errors
-(`CommitError::Io`, `ReadError::Io`); GCS/Azure conditional-write
+propagate definite backend failures as typed errors (`CommitError::Io`,
+`ReadError::Io`) and resolve ambiguous pointer-write outcomes per §2
+(`StoreError::Ambiguous`, `crates/strand-core/src/store.rs`), classified
+from the real AWS SDK's `SdkError` variants in
+`crates/strand-core/src/s3_store.rs`. GCS/Azure conditional-write
 semantics remain unverified (R5, open).

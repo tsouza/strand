@@ -78,6 +78,45 @@ fn is_precondition_failed<E>(err: &aws_sdk_s3::error::SdkError<E>) -> bool {
         .is_some_and(|r| r.status().as_u16() == 412)
 }
 
+/// Did this write fail in a way that leaves its outcome genuinely unknown,
+/// as opposed to a definite non-application? Per
+/// `aws_smithy_runtime_api::client::result::SdkError`'s own variant
+/// documentation (vendored by inspecting the crate source directly, not
+/// from memory — CLAUDE.md §3): `TimeoutError` and `DispatchFailure` are
+/// each documented "the request MAY have been sent"; `ResponseError` means
+/// a response started arriving and then stopped short of being parseable
+/// (its own doc example: "the server hung up without sending a complete
+/// response") — the server may already have committed the write before the
+/// connection dropped. `ConstructionFailure` never left the client, and
+/// `ServiceError` (including the 412 case handled separately above) is a
+/// complete, well-formed answer from the service — both are definite, and
+/// fall through to `StoreError::Io`.
+fn is_ambiguous_outcome<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> bool {
+    use aws_sdk_s3::error::SdkError;
+    matches!(
+        err,
+        SdkError::TimeoutError(_) | SdkError::DispatchFailure(_) | SdkError::ResponseError(_)
+    )
+}
+
+fn classify_write_error<E>(err: aws_sdk_s3::error::SdkError<E>) -> StoreError
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    if is_precondition_failed(&err) {
+        return StoreError::PreconditionFailed;
+    }
+    let formatted = format!(
+        "{:#}",
+        aws_smithy_types::error::display::DisplayErrorContext(&err)
+    );
+    if is_ambiguous_outcome(&err) {
+        StoreError::Ambiguous(formatted)
+    } else {
+        StoreError::Io(formatted)
+    }
+}
+
 impl ConditionalStore for S3Store {
     fn get(&self, key: &str) -> Result<Option<(Vec<u8>, ETag)>, StoreError> {
         self.runtime.block_on(async {
@@ -122,14 +161,9 @@ impl ConditionalStore for S3Store {
                 .body(ByteStream::from(bytes.to_vec()))
                 .send()
                 .await;
-            match result {
-                Ok(output) => Ok(output.e_tag().unwrap_or_default().to_string()),
-                Err(err) if is_precondition_failed(&err) => Err(StoreError::PreconditionFailed),
-                Err(err) => Err(StoreError::Io(format!(
-                    "{:#}",
-                    aws_smithy_types::error::display::DisplayErrorContext(&err)
-                ))),
-            }
+            result
+                .map(|output| output.e_tag().unwrap_or_default().to_string())
+                .map_err(classify_write_error)
         })
     }
 
@@ -144,14 +178,9 @@ impl ConditionalStore for S3Store {
                 .body(ByteStream::from(bytes.to_vec()))
                 .send()
                 .await;
-            match result {
-                Ok(output) => Ok(output.e_tag().unwrap_or_default().to_string()),
-                Err(err) if is_precondition_failed(&err) => Err(StoreError::PreconditionFailed),
-                Err(err) => Err(StoreError::Io(format!(
-                    "{:#}",
-                    aws_smithy_types::error::display::DisplayErrorContext(&err)
-                ))),
-            }
+            result
+                .map(|output| output.e_tag().unwrap_or_default().to_string())
+                .map_err(classify_write_error)
         })
     }
 }
