@@ -268,7 +268,7 @@ GCS/Azure header semantics are R5, open — see below):
 3. Open each referenced segment per §1, in parallel across segments.
 
 A `404` at either step means the referenced object was removed by compaction between
-this reader's two GETs (§7's deletion-safety rule bounds *when* that can happen, not
+this reader's two GETs (`CLAUDE.md` §6's deletion-safety rule bounds *when* that can happen, not
 *whether* a reader can lose this particular race). Per the safety rules below, the
 reader treats this as an expired snapshot: refresh `_strand/current` and retry the
 whole sequence, capped at a small, implementation-chosen retry limit — the exact

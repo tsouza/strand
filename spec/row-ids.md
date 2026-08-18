@@ -36,7 +36,7 @@ compare-and-swap. A writer that loses the race MUST re-read the winner's
 `next_row_id` and recompute its range before retrying — reusing a
 previously proposed range after losing the race is non-conforming, since
 it can produce two segments claiming the same row-IDs (`spec/manifest.md`
-§4).
+§2, step 3).
 
 ## 3. What "stable" means under merge (invariant 1)
 

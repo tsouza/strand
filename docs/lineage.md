@@ -25,7 +25,7 @@ once, valid under any codec. Adopted as a spec invariant.
 **From Lance**: the layering discipline — indexes are redundant, versioned search
 structures kept out of the table format — and the **index-aware manifest**: Lance's
 versioned manifest references index blobs without coupling to their internals, which is
-exactly the shape §7 adopts.
+exactly the shape `CLAUDE.md` §6 adopts.
 
 **From Iceberg**: the atomic-pointer-swap commit model — immutable versioned metadata,
 a single current pointer, compare-and-swap on the pointer. S3's conditional writes
@@ -66,6 +66,7 @@ their labs, because a format nobody's production engine is economically forced t
 is a paper artifact. BitFunnel: a hardware-profile bet, published with strong numbers,
 adopted by nobody. The Optane-era formats: hardware-specific choices baked into media
 layouts, unimplementable the day the hardware died — the standing argument for keeping
-register widths out of wire bytes (§6). Pilosa: a good structure with a spec is not a
+register widths out of wire bytes (invariant 10, `CLAUDE.md` §5). Pilosa: a good
+structure with a spec is not a
 distribution strategy. Every RFC's "how this could be wrong" section names its nearest
 grave.

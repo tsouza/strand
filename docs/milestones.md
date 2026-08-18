@@ -11,7 +11,7 @@ with an analysis, not in the memory hole.
 and alignment attributes, invariant-11 byte-determinism pins (endianness, chunk codec,
 checksums), footer/hotcache layout, blob registry, row-ID chapter with per-family
 merge-semantics declarations, **manifest chapter with the CAS commit protocol and the
-§6 safety rules (declared CAS host, deletion-safety retention, reader 404-refresh,
+`CLAUDE.md` §6 safety rules (declared CAS host, deletion-safety retention, reader 404-refresh,
 orphan rule)**. `strand-core` read/write; `strand-tools inspect`. Golden files. Vendor
 `references/` and `docs/research/` from `docs/research/README.md`. The batch-shaped
 reader trait (invariant 9's frozen API shape) was originally listed here but is **not
@@ -28,7 +28,7 @@ snapshot must be impossible) requires M3's compaction — the deletion-safety ru
 normative in `spec/manifest.md` §4 but untestable until the sweep exists. The
 tail-latency deliverable is partially met: local-MinIO p50/p90/p99 exist in
 `bench/results/cold-open.json`, but the real-network tail figure that would confirm or
-replace §7's placeholder remains open, per §7's own admission. Implementation went
+replace `CLAUDE.md` §7's placeholder remains open, per that section's own admission. Implementation went
 beyond this list in one respect: the store abstraction distinguishes definite from
 ambiguous backend failures (`StoreError::Ambiguous`), `commit()` disambiguates an
 ambiguous pointer CAS with a follow-up read (RFC 0001's Discussion section records
@@ -58,7 +58,7 @@ bit-width, the rotation descriptor field, and the rotation-provenance mechanism
 (invariant 11); the **cluster-family cold-native blob** (navigation tier + wholesale
 posting lists + rerank region) per the R1 RFC, with all posting-list offsets
 resolvable from the navigation tier (invariant 3's one-wave rule), the replication
-knob and tier-1 sizing limits in blob metadata, computed against §7's cold-open byte
+knob and tier-1 sizing limits in blob metadata, computed against `CLAUDE.md` §7's cold-open byte
 budget. The warm-tier graph blob family (persisted-permutation node order, ordering
 algorithm per R1's evidence) is in-scope but explicitly second. Benchmarks: cold and
 warm ANN recall/latency with GET counts asserted; codec comparison RaBitQ vs
@@ -70,7 +70,7 @@ only.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
-rebuild for graph blobs, rebalance for centroids), respecting §6's deletion-safety
+rebuild for graph blobs, rebalance for centroids), respecting `CLAUDE.md` §6's deletion-safety
 rule, with merge cost benchmarked per strategy; the orphan-sweep tool; end-to-end
 hybrid RRF across both blob families over one row-ID space. **The multi-segment
 benchmark**: the same corpus at 1, 16, and ~128 segments, cold and warm, so
@@ -97,6 +97,6 @@ of it should track earlier milestones (reading lexical blobs as M1 lands) so the
 is stress-tested by a consumer while it can still change cheaply; M5 is where it
 becomes a supported, benchmarked artifact. Without this milestone the project is
 Indri with better licensing, and we have chosen not to be that in writing. The
-TableProvider is additionally the hybrid-fusion benchmark host, running the §7 fusion
+TableProvider is additionally the hybrid-fusion benchmark host, running the `CLAUDE.md` §7 fusion
 workload with its selectivity sweep. The FAISS adapter lands alongside M2's
 benchmarks or here, per R11(b)'s feasibility finding.

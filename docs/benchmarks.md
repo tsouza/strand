@@ -24,11 +24,11 @@ under 100 ms and ≤2 round trips per segment, within the cold-open byte budget,
 the manifest adding at most two round trips ahead of them); (2) cold and warm query
 latency p50/p99 for BM25 top-k, ANN top-k, and hybrid RRF, with GETs and bytes-read
 per query reported alongside — and warm reported both ways, against a cached snapshot
-and with a pointer-freshness check, per §7; (3) index size vs the same data in tantivy
+and with a pointer-freshness check, per `CLAUDE.md` §7; (3) index size vs the same data in tantivy
 and Lucene; (4) build and merge throughput, per merge strategy of invariant 1, plus
 segment-count amplification at M3; (5) score parity per invariant 5's
 profile-based definition; (6) bytes-fetched vs bytes-used, the read-amplification
-column of §6 (`docs/data-structures.md`).
+cost (`docs/data-structures.md`).
 
 **Named baselines**: tantivy (same-process lexical), Lucene (small JVM harness, parity
 within norm quantization), Parquet-plus-brute-force (what the index buys). Regressions
@@ -179,14 +179,14 @@ independently verified. Every comparison report cites the source sentence, state
 independently measured number, hardware, dataset, and date, and repeats the asymmetry:
 their warm numbers are a caching fleet's — with a WAL-tail freshness path and a query
 planner — not a format's. A format-based reader pays an explicit pointer round trip
-for the freshness their engine gets from its own machinery (§6); warm comparisons
+for the freshness their engine gets from its own machinery (`CLAUDE.md` §6); warm comparisons
 state which variant of ours is being compared.
 
 Reference points:
 - ~100ms per object-storage round trip (their stated first-principles figure); cold
   queries budgeted at 3–4 round trips, "often as little as ~400ms". This is the
   *structured* cold path — metadata, then filter/centroid indexes + WAL tail, then
-  clusters — and note it includes their metadata trip, which is why §7 counts ours.
+  clusters — and note it includes their metadata trip, which is why `CLAUDE.md` §7 counts ours.
 - Architecture page (fetched 2026-08-17): first query to a truly cold namespace is
   **p50 = 874ms** for 1M documents; subsequent cached queries **p50 = 14ms**. The
   874ms true-cold figure — not the ~400ms structured-path figure — is the number our
