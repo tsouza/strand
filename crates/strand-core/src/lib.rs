@@ -13,3 +13,5 @@
 // limitations under the License.
 
 pub mod container;
+pub mod manifest;
+pub mod store;
