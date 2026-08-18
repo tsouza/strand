@@ -90,7 +90,12 @@ synthetic-skewed data. The **scoring-profiles
 chapter** (RFC 0003, `rfcs/0003-scoring-profiles.md`, Approved) defines the `bm25`
 profile normatively and the Lucene-parity profile, both grounded byte-exact against
 Robertson & Zaragoza's own formula and Lucene 10.5.1's real source, with a worked
-example. **Analyzer descriptor schema and the normative token-stream
+example. A reference implementation now exists (`crates/strand-core/src/scoring.rs`):
+both profiles' score formulas, and `SmallFloat.intToByte4`/`byte4ToInt` ported
+directly from the vendored Lucene source rather than reimplemented from the paper
+description, tested to 1e-6 against the RFC's own worked-example numbers
+(`idf = 0.847298`, `score = 0.601988` for `bm25`; `score = 0.859981` for
+`lucene-parity`). **Analyzer descriptor schema and the normative token-stream
 vectors in `conformance/analyzers/` are gating deliverables of this milestone, not
 metadata afterthoughts** — without them invariant 6 is a label; the schema and
 per-document-length definition are now RFC 0004 (`rfcs/0004-analyzer-descriptors.md`,

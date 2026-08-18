@@ -16,5 +16,6 @@ pub mod container;
 pub mod manifest;
 #[cfg(feature = "s3")]
 pub mod s3_store;
+pub mod scoring;
 pub mod segment;
 pub mod store;

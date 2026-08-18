@@ -5,8 +5,13 @@ profiles this chapter registers: `bm25` and `lucene-parity`. Approved by RFC 000
 (`rfcs/0003-scoring-profiles.md`); this chapter states the settled result — see the
 RFC for alternatives considered, the worked example, and the adversarial review.
 
-Reference implementation: not yet implemented; lands with the R2 lexical blob
-(M1, `docs/ledger.md`).
+Reference implementation: `crates/strand-core/src/scoring.rs` — the `bm25` and
+`lucene-parity` scoring formulas, including `SmallFloat.intToByte4`/`byte4ToInt`
+ported directly from the vendored Lucene 10.5.1 source
+(`references/lucene-bm25similarity-and-smallfloat.md`), tested against this
+chapter's RFC's worked example to 1e-6. The descriptor's own wire placement (which
+blob carries these bytes) still lands with the R2 lexical blob (M1,
+`docs/ledger.md`).
 
 ## 1. The descriptor
 
@@ -97,10 +102,15 @@ that STRAND's stored length itself be lossy.
 
 ## 6. Conformance status
 
-Not yet implemented. `references/lucene-bm25similarity-and-smallfloat.md` and
-`references/robertson-zaragoza-bm25-and-beyond.md` carry the primary sources this
-chapter is grounded against. RFC 0003's worked example is the first golden test
-vector once implemented (`conformance/`, not yet created for this family).
+Implemented (`crates/strand-core/src/scoring.rs`). `references/lucene-bm25similarity-and-smallfloat.md`
+and `references/robertson-zaragoza-bm25-and-beyond.md` carry the primary sources
+this chapter is grounded against. RFC 0003's worked example is a test in that
+module (`worked_example_bm25_profile`, `worked_example_lucene_parity_profile`),
+checked to 1e-6 rather than a `conformance/` binary golden file — the descriptor
+itself is JSON metadata (§1), not a fixed binary layout, so there is no wire-byte
+golden file to pin the way `conformance/term-dictionary/` and
+`conformance/filter-bitmaps/` pin theirs; a numeric worked-example test is the
+right-shaped conformance check here.
 
 ## 7. Per-document length — resolved by `spec/analyzer-descriptors.md`
 
