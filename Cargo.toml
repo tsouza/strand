@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/strand-core"]
+members = ["crates/strand-core", "crates/strand-tools"]
 
 [workspace.package]
 edition = "2024"
