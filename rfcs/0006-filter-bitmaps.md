@@ -1,6 +1,26 @@
 # RFC 0006: Filter bitmaps
 
-- **Status:** Draft
+- **Status:** Approved. Adversarial review found 4 Important findings, all fixed:
+  a broken §2→§3 self-citation; a quote misattributed to `CLAUDE.md` M3 that is
+  actually from `docs/milestones.md` M3 (now correctly attributed); an
+  understated Roaring determinism risk — the `roaring` crate's `insert_range` can
+  select a run-container store that serializes under a different cookie than
+  array/bitmap containers for the same logical bitmap, a same-version/same-
+  platform divergence, not merely cross-platform — closed with a normative MUST
+  (`spec/filter-bitmaps.md` §3: always serialize without run containers, under
+  `SERIAL_COOKIE_NO_RUNCONTAINER`), independently confirmed against the `roaring`
+  0.11.5 source (`Store::Run`/`IntervalStore` in `container.rs`); and an unsourced
+  "ordinals fit comfortably" claim, replaced by a normative cap
+  (`row_id_count <= 2^32`) with the arithmetic that grounds it. Three Minor
+  findings also fixed: an invariant-8 overreach in Alternatives considered
+  (invariant 8 governs encodings, not container composition — reworded to cite
+  precedent instead), an ambiguous "absolute...within this blob" offset
+  description (reworded to match RFC 0005's blob-relative wording, with the
+  `blob_entry.offset` reminder), and a systemic observation (no M1 RFC yet tracks
+  cumulative cold-fetchable-wave bytes against the 100MB budget — noted, not
+  fixed here, out of this RFC's scope). Every byte-level worked-example claim and
+  all markdown tables were independently reproduced and confirmed exact by the
+  review.
 - **Milestone:** M1 — Lexical (`docs/milestones.md`)
 - **Spec chapters produced:** `spec/filter-bitmaps.md`; additively extends
   `spec/container.md` §9 (registers `family_id = 2`, "filter")
@@ -44,10 +64,10 @@ high-cardinality ones. This RFC does not attempt to serve both; a future RFC
 targeting high-cardinality filtering is separate work, not a variant of this one.
 
 **Deletion vectors** (invariant 2) also use Roaring, but are M3 scope
-(`CLAUDE.md` M3: "Deletion vectors; compaction implementing the per-family merge
-semantics of invariant 1") — a different blob, a different lifecycle (updated by
-compaction, not written once at segment build time), and a different RFC, not
-designed here. This RFC's wire-format registration (§2 below) is written generally
+(`docs/milestones.md` M3: "Deletion vectors; compaction implementing the per-family
+merge semantics of invariant 1") — a different blob, a different lifecycle (updated
+by compaction, not written once at segment build time), and a different RFC, not
+designed here. This RFC's wire-format registration (§3 below) is written generally
 enough that a future deletion-vector RFC can cite it without repeating the spec
 citation, but this RFC does not itself define deletion vectors.
 
@@ -99,12 +119,16 @@ the **bitmap data** itself. Ordinal `i`'s directory record sits at byte offset `
 RFC 0005 §3 uses for term-info records, at a smaller record size since a filter
 bitmap needs no `doc_freq` or positions field:
 
-| field           | type | notes                                                         |
-| --------------- | ---- | ------------------------------------------------------------- |
-| `bitmap_offset` | u64  | absolute byte offset of this value's bitmap, within this blob |
-| `bitmap_length` | u32  | byte length of this value's serialized Roaring bitmap         |
+| field           | type | notes                                                                      |
+| --------------- | ---- | -------------------------------------------------------------------------- |
+| `bitmap_offset` | u64  | byte offset **within the filter-bitmap store blob** (not the segment file) |
+| `bitmap_length` | u32  | byte length of this value's serialized Roaring bitmap                      |
 
-`12 = 8 (u64) + 4 (u32)`, little-endian (invariant 11).
+`12 = 8 (u64) + 4 (u32)`, little-endian (invariant 11). Like RFC 0005's
+`postings_offset`/`positions_offset` (`rfcs/0005-term-dictionary.md` §3),
+`bitmap_offset` is relative to this blob's own start, not the segment file's start —
+a reader adds `spec/container.md` §5's `blob_entry.offset` to get the segment-file
+position.
 
 The bitmap bytes themselves are the standard 32-bit Roaring format, exactly as
 specified by `RoaringFormatSpec` (`references/roaring-format-spec-and-rust-crate.md`)
@@ -116,16 +140,36 @@ explicitly non-universal 64-bit extension); this RFC pins the standard 32-bit fo
 `SERIAL_COOKIE`/`SERIAL_COOKIE_NO_RUNCONTAINER` as specified, no vendor-specific
 deviation.
 
+**Writers MUST NOT emit run containers.** `RoaringFormatSpec` itself documents that
+the same logical bitmap can serialize to two different byte sequences depending on
+whether run containers are used, and names its own mitigation: always use
+`SERIAL_COOKIE_NO_RUNCONTAINER`. This is not a theoretical risk for STRAND's own
+default crate: `roaring` (`references/roaring-format-spec-and-rust-crate.md`)
+exposes a `Store::Run` container, reachable through range-based insertion APIs
+(`insert_range`), that serializes under the run-container cookie with a different
+byte layout than the array/bitmap containers the same logical set would otherwise
+produce. Two conformant writers of the identical logical bitmap — one inserting
+ordinals individually, another using a range API for a contiguous span — can
+therefore diverge in wire bytes on the same crate version and the same platform,
+not only across versions or platforms. `spec/filter-bitmaps.md` §3 makes the
+spec's own recommended mitigation normative: a MUST to serialize every bitmap
+without run containers, always under `SERIAL_COOKIE_NO_RUNCONTAINER`.
+
 **Bitmaps index local ordinals, never global row-IDs.** A value's bitmap marks
 which of the segment's local ordinals (`0` to `row_id_count - 1`, `spec/row-ids.md`
 §1) carry that value — never the 64-bit global row-ID space directly. A reader
 recovers the global row-ID via `row_id_base + local_ordinal`, the same arithmetic
 every STRAND reader already performs (`spec/row-ids.md` §1). This is a deliberate
-choice, not an oversight: local ordinals for any real segment fit comfortably
-within the 32-bit standard Roaring form's range, so this design never needs the
-64-bit extension the format spec itself flags as non-universally interoperable
-(`references/roaring-format-spec-and-rust-crate.md`) — sidestepping that
-interoperability gap entirely rather than working around it.
+choice, not an oversight, and it comes with a normative bound rather than an
+assumption: `spec/filter-bitmaps.md` §3 requires `row_id_count <= 2^32`
+(4,294,967,296) for any segment declaring this blob family — exactly the range the
+standard 32-bit Roaring form can index (`0` to `2^32 - 1`). `spec/container.md` §4
+leaves `row_id_count` an unbounded `u64`, so nothing else in the format enforces
+this; a segment that violated the cap without this check would silently produce
+ordinals the bitmap format cannot represent. Given that bound, this design never
+needs the 64-bit extension the format spec itself flags as non-universally
+interoperable (`references/roaring-format-spec-and-rust-crate.md`) — sidestepping
+that interoperability gap entirely rather than working around it.
 
 ### 4. Query resolution
 
@@ -219,17 +263,22 @@ cardinality (bounded by this RFC's own stated scope to stay small).
   §5, §6); no new checksum scope.
 - **Codec-variant provenance:** two registrations this RFC makes precisely — the
   `fst` crate, version `0.4.7` (matching RFC 0005's own registration exactly), and
-  the Roaring format, standard 32-bit form specifically (`SERIAL_COOKIE`/
-  `SERIAL_COOKIE_NO_RUNCONTAINER` as `RoaringFormatSpec` defines them), explicitly
-  not the 64-bit extension.
+  the Roaring format, standard 32-bit form specifically, **run containers
+  excluded by a normative MUST** (`spec/filter-bitmaps.md` §3): every bitmap is
+  serialized under `SERIAL_COOKIE_NO_RUNCONTAINER` as `RoaringFormatSpec` defines
+  it, never `SERIAL_COOKIE`, and never the 64-bit extension.
 - **Stochastic-transform provenance:** not applicable.
 - **Golden files:** the worked example's real 53-byte FST and real 68-byte
   filter-bitmap store become the first `conformance/` golden files for this blob
-  family once implemented — carrying the same cross-version/cross-platform
-  determinism caveat RFC 0005 already names for the `fst` crate half, and a
-  narrower version of the same caveat for the `roaring` crate half (same-process
-  determinism confirmed; cross-platform/cross-version not independently tested in
-  this pass either, `references/roaring-format-spec-and-rust-crate.md`).
+  family once implemented. The `fst` crate half carries the same
+  cross-version/cross-platform determinism caveat RFC 0005 already names. The
+  `roaring` crate half's more serious risk — same-version, same-platform
+  divergence from run-container promotion (Design §3 above) — is closed
+  normatively by the no-run-containers MUST, not merely narrowed; what remains
+  open for the `roaring` half is the same, narrower cross-version/cross-platform
+  question already named for `fst` (same-process determinism confirmed here;
+  cross-platform/cross-version not independently tested in this pass,
+  `references/roaring-format-spec-and-rust-crate.md`).
 
 ## How this could be wrong
 
@@ -260,6 +309,21 @@ takeaway, when the actual lesson is "this RFC was never designed for that case."
 Stating the scope boundary precisely (Non-goals, above) is this RFC's defense
 against that misreading, not a claim the boundary enforces itself.
 
+**Run-container promotion is a same-version, same-platform byte-determinism risk,
+not merely a cross-platform one.** `RoaringFormatSpec` documents that a single
+logical bitmap has two possible serializations depending on run-container use, and
+the `roaring` crate's own range-insertion API can select the run-container store for
+an ordinary, non-adversarial write pattern (a contiguous span of local ordinals) —
+meaning the risk this RFC's determinism story has to close is not "two different
+crate versions might diverge," it is "two calls into the identical crate build,
+differing only in which insertion API the writer happened to use, might diverge."
+Design §3 and `spec/filter-bitmaps.md` §3 close this with a normative MUST
+(`SERIAL_COOKIE_NO_RUNCONTAINER`, always), following the format spec's own stated
+mitigation rather than inventing one. Naming this precisely matters because
+invariant 11's byte-determinism promise is not satisfied by "usually produces the
+same bytes" — a golden-file comparison that passed only because a reference
+implementation happened to always use one insertion API would be silently fragile.
+
 **The 64-bit-extension-avoidance choice trades one interoperability gap for a
 narrower one.** Avoiding the 64-bit Roaring extension sidesteps a real, spec-
 documented interoperability problem (`references/roaring-format-spec-and-rust-
@@ -283,9 +347,12 @@ design (invariant 1, `spec/row-ids.md`) doesn't actually need.
 
 **A single combined FST-plus-bitmaps blob** instead of two separate blob
 registrations. Rejected for consistency with RFC 0005's own two-blob precedent
-(dictionary, then value-indexed data) — invariant 8's "don't invent encodings"
-extends to not inventing a second container-composition pattern when this project
-already has one that works.
+(dictionary, then value-indexed data): invariant 8 governs *encodings* (postings
+compression, adjacency layouts, quantization) and does not itself forbid a combined
+blob at the container level, so the real reason is precedent and registry
+simplicity, not an invariant-8 violation — reusing RFC 0005's already-working
+two-blob pattern rather than inventing a second container-composition convention
+this project does not yet need.
 
 **Storing bitmaps `chunk-compressed`** instead of `raw-mappable`. Rejected:
 Roaring's own container format is already compact and directly operable without a
@@ -302,9 +369,12 @@ term-info store.
 - The two blobs' exact placement inside a segment is deferred to the R2 RFC,
   identically to RFC 0003/0004/0005's own deferred placement questions.
 - Cross-platform/cross-version determinism for both the `fst` crate half (already
-  named open by RFC 0005) and the `roaring` crate half (named open here for the
-  first time) needs an actual test before either half's golden-file status is
-  fully, not provisionally, satisfied.
+  named open by RFC 0005) and the `roaring` crate half needs an actual test before
+  either half's golden-file status is fully, not provisionally, satisfied. The
+  more serious same-version/same-platform risk on the `roaring` half —
+  run-container promotion diverging bytes within one build — is already closed
+  normatively by Design §3's no-run-containers MUST; what remains open here is the
+  narrower cross-version/cross-platform question, symmetric with the `fst` half.
 - Deletion vectors (invariant 2, M3 scope) will need their own RFC; that RFC can
   cite this one's Roaring wire-format registration (§3 above) rather than
   re-deriving it, since the format choice itself is general, only this RFC's

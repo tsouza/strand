@@ -50,7 +50,19 @@ from the actual `fst` crate (not illustrative bytes) and independently reproduce
 byte-for-byte during review; also the first RFC to populate the blob-type registry
 (`spec/container.md` §9). FST size at realistic vocabulary scale and the `fst`
 crate's cross-platform byte-determinism are both still open (RFC 0005's own Open
-questions). The R2 RFC pins the exact d-gap variant
+questions). The **filter-bitmap blobs** are now RFC 0006
+(`rfcs/0006-filter-bitmaps.md`, Approved) — a value-dictionary FST (identical shape
+to RFC 0005 §2) paired with a small directory plus one standard 32-bit Roaring
+bitmap per distinct value, indexed by local ordinal; the second RFC to extend the
+blob-type registry (`family_id = 2`, "filter"). Its review surfaced a real,
+same-version/same-platform byte-determinism risk in the `roaring` crate's
+run-container promotion (`insert_range` can select a differently-serialized
+container for an ordinary contiguous write), independently confirmed against the
+crate's own source and closed with a normative MUST to always serialize without
+run containers — the same class of risk RFC 0005 named for the `fst` crate, but
+sharper: same build, same platform, different insertion API, different bytes,
+absent the MUST. Cross-platform/cross-version determinism for both the `fst` and
+`roaring` halves remains open (RFC 0006's own Open questions). The R2 RFC pins the exact d-gap variant
 (invariant 11) and the block-max RFC pins the raw-statistics fields (invariant 4);
 neither is drafted yet, both gated on R9's still-unmeasured margin
 (`docs/ledger.md`) — though a maintained, Apache-2.0 Rust FastLanes implementation
