@@ -223,7 +223,7 @@ Populated incrementally, one RFC at a time — this section started empty at RFC
 an anonymous placeholder blob with no real family meaning, and no RFC may assign it
 a real family.
 
-| `family_id` | family    | `blob_type_id` | blob type          | registered by |
-| ------------ | --------- | ---------------- | ------------------- | -------------- |
-| 1            | lexical   | 0                | term-dictionary FST | RFC 0005 (`rfcs/0005-term-dictionary.md`) |
-| 1            | lexical   | 1                | term-info store     | RFC 0005 (`rfcs/0005-term-dictionary.md`) |
+| `family_id` | family  | `blob_type_id` | blob type           | registered by                             |
+| ----------- | ------- | -------------- | ------------------- | ----------------------------------------- |
+| 1           | lexical | 0              | term-dictionary FST | RFC 0005 (`rfcs/0005-term-dictionary.md`) |
+| 1           | lexical | 1              | term-info store     | RFC 0005 (`rfcs/0005-term-dictionary.md`) |

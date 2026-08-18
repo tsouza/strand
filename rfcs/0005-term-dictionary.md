@@ -116,13 +116,13 @@ A flat array of fixed-size records, one per term ordinal, in ordinal order — o
 `i`'s record sits at byte offset `i * 28` within this blob, directly computable, no
 index-of-an-index needed. Each record, 28 bytes, little-endian (invariant 11):
 
-| field              | type | notes                                                          |
-| ------------------- | ---- | ---------------------------------------------------------------- |
-| `doc_freq`           | u32  | number of documents in this segment containing the term (invariant 5's scoring input) |
-| `postings_offset`     | u64  | byte offset **within the postings blob** (not the segment file) |
-| `postings_length`     | u32  | byte length of this term's postings within the postings blob    |
-| `positions_offset`    | u64  | byte offset **within the positions blob**                       |
-| `positions_length`    | u32  | byte length of this term's positions within the positions blob  |
+| field              | type | notes                                                                                 |
+| ------------------ | ---- | ------------------------------------------------------------------------------------- |
+| `doc_freq`         | u32  | number of documents in this segment containing the term (invariant 5's scoring input) |
+| `postings_offset`  | u64  | byte offset **within the postings blob** (not the segment file)                       |
+| `postings_length`  | u32  | byte length of this term's postings within the postings blob                          |
+| `positions_offset` | u64  | byte offset **within the positions blob**                                             |
+| `positions_length` | u32  | byte length of this term's positions within the positions blob                        |
 
 `28 = 3 * 4 (u32) + 2 * 8 (u64)`, computed, matching tantivy's own `TermInfo`
 `FixedSize` layout exactly (`references/tantivy-fst-termdict-and-fst-crate.md`) —
@@ -175,11 +175,11 @@ postings blob holds `"cat"`'s 1 posting at bytes `[0, 4)`, `"dog"`'s 2 postings 
 `[4, 12)`, `"fish"`'s 1 posting at `[12, 16)`; no positions stored in this toy
 example, so all `positions_offset`/`positions_length` are `0`):
 
-| ordinal | term   | `doc_freq` | `postings_offset` | `postings_length` | bytes (little-endian) |
-| ------- | ------ | ---------- | ------------------- | -------------------- | ----------------------- |
-| 0       | `cat`  | 1          | 0                    | 4                     | `01 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
-| 1       | `dog`  | 2          | 4                    | 8                     | `02 00 00 00 04 00 00 00 00 00 00 00 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
-| 2       | `fish` | 1          | 12                   | 4                     | `01 00 00 00 0C 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| ordinal | term   | `doc_freq` | `postings_offset` | `postings_length` | bytes (little-endian)                                                                 |
+| ------- | ------ | ---------- | ----------------- | ----------------- | ------------------------------------------------------------------------------------- |
+| 0       | `cat`  | 1          | 0                 | 4                 | `01 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1       | `dog`  | 2          | 4                 | 8                 | `02 00 00 00 04 00 00 00 00 00 00 00 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 2       | `fish` | 1          | 12                | 4                 | `01 00 00 00 0C 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 Resolving the query term `"dog"`: FST lookup returns ordinal `1`; the term-info
 record at byte offset `1 * 28 = 28` within the term-info blob gives `doc_freq = 2`,

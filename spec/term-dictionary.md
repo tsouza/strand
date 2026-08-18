@@ -36,13 +36,13 @@ normal outcome, not an error.
 A flat array of fixed 28-byte records, one per term ordinal, in ordinal order —
 ordinal `i`'s record is at byte offset `i * 28`. Little-endian (invariant 11):
 
-| field              | type | notes                                                             |
-| ------------------- | ---- | -------------------------------------------------------------------- |
-| `doc_freq`           | u32  | documents in this segment containing the term (RFC 0003's scoring input) |
-| `postings_offset`     | u64  | byte offset **within the postings blob** (not the segment file)      |
-| `postings_length`     | u32  | byte length of this term's postings, within the postings blob        |
-| `positions_offset`    | u64  | byte offset **within the positions blob**                            |
-| `positions_length`    | u32  | byte length of this term's positions, within the positions blob      |
+| field              | type | notes                                                                    |
+| ------------------ | ---- | ------------------------------------------------------------------------ |
+| `doc_freq`         | u32  | documents in this segment containing the term (RFC 0003's scoring input) |
+| `postings_offset`  | u64  | byte offset **within the postings blob** (not the segment file)          |
+| `postings_length`  | u32  | byte length of this term's postings, within the postings blob            |
+| `positions_offset` | u64  | byte offset **within the positions blob**                                |
+| `positions_length` | u32  | byte length of this term's positions, within the positions blob          |
 
 `storage-class: raw-mappable`, `tier: cold-fetchable`.
 
