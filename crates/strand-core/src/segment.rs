@@ -60,6 +60,18 @@ impl SegmentBuilder {
         let mut data_region = Vec::new();
         let mut entries = Vec::with_capacity(self.blobs.len());
         for blob in &self.blobs {
+            // spec/container.md §5: a raw-mappable blob's `offset` MUST be a
+            // multiple of its declared `alignment`. Chunk-compressed blobs
+            // carry no such obligation — their `alignment` field is
+            // meaningless (invariant 10) and must not introduce a gap.
+            if blob.storage_class == StorageClass::RawMappable && blob.alignment > 1 {
+                let alignment = u64::from(blob.alignment);
+                let remainder = data_region.len() as u64 % alignment;
+                if remainder != 0 {
+                    let padding = (alignment - remainder) as usize;
+                    data_region.resize(data_region.len() + padding, 0);
+                }
+            }
             let offset = data_region.len() as u64;
             let checksum = twox_hash::XxHash3_64::oneshot(&blob.data);
             data_region.extend_from_slice(&blob.data);
@@ -151,6 +163,92 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(bytes, golden);
+    }
+
+    #[test]
+    fn build_pads_a_raw_mappable_blob_up_to_its_declared_alignment() {
+        // spec/container.md §5: "A writer MUST place a raw-mappable blob at an
+        // `offset` that is a multiple of its declared `alignment`."
+        let mut builder = SegmentBuilder::new(2);
+        builder.add_blob(BlobSpec {
+            family_id: 0,
+            blob_type_id: 0,
+            storage_class: StorageClass::RawMappable,
+            tier: Tier::NotApplicable,
+            alignment: 1,
+            chunk_codec: ChunkCodec::None,
+            chunk_codec_level: 0,
+            data: vec![0xAA, 0xBB, 0xCC],
+        });
+        builder.add_blob(BlobSpec {
+            family_id: 1,
+            blob_type_id: 0,
+            storage_class: StorageClass::RawMappable,
+            tier: Tier::NotApplicable,
+            alignment: 8,
+            chunk_codec: ChunkCodec::None,
+            chunk_codec_level: 0,
+            data: vec![0x11, 0x22, 0x33, 0x44],
+        });
+
+        let bytes = builder.build(0);
+        let hotcache = decode_hotcache(&bytes);
+
+        assert_eq!(hotcache.blobs[0].offset, 0);
+        assert_eq!(
+            hotcache.blobs[1].offset, 8,
+            "second blob must start at a multiple of its declared alignment (8), \
+             not immediately after the first blob's 3 bytes"
+        );
+        assert_eq!(&bytes[0..3], &[0xAA, 0xBB, 0xCC]);
+        assert_eq!(&bytes[3..8], &[0, 0, 0, 0, 0], "padding bytes must be zero");
+        assert_eq!(&bytes[8..12], &[0x11, 0x22, 0x33, 0x44]);
+    }
+
+    #[test]
+    fn build_does_not_pad_chunk_compressed_blobs() {
+        // Padding is a raw-mappable-only obligation (spec/container.md §5); a
+        // chunk-compressed blob's `alignment` field is meaningless and MUST NOT
+        // introduce a gap.
+        let mut builder = SegmentBuilder::new(2);
+        builder.add_blob(BlobSpec {
+            family_id: 0,
+            blob_type_id: 0,
+            storage_class: StorageClass::RawMappable,
+            tier: Tier::NotApplicable,
+            alignment: 1,
+            chunk_codec: ChunkCodec::None,
+            chunk_codec_level: 0,
+            data: vec![0xAA, 0xBB, 0xCC],
+        });
+        builder.add_blob(BlobSpec {
+            family_id: 1,
+            blob_type_id: 0,
+            storage_class: StorageClass::ChunkCompressed,
+            tier: Tier::ColdFetchable,
+            alignment: 8,
+            chunk_codec: ChunkCodec::Zstd,
+            chunk_codec_level: 3,
+            data: vec![0x11, 0x22, 0x33, 0x44],
+        });
+
+        let bytes = builder.build(0);
+        let hotcache = decode_hotcache(&bytes);
+
+        assert_eq!(
+            hotcache.blobs[1].offset, 3,
+            "chunk-compressed blobs are never padded, even with a nonzero \
+             alignment field"
+        );
+    }
+
+    fn decode_hotcache(segment_bytes: &[u8]) -> crate::container::Hotcache {
+        let footer_bytes: [u8; 40] =
+            segment_bytes[segment_bytes.len() - 40..].try_into().unwrap();
+        let footer = crate::container::Footer::decode(&footer_bytes).unwrap();
+        let start = footer.hotcache_offset as usize;
+        let end = start + footer.hotcache_length as usize;
+        crate::container::Hotcache::decode(&segment_bytes[start..end]).unwrap()
     }
 
     #[test]

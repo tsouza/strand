@@ -166,11 +166,16 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   list claiming it. Carries forward as an M1 prerequisite — M1's postings kernels
   are its first real consumer, and the trait should land with them rather than as
   an unconsumed abstraction (`docs/milestones.md` M0 records the same).
-- **Raw-mappable blob alignment is normative but not yet enforced by the writer.**
-  `spec/container.md` §5 now requires a writer to place a raw-mappable blob's
-  `offset` at a multiple of its declared `alignment`, but `crates/strand-core/src/
-  segment.rs`'s `SegmentBuilder` does not yet pad blob regions to honor it. Small
-  implementation item; not done in this pass.
+- **Raw-mappable blob alignment — resolved 2026-08-18.** `SegmentBuilder::build`
+  (`crates/strand-core/src/segment.rs`) now pads a raw-mappable blob's region up to
+  its declared `alignment` with zero bytes before placing it, honoring
+  `spec/container.md` §5's MUST; chunk-compressed blobs are never padded regardless
+  of their (meaningless) `alignment` field. Test-first, two new tests plus the full
+  workspace suite and `cargo clippy -- -D warnings` clean; the existing
+  `toy-segment.bin` golden file needed no regeneration (its one blob sits at offset
+  0, trivially aligned). Recorded in RFC 0001's Discussion section
+  (`rfcs/0001-container-rowid-manifest.md`), which also names the byte-determinism
+  reason padding content had to be pinned to zero rather than left unspecified.
 - **TLA+ model correspondence gap — resolved 2026-08-18.** `verification/
   manifest.tla`'s `ProposeSnapshot(w)` and `ReadCurrent(w)` both gained the
   outcome branches this entry previously flagged as missing before the TLAPS

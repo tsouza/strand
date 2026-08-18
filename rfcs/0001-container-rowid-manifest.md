@@ -547,9 +547,10 @@ opens any segment, there was no reason to depend on the unconfirmed server behav
 ## Discussion — post-approval amendments
 
 Per `CLAUDE.md` §3, design problems revealed by implementation are recorded here,
-in the RFC, rather than folded silently into spec text. Two such changes landed
+in the RFC, rather than folded silently into spec text. Three such changes landed
 after this RFC was approved. The Design sections above are unmodified; this section
-is the record of what changed and why, and `spec/manifest.md` cites it.
+is the record of what changed and why, and `spec/manifest.md`/`spec/container.md`
+cite it.
 
 **Definite vs. ambiguous store failures, and the pointer-CAS disambiguation.** The
 commit protocol as approved (Design §3, step 3) enumerated two CAS outcomes:
@@ -576,3 +577,21 @@ a lost race and retrying forever — was found during M0 implementation by writi
 failing test against the unfixed code (the `a0994b7`-era error-propagation work),
 not by the review. Both provenances are stated here so the record is honest about
 which safeguards caught which defects.
+
+**Raw-mappable blob alignment: a normative obligation the Design section never
+stated.** Design §1's `blob_entry` table declares `alignment` ("power-of-two;
+raw-mappable blobs only") but never states that a writer must actually place the
+blob there — a gap an ACPR convergence pass found (2026-08-18): `spec/container.md`
+§5 declared the field with no matching writer obligation, and
+`crates/strand-core/src/segment.rs`'s `SegmentBuilder` placed every blob back-to-back
+regardless of its declared alignment, silently under-delivering on the field's own
+stated purpose. Fixed test-first: `spec/container.md` §5 now states the MUST (padding
+to the next multiple of `alignment`, zero-filled — pinned for invariant 11
+byte-determinism, since padding content is otherwise unread by any conforming reader
+but still affects byte-for-byte golden-file comparison between implementations), and
+`SegmentBuilder::build` pads accordingly, verified by two new tests
+(`build_pads_a_raw_mappable_blob_up_to_its_declared_alignment`,
+`build_does_not_pad_chunk_compressed_blobs`) plus the full workspace suite and
+`cargo clippy -- -D warnings`, both clean. The existing `toy-segment.bin` golden file
+needed no regeneration: its one blob sits at offset 0, trivially aligned regardless of
+padding logic.

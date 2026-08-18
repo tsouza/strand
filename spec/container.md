@@ -126,7 +126,13 @@ where the blob starts and ends. A specific blob family's chunk index
 format is that family's own spec chapter's concern. A `raw-mappable` blob
 has no internal chunk table: its bytes are addressed directly at the
 declared `alignment`. A writer MUST place a raw-mappable blob at an
-`offset` that is a multiple of its declared `alignment`.
+`offset` that is a multiple of its declared `alignment`; any padding bytes
+this introduces before the blob's data MUST be zero, so that two
+conformant writers given the same logical input produce byte-identical
+segments (invariant 11) — padding content is otherwise unread by any
+conforming reader, which always seeks to `offset` and reads exactly
+`length` bytes, but an unpinned padding value would still break
+byte-for-byte golden-file comparison between implementations.
 
 ## 6. Byte-determinism scope of the registry checksum (invariant 11)
 
