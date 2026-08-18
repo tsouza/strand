@@ -1,1 +1,4 @@
 /target
+# Downloaded benchmark corpora (multi-GB) — never committed. bench/results/
+# holds the derived JSON output, which is checked in.
+/bench/data
