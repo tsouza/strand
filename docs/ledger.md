@@ -8,7 +8,7 @@ RFC backed by the research tracks in `docs/research/README.md`.
 
 **Settled (apply, do not re-litigate):** chunk-shaped cold access with the one-wave
 addressability rule (invariant 3); end-to-end cold accounting from the pointer read
-(§8); cluster-family as the cold-native vector shape; graph blobs as warm-tier;
+(§7); cluster-family as the cold-native vector shape; graph blobs as warm-tier;
 RaBitQ default with kernel-per-bit-width and rotation descriptor; Roaring; FST
 default; batch-shaped API shape; scalar-normative kernels with SIMD equivalence
 testing; per-blob storage class with dense wire bytes; persisted node-order
@@ -35,7 +35,7 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 
 **Open (RFC required; grounding in `docs/research/README.md`):**
 - **R1** — the cluster blob's concrete layout and tier-1 sizing law vs segment scale
-  and replication (gates M2/M3). Kill criterion, falsifiable: if tier-1 exceeds §8's
+  and replication (gates M2/M3). Kill criterion, falsifiable: if tier-1 exceeds §7's
   provisional 100 MB cold-open byte budget — or its measured M0 replacement — by more
   than ~4× at target segment scale, cold vector search is narrower and the mission
   sentence changes again. Also: the graph-blob ordering algorithm (Starling's block
@@ -108,7 +108,7 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   pruning stats) so a reader can prune segments before opening them, and what does
   target segment size look like when the 100 MB budget pushes segment count up while
   open-amortization pushes it down? Fed by the M3 multi-segment benchmark; any
-  summary blob must stay index-internals-agnostic per §7.
+  summary blob must stay index-internals-agnostic per §6.
 - **R11 — Adapter feasibility audit (gates all adapter work).** Verify against
   current source, not memory: (a) tantivy's reader surface — map the modules a
   STRAND read path must replace, settling the codec-SPI question as a by-product,
@@ -118,7 +118,7 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   run over external lists at all given its `CodePacker`/`BlockInvertedLists`
   packing, including the load-time repack cost if so; (c) Quickwit split/hotcache
   internals post-relicense, testing the inherits-from-the-fork hypothesis; (d) the
-  fork reader-module list that arms the §8 failure triggers; (e) the warm-tier graph
+  fork reader-module list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier graph
   host choice. Adapter milestones are conditional on R11.
 - **Postings block size** (conditional): 128 was the default by shared
   lineage, now conditional on R9's granularity outcome — the block-max sibling-blob

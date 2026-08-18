@@ -415,7 +415,7 @@ strand/
     lineage.md          the prior-art map (exists, §4)
     data-structures.md  data-structure baseline defaults (exists, §5)
     benchmarks.md        benchmark/adapter detail + turbopuffer targets (exists, §7)
-    milestones.md        full per-milestone deliverables and gates (exists, §9)
+    milestones.md        full per-milestone deliverables and gates (exists, §10)
     ledger.md            settled vs open ledger (exists, §5)
     research/
       README.md          condensed research grounding, R1-R11 (exists); the full

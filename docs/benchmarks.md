@@ -179,14 +179,14 @@ independently verified. Every comparison report cites the source sentence, state
 independently measured number, hardware, dataset, and date, and repeats the asymmetry:
 their warm numbers are a caching fleet's — with a WAL-tail freshness path and a query
 planner — not a format's. A format-based reader pays an explicit pointer round trip
-for the freshness their engine gets from its own machinery (§7); warm comparisons
+for the freshness their engine gets from its own machinery (§6); warm comparisons
 state which variant of ours is being compared.
 
 Reference points:
 - ~100ms per object-storage round trip (their stated first-principles figure); cold
   queries budgeted at 3–4 round trips, "often as little as ~400ms". This is the
   *structured* cold path — metadata, then filter/centroid indexes + WAL tail, then
-  clusters — and note it includes their metadata trip, which is why §8 counts ours.
+  clusters — and note it includes their metadata trip, which is why §7 counts ours.
 - Architecture page (fetched 2026-08-17): first query to a truly cold namespace is
   **p50 = 874ms** for 1M documents; subsequent cached queries **p50 = 14ms**. The
   874ms true-cold figure — not the ~400ms structured-path figure — is the number our
