@@ -1,14 +1,28 @@
 # RFC 0002: Dual-model verification of the manifest CAS protocol
 
-- **Status:** Not approved. Adversarial review (below) found the proposal
-  disproportionate to the protocol's actual size and a load-bearing citation
-  (AWS PObserve, §2) backwards relative to what it was cited for. Per the
-  review's own recommendation, this RFC is superseded for now by building the
-  property-based testing alternative named in "Alternatives considered" and
-  determining empirically whether it leaves a real gap only TLA+ + DST would
-  close. Do not begin building the TLA+ spec or the DST harness against this
-  RFC unless that evidence emerges and a revised version of this RFC passes
-  its own adversarial review.
+- **Status:** Draft — revised to address every finding from the first
+  adversarial review (below), not yet through a second pass. The
+  property-based alternative that review called for was built and evaluated
+  (see "Evidence gathered"); separately, the user has since determined that
+  test-based coverage — even property-based, even mutation-tested — cannot
+  substitute for exhaustive model-space exploration, because it is bounded by
+  the scenario space a human encoded into the generator ("known unknowns"),
+  while a faithful model checked exhaustively within its bounds can surface
+  interactions no test author conceived of ("unknown unknowns"). Given an
+  explicit choice between a cheaper phased TLA+-only plan and the full
+  original scope (TLA+ model, TLAPS proof, DST harness, dual-tracing
+  cross-validation), the user chose the full scope. This revision fixes the
+  citation and completeness issues the first review found; it does not need
+  to re-litigate whether the effort proceeds, only whether it is now
+  well-grounded enough to approve. Do not begin building the TLA+ spec or the
+  DST harness against this RFC until it passes a fresh adversarial review.
+- **Milestone:** None directly. Cross-cutting verification infrastructure for the
+  manifest CAS protocol RFC 0001 §3 already specifies and `crates/strand-core/src/
+  manifest.rs` already implements; does not gate any of M1–M5.
+- **Invariants exercised:** none changed. This RFC proposes no change to `CLAUDE.md`'s
+  invariants, RFC 0001's protocol, or any wire format — it proposes a method for
+  gaining confidence that the existing, already-approved protocol and its existing,
+  already-implemented Rust code agree with each other.
 
 ## Adversarial review findings
 
@@ -92,13 +106,13 @@ TLA+ or DST. Whether it leaves a real residual gap only a model checker
 would find remains open — nothing has yet tried to construct a bug this
 property test's invariant set cannot express (e.g., a liveness violation,
 which a bounded-round proptest property structurally cannot show).
-- **Milestone:** None directly. Cross-cutting verification infrastructure for the
-  manifest CAS protocol RFC 0001 §3 already specifies and `crates/strand-core/src/
-  manifest.rs` already implements; does not gate any of M1–M5.
-- **Invariants exercised:** none changed. This RFC proposes no change to `CLAUDE.md`'s
-  invariants, RFC 0001's protocol, or any wire format — it proposes a method for
-  gaining confidence that the existing, already-approved protocol and its existing,
-  already-implemented Rust code agree with each other.
+
+Per the user's explicit decision (recorded in the Status header above), this
+residual-gap question is no longer the gate on whether this RFC proceeds — it
+proceeds regardless, because property-based testing and model checking answer
+different questions. It remains useful context for scoping *what the TLA+
+model needs to check that the property suite already doesn't*, which is part
+of what the Open Questions below still need to settle.
 
 ## Summary
 
@@ -153,7 +167,11 @@ protocol defect, the fix is a revision to RFC 0001 or a follow-on RFC, not silen
 folded in here. It does not commit to formally verifying every future STRAND
 subsystem; this RFC is scoped to the manifest CAS protocol specifically, the one
 piece of the format that is concurrent and retry-based in a way that makes exhaustive
-human-authored test coverage genuinely hard to trust.
+human-authored test coverage genuinely hard to trust. It does not model table
+metadata, retention policy, compaction, or the orphan sweep — all M3
+(`spec/manifest.md` §5), not yet implemented. Modeling ahead of M3 is a deliberate
+scoping choice (Open Questions, below, says why), not an oversight; a follow-on
+revision is expected once M3 lands.
 
 ## Design
 
@@ -163,10 +181,22 @@ Two independently-checkable artifacts, connected by a shared trace vocabulary:
 
 - **The TLA+ model** (`verification/manifest.tla`, new): the commit and read
   protocols, specified at **Delta Lake's action granularity, not Raft's** — a
-  deliberate choice grounded in Jack Vanlightly's public Delta Lake TLA+ model, whose
-  actions (`StartOperation`, `ReadDataFiles`, `WriteDataFiles`, `TryCommitTxn`) match
-  the shape of RFC 0001 §3's steps far more closely than Raft's fine-grained
-  message-passing actions do. §4 below sketches the action grammar this implies.
+  deliberate choice, informed by (not copied from) Jack Vanlightly's public Delta
+  Lake TLA+ model, whose actions (`StartOperation`, `ReadDataFiles`, `WriteDataFiles`,
+  `TryCommitTxn`) match the shape of RFC 0001 §3's steps far more closely than a
+  fine-grained, message-passing spec (`raft.tla`, vendored as part of the
+  `spacejam/tla-rust` example set, `references/spacejam-tla-rust.md`) would — the
+  Raft-vs-Delta-Lake contrast is this RFC's own framing, not Vanlightly's; his post
+  makes no such comparison (`references/vanlightly-delta-lake-tla-plus.md`). §4 below
+  sketches the action grammar this implies, extended to the reader side.
+- **A TLAPS proof of the model's core safety properties** (also new, alongside the
+  TLA+ model): per the user's choice of the full original scope, this RFC commits to
+  a machine-checked proof of the safety properties listed in "Open questions" below —
+  not only a bounded TLC check — following the shape FMDSE's own case study used for
+  a comparably-scoped protocol (`references/fmdse-blockchain-conformance-testing.md`).
+  TLC's bounded exhaustive check remains valuable in its own right during
+  development (fast counterexample discovery at small model instantiations) but is
+  not a substitute for the proof once the model stabilizes.
 - **The DST harness** (`crates/strand-core` test/bench infrastructure, new): drives
   the real `commit()`/`read_snapshot()` functions against a `ConditionalStore`
   implementation that is deterministic (seeded), controllable (can inject
@@ -184,33 +214,53 @@ Two independently-checkable artifacts, connected by a shared trace vocabulary:
 
 ### 2. Sequencing: Workflow II before Workflow I
 
-Following FMDSE's (arXiv:2501.08550) own bidirectional framing, there are two
-directions this dual-validation can run, and they are not equally hard:
+Following FMDSE's own bidirectional framing (`references/fmdse-blockchain-
+conformance-testing.md`), there are two directions this dual-validation can run, and
+they are not equally hard — though not for the reason an earlier draft of this RFC
+gave:
 
 - **Workflow II — spec drives implementation.** TLC (or a similar model-space walker)
   generates a large set of valid action sequences from the TLA+ spec. The DST harness
   replays each sequence directly against the real Rust code — this action, then this
   one, then this one, with the specified fault injected at the specified point — and
-  checks the real code's outcome matches what the spec predicted. This is the shape
-  AWS's PObserve/P-language tooling uses in production, and it is the direction that
-  actually works in practice: the spec's action boundaries are known in advance and
-  drive the harness, so there is no discovery problem about where one action ends and
-  the next begins.
+  checks the real code's outcome matches what the spec predicted.
 - **Workflow I — implementation drives verification.** The DST harness runs the real
   code under its own exploration (concurrent writers, randomized fault injection,
   many seeds), emits traces from what actually happened, and those traces are checked
-  for conformance against the TLA+ spec after the fact. This is the harder direction:
-  it requires the real code's emitted trace granularity to already agree with the
-  spec's action granularity, discovered rather than driven — precisely the failure
-  mode in MongoDB's real, documented case (a leader step-down/step-up modeled as one
-  atomic spec action against an implementation that actually took two separate steps,
-  a mismatch that invalidated every trace crossing that boundary, deterministically,
-  not probabilistically).
+  for conformance against the TLA+ spec after the fact.
 
-This RFC proposes building Workflow II first, using it to establish that the trace
-vocabulary and the spec's action granularity actually correspond to the real code's
-behavior, and only then attempting Workflow I — at which point granularity agreement
-is a design property already established, not a hope.
+**The actual argument for building Workflow II first is structural, not a claim
+that Workflow I doesn't work in production** (an earlier draft cited AWS's PObserve
+for that claim; PObserve is itself a real, working production example of Workflow
+I's shape — observe real execution, reconcile against a pre-existing spec after the
+fact — which is evidence Workflow I is achievable, not evidence it should go
+second; see `references/aws-pobserve-p-language.md` for the correction). The real
+asymmetry is about where the discovery problem sits. In Workflow II, this RFC
+chooses the action sequence and drives the harness through it directly — there is
+no ambiguity about where one action ends and the next begins, because the harness
+only knows how to receive commands phrased in the trace vocabulary; a mismatch
+surfaces immediately, at the exact action that failed to replay. In Workflow I, the
+real code runs on its own and *produces* a trace that must then be independently
+shown to decompose into the spec's action grammar at all — a discovery problem, not
+a given. MongoDB's documented experience is the concrete cautionary case: ten weeks
+of trace-checking effort against real (not simulated) execution did not yield one
+successfully validated spec, in part because a leader step-down/step-up sequence
+the implementation performed as two separate steps had been modeled as a single
+atomic spec action, and repeated attempts to paper over the mismatch with
+post-processing never worked (`references/mongodb-conformance-checking.md` — the
+exact quotes, corrected from an earlier draft's embellishment of this same
+anecdote, which is not documented as "deterministic" or "100%-consistent" in the
+source, only as a structural difference no post-processing fixed).
+
+This RFC proposes building Workflow II first, using it to establish — by
+construction, since the harness is driven rather than left to decompose its own
+spontaneous trace — that the trace vocabulary and the spec's action granularity
+actually correspond to the real code's behavior, and only then attempting Workflow
+I. This buys confidence that the vocabulary itself is sound before betting
+diagnostic effort on discovering whether the real code's *spontaneous* concurrent
+trace decomposes the same way — it does not, by itself, guarantee that Workflow I
+will succeed once attempted, and "How this could be wrong" below keeps that
+distinction explicit rather than claiming more than Workflow II can prove.
 
 ### 3. Drift classification
 
@@ -221,18 +271,47 @@ classified before anything is changed:
 | drift type | meaning | fix |
 | --- | --- | --- |
 | Type-I | the Rust code did something the spec forbids | a real bug — fix the Rust code |
-| Type-II | the spec permits something the Rust code can't or doesn't do | fix whichever side is not authoritative for that behavior — tighten the spec, or extend the Rust code |
+| Type-II | the spec permits something the Rust code can't or doesn't do | fix whichever side is not authoritative for that behavior (see below) |
 | tracer artifact | neither side is wrong; the trace vocabulary's abstraction boundary is | fix the tracer, not the model or the code |
+| fault-model mismatch | the DST harness's simulated `ConditionalStore` failure behavior doesn't match what the real backend actually does | fix the simulated fault model, not the spec or the Rust protocol logic |
 
-DST's determinism is what makes classification tractable: a drift instance is a seed,
-and a seed is replayable, so a specific disagreement can be bisected to its exact
-point of divergence at zero flake cost, the same way a real network's nondeterminism
-never allows.
+**Resolving Type-II: which side is authoritative.** The deciding question is
+whether RFC 0001 (or its governing spec chapters) actually intends the behavior the
+model forbids. If the protocol was designed to support it — the model is simply
+too restrictive — tighten the Rust code's behavior only if the code diverges from
+what was designed; otherwise, revise the *model* to permit it. If the protocol was
+never intended to support it, the Rust code has a latent bug even though nothing
+currently exercises it, and the code is what changes. This is a design-intent
+question, answered by consulting RFC 0001/`spec/manifest.md`, not answered by the
+model or the code alone.
+
+**The fourth drift source (fault-model mismatch) is distinct from a tracer
+artifact.** A tracer artifact is about vocabulary — the trace vocabulary
+mis-describing what happened. A fault-model mismatch is about fidelity — the DST
+harness's simulated `ConditionalStore` claiming a failure mode is possible (or
+impossible, or shaped a certain way) when the real backend disagrees. RFC 0001
+notes GCS/Azure conditional-write semantics are unverified (R5, `docs/ledger.md`),
+and this RFC's `StoreError::Ambiguous` classification (`crates/strand-core/src/
+s3_store.rs`) is derived from the real AWS SDK's documented `SdkError` variants for
+S3 specifically — a DST harness whose simulated fault injection doesn't match a
+real backend's actual failure shapes can produce drift that reflects nothing about
+either the spec or the Rust protocol logic, only a wrong simulation.
+
+DST's determinism is what makes classification tractable regardless of which of
+the four types is in play: a drift instance is a seed, and a seed is replayable,
+so a specific disagreement can be bisected to its exact point of divergence at
+zero flake cost, the same way a real network's nondeterminism never allows.
 
 ### 4. A sketch of the action grammar
 
 Not the spec itself — a sketch showing the granularity this RFC commits to, so the
-adversarial review has something concrete to push on before real TLA+ is written:
+adversarial review has something concrete to push on before real TLA+ is written.
+The first review found this sketch covered only the writer path; it now covers both,
+matching `commit()` and `read_snapshot()`/`try_read_current()`/`read_current()` in
+`crates/strand-core/src/manifest.rs` and the reader protocol in `spec/manifest.md`
+§3.
+
+**Writer path:**
 
 ```
 ReadCurrent(w)              \* writer w reads _strand/current + the snapshot it names
@@ -243,22 +322,53 @@ ResolveAmbiguity(w, v)      \* on Ambiguous: writer w re-reads the pointer to
                              \*   determine whether its own write landed
 ```
 
-Each is one coarse, per-attempt action — matching `commit()`'s actual structure
-(`crates/strand-core/src/manifest.rs`) directly, not a decomposition into the
-individual HTTP requests each one issues. `ResolveAmbiguity` exists as its own action
-specifically because of the fix RFC 0001's implementation just landed
-(`store.rs`'s `StoreError::Ambiguous`, `manifest.rs`'s pointer-CAS disambiguation) —
-this RFC's model must cover it, not the two-outcome CAS RFC 0001 originally described.
+**Reader path:**
+
+```
+ReadPointer(r)               \* reader r issues GET _strand/current; outcome ∈
+                              \*   {Found(path), Absent}
+ReadSnapshotObject(r, path)  \* reader r issues GET on the snapshot metadata
+                              \*   object `path` names; outcome ∈
+                              \*   {Found(snapshot), Expired}
+RefreshAndRetry(r)           \* on Expired: r re-issues ReadPointer, bounded by
+                              \*   READER_REFRESH_RETRY_LIMIT attempts total
+RetriesExhausted(r)          \* the bound in RefreshAndRetry is reached without
+                              \*   ever landing on a readable snapshot
+```
+
+Each is one coarse, per-attempt action — matching the real functions' structure
+directly, not a decomposition into the individual HTTP requests each one issues.
+`ResolveAmbiguity` exists as its own action specifically because of the fix RFC
+0001's implementation already landed (`store.rs`'s `StoreError::Ambiguous`,
+`manifest.rs`'s pointer-CAS disambiguation) — this RFC's model must cover it, not
+the two-outcome CAS RFC 0001 originally described. The reader path has no
+`Ambiguous`-shaped outcome of its own: a `get` has no side effect to reconcile, so
+`store.rs`'s own `StoreError` doc comment already treats a `get`-side ambiguous
+failure the same as a definite one, and the model follows that same collapse
+rather than inventing a distinction the real code doesn't make.
 
 ### 5. Effort, honestly
 
-FMDSE's own reported cost for a comparably-scoped protocol: 675 lines of TLA+, 1,282
-lines of TLAPS proof, and a roughly 2,000-line custom simulator, for a team already
-expert in the technique — weeks, not days. `spacejam/tla-rust` attempted close to
-this architecture and is dormant. This RFC does not treat that precedent as a reason
-not to attempt this, but names it as the actual practical risk (§ "How this could be
-wrong" below), not the granularity-matching question, which is a design discipline
-this RFC's sequencing (§2) already addresses by construction.
+FMDSE's own reported cost for a comparably-scoped protocol (`references/fmdse-
+blockchain-conformance-testing.md`): a 675-line TLA+ spec, a 1,282-line TLAPS
+proof (machine-checking in about two minutes once written), a roughly 2,000-line
+custom simulator (1,000 lines core driver, 1,000 lines network/DES abstraction)
+against a 2,411-line Go implementation, for **approximately two person-months,
+distributed across three engineers already expert in the technique**. STRAND's
+manifest protocol is smaller than FMDSE's consensus-protocol case study — no
+quorum, no leader election — but this RFC does not assume the cost scales down
+proportionally with protocol size; the TLAPS proof step in particular is not
+obviously cheaper just because the model has fewer states, and this RFC has no
+independent estimate to offer in its place.
+
+`spacejam/tla-rust` (`references/spacejam-tla-rust.md`) is named here as the
+actual practical risk, not the granularity-matching question (a design discipline
+§2's sequencing already addresses by construction): confirmed by listing its full
+file tree, the repository contains only TLA+/PlusCal source and vendored example
+specs — no Rust implementation was ever begun there. It attempted the spec half of
+roughly this architecture and stopped; that is this project's nearest precedent
+for a stalled effort of this specific shape, not a completed one to learn
+implementation lessons from.
 
 ## How this could be wrong
 
@@ -285,31 +395,38 @@ is assumed, not verified by this RFC — standard for all formal-methods work, w
 stating rather than leaving implicit, since CLAUDE.md's own culture is to name
 assumptions rather than bury them.
 
-**This may be disproportionate to the actual risk.** The manifest protocol is
-single-writer-per-attempt with bounded retry, not a distributed consensus protocol —
-its state space is genuinely smaller than Raft's or Delta Lake's own multi-table
-transaction model. A lighter-weight alternative (property-based testing, §"Alternatives
-considered") might close most of the same gap at a fraction of the cost. This RFC's
-adversarial review should weigh this directly: is the manifest protocol's actual
-complexity large enough to justify TLA+ + DST, or would proptest-style randomized
-interleaving plus invariant checks (no two committed segments overlap; `next_row_id`
-is monotonic; every committed snapshot is reachable from the one before it) catch
-the same class of bug at a fraction of the engineering cost this RFC's own §5 states
-plainly?
+**This is a real cost for a small protocol, accepted deliberately, not
+discovered late.** The manifest protocol is single-writer-per-attempt with bounded
+retry, not a distributed consensus protocol — its state space is genuinely smaller
+than Raft's or Delta Lake's own multi-table transaction model, and the
+property-based alternative (§"Alternatives considered," "Evidence gathered" above)
+demonstrably catches this protocol's known bug class at a fraction of the cost §5
+states plainly. The first adversarial review treated that as grounds to pause this
+RFC pending evidence the cheaper alternative was insufficient. The user has since
+made a considered decision to proceed regardless, on grounds this RFC's Status
+header states precisely: property-based testing and exhaustive model checking
+answer different questions, and a green test suite is not evidence there is
+nothing left for the model checker to find. This RFC records that decision rather
+than re-litigating it, but the underlying cost is real, and this section exists so
+a future reader — including a future session revisiting this RFC — sees the
+trade-off was made with eyes open, not glossed over because a green test suite made
+it easy to stop asking.
 
 ## Alternatives considered
 
 **Property-based testing (proptest/quickcheck-style) instead of TLA+ + DST.**
-Not rejected — named here as the live alternative the adversarial review must weigh
-against this RFC's proposal, per the risk above. Randomized generation of writer
-interleavings and fault injection, checked against hand-stated invariants, is far
-cheaper to build and maintain than a TLA+ model plus a proof plus a dual-tracing
-harness, and the three bugs already found in this protocol during M0 were each
-caught by targeted mutation tests, not anything TLA+-shaped. What it does not give:
-TLC's exhaustive (within a bounded model) exploration of the *specified* protocol
-independent of any particular Rust implementation, and a machine-checked proof of the
-safety properties rather than a statistical increase in confidence from random
-sampling.
+Not rejected on paper — actually built and evaluated (see "Evidence gathered"
+above): `crates/strand-core/src/manifest.rs`'s `tests::property` module, which
+caught both of this protocol's known historical bugs under mutation testing, one
+via a shrunk minimal counterexample. Far cheaper to build and maintain than a TLA+
+model plus a proof plus a dual-tracing harness. What it structurally cannot give,
+however many cases it runs: a scenario outside the fault/round vocabulary its
+generator was written with (`RoundPlan`'s four variants are an enumeration a human
+wrote down, not a state space discovered independent of that enumeration), TLC's
+exhaustive-within-bounds exploration of the *specified* protocol, or a
+machine-checked proof of the safety properties rather than a statistical increase
+in confidence from sampling. This is why the two are pursued together rather than
+the cheaper one substituting for the other, per the Status header.
 
 **`loom` for exhaustive interleaving testing.** Rejected as a fit for this protocol:
 loom exhaustively explores thread-interleavings of in-process shared-memory code
@@ -343,6 +460,18 @@ invariants checked are complete — the same gap from the other side.
   observe-and-reconcile tooling Workflow I would need) is not decided here.
 - The CI lint that keeps the trace vocabulary and the real code's emission points in
   lockstep (named in "How this could be wrong" above) is not designed here.
-- Whether this effort proceeds at all, given the proportionality question raised
-  above, is itself the first thing the adversarial review should settle — not an
-  open question to defer past approval.
+- How the DST harness's simulated `ConditionalStore` fault model will itself be
+  validated against real S3/MinIO behavior (and, eventually, GCS/Azure once R5
+  resolves) — the "fault-model mismatch" drift source in §3 — is not designed here;
+  the existing `crates/strand-core/tests/s3_store.rs` real-MinIO integration tests
+  are a starting point but were not written with this purpose in mind.
+- This RFC's model covers the manifest protocol's *current* surface: no table
+  metadata, no retention policy, no compaction, no orphan sweep — all M3
+  (`spec/manifest.md` §5 lists what's not yet implemented). Building the model now,
+  ahead of M3, is a deliberate scoping choice, not an oversight: it establishes the
+  Workflow II infrastructure and the trace vocabulary against the protocol surface
+  that already exists and is already exercised by real tests, rather than waiting on
+  work that has no fixed timeline. It will need a follow-on revision once M3's
+  deletion and retention semantics land — the reader-side `Expired`/404-refresh
+  action in §4 already exists in the current protocol, but the *conditions* under
+  which a real deployment triggers it (compaction) don't yet.
