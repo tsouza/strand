@@ -79,7 +79,8 @@ Lucene analysis Version docs; ICU/CLDR versioning docs.
 metadata, one current pointer, compare-and-swap on the pointer, giving optimistic
 concurrency and snapshot isolation; readers use the snapshot at load. S3 conditional
 writes make it catalog-free: If-None-Match (create-if-absent) GA in all regions
-August 20, 2024; If-Match ETag CAS November 26, 2024. Lance demonstrates the
+August 20, 2024; If-Match ETag CAS November 25, 2024 (`references/r5-manifest-commit-sources.md`).
+Lance demonstrates the
 index-aware, index-internals-agnostic manifest shape (indices metadata in a versioned
 manifest, committed directly to object storage). CIFF's failure shows what omitting
 this layer costs: a directory of files without an atomic table layer forces engines to
