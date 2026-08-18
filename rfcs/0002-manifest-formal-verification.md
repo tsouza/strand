@@ -71,6 +71,27 @@ both-sides summary) found, ranked most important first:
 Bottom line from the review: substantially reworked before another pass,
 not approved with minor fixes — and the proportionality question should be
 resolved with evidence, not deferred again.
+
+### Evidence gathered
+
+The property-based alternative is built:
+`crates/strand-core/src/manifest.rs`'s `tests::property` module, a
+`proptest` property over randomized sequences of 1–8 concurrent-writer
+rounds (solo commit, real rival-wins race, ambiguous-landed, and
+ambiguous-not-landed pointer writes), checked against the protocol's real
+safety invariants rather than one scenario's hand-computed expected
+values. Mutation-tested against both bugs previously found in this
+protocol: the row-ID-overlap bug (stale `current` reused across retries)
+reproduces as a hang, caught by the property test's timeout; the blind-
+ambiguous-retry bug reproduces as a clean assertion failure, with
+`proptest`'s shrinker reducing it automatically to its minimal case
+(`rounds = [(AmbiguousLanded, 1)]`) — a case no hand-authored test in this
+file specifically targeted. This is direct evidence for finding 2 above:
+the cheaper alternative catches this protocol's known bug class without
+TLA+ or DST. Whether it leaves a real residual gap only a model checker
+would find remains open — nothing has yet tried to construct a bug this
+property test's invariant set cannot express (e.g., a liveness violation,
+which a bounded-round proptest property structurally cannot show).
 - **Milestone:** None directly. Cross-cutting verification infrastructure for the
   manifest CAS protocol RFC 0001 §3 already specifies and `crates/strand-core/src/
   manifest.rs` already implements; does not gate any of M1–M5.
