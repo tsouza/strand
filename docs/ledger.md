@@ -306,10 +306,28 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   CC-CEDICT-backed Chinese path (CC BY-SA 4.0, share-alike, rejected —
   `references/cc-cedict-and-lindera-cc-cedict-license.md`) and over `rust_icu`'s
   native-C-dependency shape. `spec/analyzer-descriptors.md` §5 names the default.
-  Still open, genuinely: no accuracy bake-off was run (license/dependency-shape
-  grounds only), no implementation exists in `crates/strand-lexical`, and no
-  dictionary-segmented `conformance/analyzers/` vector exists — real M1 execution
-  work, not done by this grounding pass.
+  Still open at the time: no accuracy bake-off was run (license/dependency-shape
+  grounds only), no implementation existed in `crates/strand-lexical`, and no
+  dictionary-segmented `conformance/analyzers/` vector existed — real M1 execution
+  work, not done by this grounding pass. **Chinese bake-off run 2026-08-19**
+  (`docs/roadmap.md` M1-7): `bench/src/cjk_segmentation_bakeoff.rs` measured
+  ICU4X's `icu_segmenter 2.3.0` dictionary path against `jieba-rs 0.10.3` (MIT,
+  `references/jieba-and-jieba-rs-license.md`) over 8 real Chinese Wikipedia
+  sentences (fetched live via the MediaWiki API, `bench/results/
+  cjk-segmentation-bakeoff.json`). Result: 0.9154 micro-average / 0.9139
+  macro-average interior-boundary agreement (an inter-segmenter agreement metric,
+  not accuracy against a gold standard — no verifiably fetchable gold-segmented
+  Chinese corpus was used). ICU4X measurably under-merges compound nouns
+  jieba-rs keeps whole (e.g. `人工智能`, `计算机`, `中华人民共和国` each split by
+  ICU4X, kept whole by jieba-rs) — a real, moderate accuracy cost for the
+  dependency-shape/license win, not a hypothetical one, but not large enough on
+  this sample to overturn the M1-1 recommendation. Japanese (Lindera+IPADIC) and
+  Thai (PyThaiNLP) remain genuinely untested: Thai has no maintained Rust
+  binding at all, and Japanese would need a real IPADIC data-license audit this
+  pass did not do. `rfcs/0004-analyzer-descriptors.md` Discussion carries the
+  full write-up. `crates/strand-lexical/src/analyzer.rs`'s implementation and
+  `conformance/analyzers/` vectors remain separate, still-open M1 execution work
+  this measurement pass did not touch.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1): a
   first decode-throughput measurement now exists

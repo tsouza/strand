@@ -133,9 +133,25 @@ Also grounding debt, not M1-blocking but M1-adjacent and feeding M4:
   recommendation was made on license and dependency-shape grounds, not
   measured accuracy — RFC 0004's own amendment names this gap explicitly.
   Source: RFC 0004 Discussion — post-approval amendments, "How this could
-  be wrong." Status: open, measurement work, not gating M1-6 (a default
-  need only be declared correctly, not proven best) but should land before
-  M1's analyzer work is considered fully closed. Depends on: nothing.
+  be wrong." Status: **done, Chinese-only** (2026-08-19) —
+  `bench/src/cjk_segmentation_bakeoff.rs` measured ICU4X's `icu_segmenter
+  2.3.0` dictionary path against `jieba-rs 0.10.3` over 8 real Chinese
+  Wikipedia sentences: 0.9154 micro-average interior-boundary agreement (an
+  inter-segmenter agreement metric, not gold-standard accuracy — no
+  verifiably fetchable gold-segmented Chinese corpus was available in this
+  pass). ICU4X measurably under-merges compound nouns relative to jieba-rs,
+  a real but moderate accuracy cost that does not overturn M1-1's
+  recommendation on this sample. Full write-up: `rfcs/
+  0004-analyzer-descriptors.md` Discussion, `docs/ledger.md` R4,
+  `bench/results/cjk-segmentation-bakeoff.json`. **Japanese
+  (Lindera+IPADIC) and Thai (PyThaiNLP) are explicitly NOT covered** —
+  Thai has no maintained Rust binding at all (`references/
+  pythainlp-license-and-rust-gap.md`), and a Japanese run needs a real
+  IPADIC data-license audit beyond the existing code-license check
+  (`references/lindera-rust-morphological-analyzer.md`); both remain open,
+  named follow-on work, not gating M1-6 (a default need only be declared
+  correctly, not proven best) but should land before M1's analyzer work is
+  considered fully closed. Depends on: nothing.
 
 ## M2 — Vectors (nearly closed; loose ends remain)
 
