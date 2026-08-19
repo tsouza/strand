@@ -19,7 +19,9 @@
 //! whatever its descriptor claims.
 
 use serde_json::Value;
-use strand_lexical::analyzer::{analyze_dictionary_segmented_word_only, analyze_lucene_en_word_only};
+use strand_lexical::analyzer::{
+    analyze_dictionary_segmented_word_only, analyze_lucene_en_word_only,
+};
 
 fn conformance_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(concat!(
