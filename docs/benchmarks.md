@@ -131,7 +131,22 @@ tested by R11(c) against post-relicense internals rather than assumed: Quickwit'
 read path is close enough to tantivy's that the adapter inherits most of the
 fork. Its unique payoff if true: Quickwit's internal hotcache cold-open versus
 STRAND's specified one, same engine — the fairest test of the lineage's hotcache
-claim (`docs/lineage.md`).
+claim (`docs/lineage.md`). Scoped, not built, 2026-08-19
+(`references/quickwit-comparison-scoping.md`): deployment, index config, and
+ingest are comparably simple to the tantivy comparison (a `whitespace` tokenizer
+exists for feeding the same pre-analyzed tokens, and a real
+`quickwit_storage_object_storage_gets_total` Prometheus metric gives the GET
+count directly, no MinIO-side instrumentation needed); the genuine scope
+difference is that Quickwit is a caching server, not a stateless library call —
+`bench/src/field_cold_open.rs`'s own methodology (loop a plain store call 30
+times) gets a free cold measurement every iteration, while Quickwit's
+`fastfields`/`shortlived`/`splitfooter` caches mean a naive repeated query is not
+necessarily cold after the first one, and no explicit cache-bypass flag was
+found in this pass. A defensible methodology (process restart per iteration, or
+N separate small indexes queried once each) has to be chosen and stated as
+honestly as STRAND's own `localhost`-not-real-network caveat. Order of
+magnitude: a focused, dedicated task, not a same-session extension of the
+tantivy comparison.
 
 **PISA via CIFF (M4).** The STRAND→CIFF export lets PISA's MaxScore/WAND/BMW
 implementations query STRAND-derived indexes with zero adapter code; algorithm
