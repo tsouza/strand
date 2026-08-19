@@ -147,8 +147,28 @@ Non-goals and Open questions still leave genuinely open:
   construction algorithm. Source: RFC 0010 Non-goals and Open questions
   ("a stated M2 milestone deliverable this RFC does not complete");
   `docs/milestones.md`'s M2 text names "the replication knob and tier-1
-  sizing limits in blob metadata" as a stated deliverable. Status: open.
-  Depends on: nothing (design work against already-shipped blob formats).
+  sizing limits in blob metadata" as a stated deliverable. **Status: done**
+  (2026-08-19) — RFC 0010 Discussion — post-approval amendment; the
+  metadata slot is a new, always-present 8-byte `replication_descriptor`
+  trailer on the cluster navigation tier blob (`spec/vectors.md` §3,
+  `crates/strand-vector/src/navigation.rs`), and the construction
+  algorithm is `crates/strand-vector/src/closure.rs`'s `closure_replicate`
+  — SPANN's own Eq. 2 closure criterion plus RNG-rule pruning, grounded
+  against the paper's own text and cross-checked against its reference
+  implementation `microsoft/SPTAG` (`references/
+  spann-closure-assignment-algorithm.md`). Real tests including a
+  hand-checked worked example and a real end-to-end query proving
+  deduplication (`crates/strand-vector/tests/
+  closure_replication_end_to_end.rs`). Every pre-existing call site of
+  `build_navigation_tier` needed no changes. Two real, named residual
+  gaps, not folded into this resolution: compaction-time re-replication
+  after a `rebalance` merge (real, separate, unimplemented — the
+  construction algorithm runs at initial segment build time only), and the
+  RNG-rule's exact call-site fidelity to SPTAG's own closure-assignment
+  code (partial corroboration only — bounded consequence, since the rule
+  only ever reduces the realized replication count, never the format's
+  worst-case byte-cost bound). Depends on: nothing (design work against
+  already-shipped blob formats).
 - **M2-2** — A real M0-style byte-budget measurement for the vector blob
   family (the same way `bench/src/cold_open.rs` gave invariant 3 a
   measured baseline). Source: RFC 0010 Open questions ("M2's own
@@ -221,8 +241,11 @@ Non-goals and Open questions still leave genuinely open:
   readings are defensible; this document does not adjudicate between
   them. Status: **blocked** — on M2's own remaining design bandwidth if
   kept under M2, or on M3-1's design work starting if re-homed there;
-  either way it is not simply "open" today. Depends on: M2-1 (shares
-  design attention) if kept under M2; M3-1 if re-homed.
+  either way it is not simply "open" today. M2-1 (above) is now done,
+  which removes the "shares design attention with M2-1" reason for the
+  M2 reading specifically — if kept under M2, this item is now genuinely
+  open rather than blocked; the M3-1 reading is unaffected, since M3-1
+  itself has not started. Depends on: M3-1 if re-homed there.
 
 ## M3 — Hybrid + deletes + merge
 

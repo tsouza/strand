@@ -93,21 +93,48 @@ computes from `dims`/`padded_dims`/`rotator_type`.
 
 ## 3. Cluster navigation tier (`blob_type_id = 2`)
 
-| offset | size | field | notes |
-| ------ | ---- | ------- | ----- |
-| 0      | 4    | `num_clusters` | u32 |
-| 4      | 4    | reserved | u32; writer MUST set zero; reader MUST NOT reject nonzero but MUST NOT interpret it |
-| 8      | `num_clusters * padded_dims * 4` | `centroid_table` | row-major f32, one row per cluster, cluster-index order, full precision |
-| —      | `num_clusters * 24` | `cluster_dir` | one 24-byte entry per cluster, same cluster-index order as `centroid_table` |
+| offset | size                             | field                    | notes |
+| ------ | -------------------------------- | ------------------------ | ----- |
+| 0      | 4                                | `num_clusters`           | u32 |
+| 4      | 4                                | reserved                 | u32; writer MUST set zero; reader MUST NOT reject nonzero but MUST NOT interpret it |
+| 8      | `num_clusters * padded_dims * 4` | `centroid_table`         | row-major f32, one row per cluster, cluster-index order, full precision |
+| —      | `num_clusters * 24`              | `cluster_dir`            | one 24-byte entry per cluster, same cluster-index order as `centroid_table` |
+| —      | 8                                | `replication_descriptor` | the closure-replication descriptor trailer, always present; see below (M2-1, RFC 0010 Discussion — post-approval amendment) |
 
 `cluster_dir` entry (24 bytes):
 
-| offset | size | field | notes |
-| ------ | ---- | ------- | ----- |
-| 0      | 8    | `region_offset` | u64; byte offset into the cluster-posting-list blob where this cluster's region begins |
+| offset | size | field               | notes |
+| ------ | ---- | ------------------- | ----- |
+| 0      | 8    | `region_offset`     | u64; byte offset into the cluster-posting-list blob where this cluster's region begins |
 | 8      | 8    | `code_bytes_length` | u64; byte length of this cluster's quantized-code region; that cluster's row-id array begins immediately after, at `region_offset + code_bytes_length` |
-| 16     | 4    | `vector_count` | u32; the row-id array's length is exactly `vector_count * 8` bytes |
-| 20     | 4    | reserved | writer MUST set zero; reader MUST NOT reject nonzero but MUST NOT interpret it |
+| 16     | 4    | `vector_count`      | u32; the row-id array's length is exactly `vector_count * 8` bytes |
+| 20     | 4    | reserved            | writer MUST set zero; reader MUST NOT reject nonzero but MUST NOT interpret it |
+
+`replication_descriptor` (8 bytes, always present, immediately after
+`cluster_dir`): the construction-time closure-replication policy and knobs
+actually used to produce this field's cluster assignments, so a reader can
+know the real replication cost of this segment instead of assuming a
+provisional constant (M2-1; `references/
+spann-closure-assignment-algorithm.md`).
+
+| offset | size | field                 | notes |
+| ------ | ---- | --------------------- | ----- |
+| 0      | 1    | `replication_policy`  | u8: `0` = none (every vector assigned to exactly its primary cluster — the all-zero, pre-M2-1-equivalent default); `1` = `spann-closure` (SPANN's own closure-assignment algorithm, Eq. 2 plus RNG-rule pruning). A reader MUST NOT reject an unrecognized value — query resolution's own row-id deduplication (§6 step 3) already tolerates duplicate row-ids across scanned clusters regardless of why they're duplicated, so a reader that does not recognize a future policy value still decodes and queries this blob correctly |
+| 1      | 1    | `max_replicas`        | u8; the per-vector replica cap actually used, total posting lists a vector may land in (primary included) — SPANN's own `ReplicaCount`. MUST be `0` when `replication_policy = 0`; MUST be `>= 1` when `replication_policy = 1` |
+| 2      | 2    | reserved              | u16; writer MUST set zero; reader MUST NOT reject nonzero but MUST NOT interpret it |
+| 4      | 4    | `replication_epsilon` | f32, little-endian; SPANN's own ε₁ actually used (Eq. 2: a vector is also assigned to cluster `c_ij` iff `Dist(x, c_ij) ≤ (1 + ε₁) × Dist(x, c_i1)`). MUST be `0.0` when `replication_policy = 0` |
+
+This trailer deliberately does **not** carry a realized replication
+*factor* (total assignments divided by distinct vectors): that statistic
+is already exactly recoverable, with no new wire bytes, from data a cold-
+open reader already has resident — sum `vector_count` across every
+`cluster_dir` entry (already fetched wholesale as part of this blob) and
+divide by the segment's own `row_id_count` (already decoded from the
+container's hotcache before this blob family is even touched), since this
+field's flat-vector blob's dense-per-row-id contract (§5) means this
+field's distinct vector count *is* the segment's row-id count. Storing it
+again would be redundant wire bytes for an already-derivable quantity
+(invariant 8's novelty-budget discipline).
 
 A reader MUST be able to resolve every selected cluster's full byte range —
 `[region_offset, region_offset + code_bytes_length + vector_count * 8)` —
