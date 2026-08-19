@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/strand-core", "crates/strand-lexical", "crates/strand-tools", "bench"]
+members = ["crates/strand-core", "crates/strand-lexical", "crates/strand-tools", "crates/strand-vector", "bench"]
 # bench/ always needs the AWS SDK (it benchmarks against real MinIO), so it's
 # excluded from the default member set: `cargo build`/`cargo test` (no
 # --workspace) skip it, keeping the ordinary dev loop free of that compile
 # cost; `cargo build -p strand-bench` or `--workspace` still reach it.
-default-members = ["crates/strand-core", "crates/strand-lexical", "crates/strand-tools"]
+default-members = ["crates/strand-core", "crates/strand-lexical", "crates/strand-tools", "crates/strand-vector"]
 
 [workspace.package]
 edition = "2024"

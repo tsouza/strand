@@ -525,6 +525,55 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   that scale is materially stronger evidence of correctness than the
   spot-check queries above, though it is still bounded to the same
   single-segment, deletion-free, positions-always-on scope stated above.
+- **`strand-vector` implemented — 2026-08-19, prompted by "yes, start
+  implementing strand-vector."** All four RFC 0010 blob types' wire format:
+  `descriptor.rs` (quantization descriptor, both registered rotator
+  types — `MatrixRotator`'s realized-matrix *generation* is out of scope,
+  callers supply pre-computed bytes), `navigation.rs` (cluster navigation
+  tier), `posting_list.rs` (cluster posting lists, per-cluster code region
+  plus row-id array), `flat.rs` (flat vectors), and `fastscan.rs` (the
+  FastScan pack/unpack codec — `pack_batch` adopted verbatim from
+  `references/rabitq-library-fastscan-pack-codes-source.md`;
+  `unpack_batch` is this crate's own derived inverse, proven correct by
+  round-trip tests rather than trusted by construction). 21 tests plus a
+  2-case proptest suite (`fastscan_round_trip.rs`, hundreds of random
+  cases across `cols`/`num`/content), all passing; `cargo clippy
+  --workspace --all-targets -- -D warnings` clean. Deliberately out of
+  scope, matching RFC 0010's own Design §4 (the actual RaBitQ quantization
+  math is a separate concern from this container-layer crate): this crate
+  packs and unpacks already-quantized codes and factors, however they were
+  produced — no rotation application, no sign-based bit selection, no
+  `f_add`/`f_rescale`/`f_error` formulas, no k-means, no query-resolution
+  pipeline.
+
+  **Real, independent confirmation of RFC 0010's own worked example**: two
+  new golden files (`conformance/vectors/toy-descriptor.bin`, 48 bytes;
+  `toy-navigation-tier.bin`, 568 bytes) were generated directly from the
+  RFC's own stated hex bytes, and `tests/worked_example.rs` proves this
+  crate's real `build_fht_kac_with_payload`/`build_navigation_tier`
+  functions — given the RFC's own worked-example inputs — produce
+  byte-identical output, not merely bytes that happen to match a
+  hand-derivation. A third worked-example test confirms every non-opaque
+  byte of the posting-list blob (directory offsets, `code_bytes_length`,
+  row-id arrays) against the RFC's own figures, using synthetic code
+  content in place of the RFC's own deliberately-opaque payload.
+
+  **The FastScan micro-example from RFC 0010's Discussion amendment is now
+  pinned as a real Rust test** (`fastscan::tests::
+  matches_rfc_0010_discussion_micro_example`), not just prose — the same
+  2-vector synthetic input, independently re-executed in Rust rather than
+  only Python, producing byte-identical output.
+
+  **A full end-to-end integration test**
+  (`tests/segment_assembly.rs`) assembles all four blob types into a real
+  segment via `strand-core`'s actual `SegmentBuilder`, opens it cold (a
+  real footer and hotcache decode, matching every prior blob family's own
+  end-to-end test pattern — `field_end_to_end.rs`), and simulates a real
+  one-wave query resolution: selects both clusters from the already-decoded
+  navigation tier, then reads each cluster's region directly from the
+  already-fetched posting-list blob bytes with no further round trip,
+  confirming invariant 3's one-wave rule holds in code, not just in the
+  RFC's own prose.
 - **RFC 0010 (vector blob family, cluster-native cold-open index) —
   Approved 2026-08-19.** M2's opening RFC, prompted directly by "draft the
   M2 vector RFC" after M1's gating deliverables (postings, positions, term

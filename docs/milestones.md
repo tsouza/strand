@@ -360,8 +360,20 @@ own corrected sizing law (~131 MB per million 768d vectors before replication, n
 the previously assumed ~100 MB) is real, grounded arithmetic, not yet a measured
 benchmark — the M0-style cold-open measurement this family still needs is named in
 RFC 0010's own Open questions, and this milestone's gate is not fully met until one
-exists. `crates/strand-vector` and all code implementing RFC 0010 remain to be
-written — this RFC is design-only, per this project's RFC-then-implement workflow.
+exists. **`crates/strand-vector` now exists**, implementing all four blob types'
+wire format (`descriptor.rs`, `navigation.rs`, `posting_list.rs`, `flat.rs`, plus
+`fastscan.rs` for the FastScan pack/unpack codec) with real round-trip tests, a
+proptest suite, worked-example golden files (`conformance/vectors/`) matching RFC
+0010's own worked example byte-for-byte, and a full end-to-end test assembling all
+four blobs into a real segment via `strand-core`'s actual `SegmentBuilder`, opening
+it cold, and re-reading every blob. **Deliberately out of scope for this
+implementation pass, matching RFC 0010's own Design §4**: the actual RaBitQ
+quantization math (rotation application, sign-based bit selection, the `f_add`/
+`f_rescale`/`f_error` factor formulas) — this crate packs and unpacks already-
+quantized codes and factors, however they were produced; a real quantizer,
+`MatrixRotator`'s realized-matrix generation (QR decomposition), real k-means
+clustering, and the actual `nprobe` query-resolution/scan/rerank pipeline are all
+real, separate, unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
