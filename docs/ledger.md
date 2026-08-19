@@ -376,16 +376,54 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   open-amortization pushes it down? Fed by the M3 multi-segment benchmark; any
   summary blob must stay index-internals-agnostic per `CLAUDE.md` §6.
 - **R11 — Adapter feasibility audit (gates all adapter work).** Verify against
-  current source, not memory: (a) tantivy's reader surface — map the modules a
-  STRAND read path must replace, settling the codec-SPI question as a by-product,
-  and confirm the exact Lucene codec SPI class surface for `StrandCodec`; (b) FAISS
-  per-kernel feasibility — whether the generic `InvertedLists` path serves
-  `IndexIVFRaBitQ` search over external storage, and whether the FastScan path can
-  run over external lists at all given its `CodePacker`/`BlockInvertedLists`
-  packing, including the load-time repack cost if so; (c) Quickwit split/hotcache
-  internals post-relicense, testing the inherits-from-the-fork hypothesis; (d) the
-  fork reader-module list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier graph
-  host choice. Adapter milestones are conditional on R11.
+  current source, not memory: (a) **resolved 2026-08-19** — tantivy's reader
+  surface — map the modules a STRAND read path must replace, settling the codec-SPI
+  question as a by-product, and confirm the exact Lucene codec SPI class surface for
+  `StrandCodec`; (b) FAISS per-kernel feasibility — whether the generic
+  `InvertedLists` path serves `IndexIVFRaBitQ` search over external storage, and
+  whether the FastScan path can run over external lists at all given its
+  `CodePacker`/`BlockInvertedLists` packing, including the load-time repack cost if
+  so; (c) Quickwit split/hotcache internals post-relicense, testing the
+  inherits-from-the-fork hypothesis; (d) the fork reader-module list that arms the
+  fork failure triggers (docs/benchmarks.md); (e) the warm-tier graph host choice.
+  Adapter milestones remain conditional on R11 (b)–(e), still open.
+
+  **R11(a) finding (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`,
+  fetched against tantivy tag `0.26.1` and Lucene tag `releases/lucene/10.5.1`,
+  2026-08-19):** tantivy has **no codec SPI**. A repo-wide search of the full
+  recursive tree for "codec"/"format" registration concepts turns up nothing but a
+  bare version-number constant in the columnar module. `Directory`
+  (`src/directory/directory.rs`) is a byte-range storage abstraction (open/read/
+  write/delete/lock/watch), not a format-plugin point. `SegmentComponent`
+  (`src/index/segment_component.rs`) is a closed seven-variant enum (Postings,
+  Positions, FastFields, FieldNorms, Terms, Store, Delete) with exactly one
+  concrete reader/writer type wired to each variant at compile time
+  (`SegmentReader::open_with_custom_alive_set`, `InvertedIndexReader`); the
+  `Postings` trait in `src/postings/postings.rs` is a runtime query-result iterator
+  (doc id / term freq / positions), not a wire-format registration point. The one
+  real configuration knob — `store::Compressor` (None/Lz4/Zstd) — is a closed,
+  compile-time-feature-gated enum for the doc store only, not an open registry. This
+  confirms `docs/milestones.md` M4's "tantivy fork" language literally: a
+  STRAND-compatible tantivy reader means forking `quickwit-oss/tantivy` and modifying
+  its internal reader/writer modules directly, never registering a plugin against a
+  stable extension point — there is no such point to register against.
+
+  Lucene, by contrast, has exactly the SPI `StrandCodec` was planned against, current
+  as of 10.5.1 (2026-08-12, whose default codec is `Lucene104`): `Codec`
+  (`org.apache.lucene.codecs.Codec`) declares eleven abstract format-returning
+  methods (`postingsFormat`, `docValuesFormat`, `storedFieldsFormat`,
+  `termVectorsFormat`, `fieldInfosFormat`, `segmentInfoFormat`, `normsFormat`,
+  `liveDocsFormat`, `compoundFormat`, `pointsFormat`, `knnVectorsFormat`), each
+  independently resolved by name through `java.util.ServiceLoader` via a thin
+  `NamedSPILoader` wrapper. A `StrandCodec` extends `FilterCodec` (the documented
+  delegation base class), overrides `postingsFormat()` to return a
+  `PostingsFormat` subclass whose `fieldsProducer(SegmentReadState)` builds a
+  `FieldsProducer` over STRAND's own postings/term-dictionary blobs, delegates the
+  other ten methods to an existing codec (`Lucene104Codec` today), and registers its
+  fully-qualified class name in `META-INF/services/org.apache.lucene.codecs.Codec` —
+  the exact mechanism confirmed by reading Lucene's own shipping
+  `META-INF/services/org.apache.lucene.codecs.Codec` file, which names
+  `org.apache.lucene.codecs.lucene104.Lucene104Codec`.
 - **Postings block size** (conditional): this entry previously said "128 was the
   default by shared lineage" — stale, predating RFC 0007's approval; corrected here
   (found during `docs/roadmap.md`'s own adversarial review, 2026-08-19). RFC 0007
@@ -415,9 +453,9 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   a documentation fix).
 - **Other pending figures:** the parallel-wave aggregate throughput behind the 100 MB
   budget rationale — not yet measurable at all until a `tier: cold-fetchable` vector
-  blob exists (M2); tantivy codec-SPI absence (R11(a)); FAISS FastScan external-list
-  feasibility (R11(b)); the Quickwit inheritance hypothesis (R11(c)). The M0
-  vendoring deliverable is partially
+  blob exists (M2); tantivy codec-SPI absence — resolved, R11(a) above; FAISS
+  FastScan external-list feasibility (R11(b)); the Quickwit inheritance hypothesis
+  (R11(c)). The M0 vendoring deliverable is partially
   done — `references/` holds the R2 and RFC-0002 grounding, all four turbopuffer
   pages (`CLAUDE.md` §7's ~100ms planning figure, the measured p50=874ms/14ms
   cold/cached figures, the published p90s, invariant 9's batched-iterator numbers, and
