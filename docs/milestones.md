@@ -142,7 +142,8 @@ own real MS MARCO sample is 69% of, by count) and a real, measured block-max
 sibling region (invariant 4) giving a ~7× skip-cost cut on multi-block lists. Its
 own napkin math found something real worth carrying forward: postings + term-info
 for the ~520K-passage sample already total ~73.2 MB, 73% of the 100 MB cold-open
-budget, on under 6% of the full corpus — a live input for R1's segment-sizing
+budget, on under 6% of the full corpus (later found to be a 2.09× overestimate —
+see the real-tantivy correction below) — a live input for R1's segment-sizing
 work, not just this RFC's own concern. RFC 0007 is now implemented, not just
 approved: `crates/strand-lexical/src/postings.rs` builds and reads the blob
 exactly as `spec/postings.md` specifies, the RFC's own worked example round-trips
