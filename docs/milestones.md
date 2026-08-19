@@ -33,8 +33,13 @@ already records this), and the compaction crash test (deleting a file under a re
 snapshot must be impossible) requires M3's compaction — the deletion-safety rule is
 normative in `spec/manifest.md` §4 but untestable until the sweep exists. The
 tail-latency deliverable is partially met: local-MinIO p50/p90/p99 exist in
-`bench/results/cold-open.json`, but the real-network tail figure that would confirm or
-replace `CLAUDE.md` §7's placeholder remains open, per that section's own admission. Implementation went
+`bench/results/cold-open.json`, confirming the GET-count half of invariant 3. The
+separate `CLAUDE.md` §7 SLO tail figure this entry used to call a "placeholder" is
+now resolved a different way, not by this benchmark: a real AWS primary source was
+located and vendored (`references/aws-s3-small-object-latency.md`, `docs/ledger.md`),
+so §7 no longer carries an unsourced number. What remains genuinely open is a
+real-network measurement of STRAND's *own* cold-open sequence — MinIO with injected
+latency, or real S3 — which this benchmark still does not provide. Implementation went
 beyond this list in one respect: the store abstraction distinguishes definite from
 ambiguous backend failures (`StoreError::Ambiguous`), `commit()` disambiguates an
 ambiguous pointer CAS with a follow-up read (RFC 0001's Discussion section records

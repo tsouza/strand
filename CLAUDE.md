@@ -366,16 +366,21 @@ the metadata is in hand is an engine's accounting, not a format's — the compar
 engine's "3–4 roundtrips" includes its metadata trip. The pinned figures, so no RFC
 cherry-picks: **~100ms per object-storage round trip** as the planning figure
 (turbopuffer architecture docs, their stated first-principles number, vendoring owed, tracked in docs/ledger.md)
-and **~250ms p90 for small reads as the tail figure for SLO discussion — pending: this
-figure has not been located in a current primary source; vendor the source sentence or
-replace it with a measured MinIO/S3 tail figure at M0. Until then it is a placeholder
-and is marked as such wherever used.** `bench/` now measures a real cold-open p50/p90/p99
+and **~100–200ms for small-object reads as the tail figure for SLO discussion**, AWS's
+own stated figure for the "consistent" latency well-tuned, latency-sensitive
+applications achieve on small S3 object GETs (`references/aws-s3-small-object-latency.md`,
+the whitepaper "Best Practices Design Patterns: Optimizing Amazon S3 Performance,"
+Introduction). This is not a named percentile — the source does not use percentile
+language — so it is cited here as a typical/steady-state figure, not a p90, and the
+earlier "~250ms p90" draft is retracted rather than softened, per §2's rule, since it
+was never traced to any source. `bench/` now measures a real cold-open p50/p90/p99
 (`bench/results/cold-open.json`; run: `cargo run -p strand-bench --bin cold-open`) — but
 against MinIO on localhost with no injected network latency, so it confirms the
 **GET-count** half of invariant 3 (3 GETs per open: pointer, snapshot, one-RTT segment
-open) and gives a real baseline, not yet the real-network tail figure this placeholder
-is about; that still needs either real S3 or MinIO with injected latency (as
-`docs/benchmarks.md` already calls for), which is a stated follow-on, not done here. An
+open) and gives a real baseline, not yet a real-network tail figure of its own; that
+still needs either real S3 or MinIO with injected latency (as `docs/benchmarks.md`
+already calls for), which is a stated follow-on, not done here — a separate,
+still-open measurement, distinct from the AWS-sourced SLO figure just above. An
 RFC without this arithmetic is incomplete.
 For calibration: 50–200 dependent fetches at 100ms is 5–20 seconds — the graph-cold
 baseline being escaped.
