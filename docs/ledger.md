@@ -2058,12 +2058,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   asymmetric cost — under-retaining risks real, unrecoverable data loss,
   over-retaining only costs storage, a cost this project already accepts
   elsewhere — and confirmed against Apache Iceberg's documented behavior
-  for its own equivalent pair of knobs, the same prior art RFC 0001
+  for its own equivalent pair of knobs
+  (`references/iceberg-snapshot-expiration-retention-properties.md`: its
+  `expire_snapshots` procedure keeps the last N snapshots "regardless of"
+  the age cutoff, a real quoted union), the same prior art RFC 0001
   already cites for this protocol's optimistic-concurrency shape. The
   current snapshot is additionally always retained regardless of either
   policy field, a floor the spec text implied but never stated outright.
 
-  17 new tests, `InMemoryStore`-backed: JSON round-trips for
+  16 new tests, `InMemoryStore`-backed: JSON round-trips for
   `TableMetadata` and both `CasHost` variants, a real write/read round
   trip through a store, write-once rejection of a second create, rejection
   of a retention policy with neither field set, and `retained_snapshots`

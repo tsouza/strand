@@ -760,7 +760,11 @@ pathological policy (for example, `max_snapshot_age_millis: Some(0)`)
 mark the one snapshot every live reader is using as expired. Both
 resolutions match Apache Iceberg's own documented behavior for its
 equivalent pair of knobs (`history.expire.min-snapshots-to-keep` and
-`history.expire.max-snapshot-age-ms`) — the same prior art Design §3
+`history.expire.max-snapshot-age-ms`, vendored verbatim in
+`references/iceberg-snapshot-expiration-retention-properties.md`: its
+`expire_snapshots` procedure's `retain_last` argument is documented to
+preserve ancestor snapshots "regardless of" the age cutoff — a real,
+quoted union, not an assumed one) — the same prior art Design §3
 already cites for this protocol's optimistic-concurrency shape — so this
 is a return to precedent already in the RFC, not a new invention.
 `spec/manifest.md` §1 now states both resolutions normatively.

@@ -227,9 +227,10 @@ pub fn read_table_metadata<S: ConditionalStore>(
 /// is the writer's problem"). The union is also Apache Iceberg's own
 /// documented behavior for the equivalent two knobs
 /// (`history.expire.min-snapshots-to-keep` and
-/// `history.expire.max-snapshot-age-ms`), the same prior art RFC 0001's
-/// Design §3 already cites for this protocol's optimistic-concurrency
-/// shape.
+/// `history.expire.max-snapshot-age-ms`, vendored in
+/// `references/iceberg-snapshot-expiration-retention-properties.md`), the
+/// same prior art RFC 0001's Design §3 already cites for this protocol's
+/// optimistic-concurrency shape.
 pub fn retained_snapshots<'a>(
     policy: &RetentionPolicy,
     snapshots: &'a [SnapshotMetadata],

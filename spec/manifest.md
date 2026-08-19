@@ -67,7 +67,8 @@ the cost of over-retaining (storage only, a cost `CLAUDE.md` §6 already
 accepts elsewhere) that the safer reading wins outright, not as a close
 call. This matches Apache Iceberg's own documented behavior for its
 equivalent pair of knobs (`history.expire.min-snapshots-to-keep`,
-`history.expire.max-snapshot-age-ms`).
+`history.expire.max-snapshot-age-ms`,
+`references/iceberg-snapshot-expiration-retention-properties.md`).
 
 The current snapshot (the one `_strand/current` names) is retained
 unconditionally, regardless of what the policy alone would otherwise
