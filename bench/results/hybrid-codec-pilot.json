@@ -1,7 +1,7 @@
 {
   "name": "hybrid-codec-pilot",
-  "date": "2026-08-19T00:37:57Z",
-  "commit": "13cac86bd63e8fb1f24442434e5c1c420662d846",
+  "date": "2026-08-19T08:27:54Z",
+  "commit": "695e4117f2ac64728b2dea1953ea7a675a4bfd18",
   "result": {
     "sampled_passages": 520108,
     "lists_total": 4016,
@@ -9,12 +9,14 @@
     "lists_held_out": 1205,
     "ef_wins_size_fraction": 0.9713645418326693,
     "ef_wins_skip_fraction": 1.0,
-    "ef_wins_decode_fraction": 0.6912350597609562,
-    "mean_bp128_decode_ns": 244.85462290836665,
-    "mean_ef_decode_ns": 667.2177149402395,
-    "mean_bp128_skip_ns": 249.30196826859185,
-    "mean_ef_skip_ns": 42.56597475514605,
-    "mean_blockmax_skip_ns": 406.58243935922985,
+    "ef_wins_decode_fraction": 0.6822709163346613,
+    "ef_wins_decode_vs_var_fraction": 0.5555278884462151,
+    "mean_bp128_decode_ns": 538.9750463147417,
+    "mean_ef_decode_ns": 1949.5949164716135,
+    "mean_bp128var_decode_ns": 658.3012379980086,
+    "mean_bp128_skip_ns": 550.9646029631482,
+    "mean_ef_skip_ns": 102.85766271995355,
+    "mean_blockmax_skip_ns": 767.0985129772586,
     "mean_bp128_bytes": 672.1354581673306,
     "mean_ef_bytes": 295.19123505976097,
     "mean_blockmax_bytes": 677.5986055776892,
@@ -108,43 +110,85 @@
     "decode_signals": [
       {
         "feature": "gap_variance",
-        "threshold": 922440669.5371903,
+        "threshold": 919266628.446281,
         "ef_wins_above": true,
-        "train_accuracy": 0.8345784418356457,
-        "held_out_accuracy": 0.8232365145228215,
-        "held_out_majority_baseline": 0.6896265560165975
+        "train_accuracy": 0.8249733191035219,
+        "held_out_accuracy": 0.8157676348547718,
+        "held_out_majority_baseline": 0.6854771784232365
       },
       {
         "feature": "log_gap_variance",
-        "threshold": 20.642533618029912,
+        "threshold": 20.63908676821459,
         "ef_wins_above": true,
-        "train_accuracy": 0.8345784418356457,
-        "held_out_accuracy": 0.8232365145228215,
-        "held_out_majority_baseline": 0.6896265560165975
+        "train_accuracy": 0.8249733191035219,
+        "held_out_accuracy": 0.8157676348547718,
+        "held_out_majority_baseline": 0.6854771784232365
       },
       {
         "feature": "n",
         "threshold": 8.0,
         "ef_wins_above": false,
-        "train_accuracy": 0.991817858413376,
-        "held_out_accuracy": 0.9908713692946058,
-        "held_out_majority_baseline": 0.6896265560165975
+        "train_accuracy": 0.983635716826752,
+        "held_out_accuracy": 0.983402489626556,
+        "held_out_majority_baseline": 0.6854771784232365
       },
       {
         "feature": "density",
         "threshold": 0.000015381420781837617,
         "ef_wins_above": false,
-        "train_accuracy": 0.991817858413376,
-        "held_out_accuracy": 0.9908713692946058,
-        "held_out_majority_baseline": 0.6896265560165975
+        "train_accuracy": 0.983635716826752,
+        "held_out_accuracy": 0.983402489626556,
+        "held_out_majority_baseline": 0.6854771784232365
       },
       {
         "feature": "gap_mean",
         "threshold": 51969.8,
         "ef_wins_above": true,
+        "train_accuracy": 0.9516186410530061,
+        "held_out_accuracy": 0.9526970954356846,
+        "held_out_majority_baseline": 0.6854771784232365
+      }
+    ],
+    "decode_var_signals": [
+      {
+        "feature": "gap_variance",
+        "threshold": 2235356958.6400003,
+        "ef_wins_above": true,
+        "train_accuracy": 0.728210601209534,
+        "held_out_accuracy": 0.7518672199170124,
+        "held_out_majority_baseline": 0.575103734439834
+      },
+      {
+        "feature": "log_gap_variance",
+        "threshold": 21.527666765744563,
+        "ef_wins_above": true,
+        "train_accuracy": 0.728210601209534,
+        "held_out_accuracy": 0.7518672199170124,
+        "held_out_majority_baseline": 0.575103734439834
+      },
+      {
+        "feature": "n",
+        "threshold": 4.0,
+        "ef_wins_above": false,
         "train_accuracy": 0.95980078263963,
-        "held_out_accuracy": 0.9601659751037345,
-        "held_out_majority_baseline": 0.6896265560165975
+        "held_out_accuracy": 0.9659751037344398,
+        "held_out_majority_baseline": 0.575103734439834
+      },
+      {
+        "feature": "density",
+        "threshold": 7.690710390918809e-6,
+        "ef_wins_above": false,
+        "train_accuracy": 0.95980078263963,
+        "held_out_accuracy": 0.9659751037344398,
+        "held_out_majority_baseline": 0.575103734439834
+      },
+      {
+        "feature": "gap_mean",
+        "threshold": 86503.0,
+        "ef_wins_above": true,
+        "train_accuracy": 0.8783351120597652,
+        "held_out_accuracy": 0.8846473029045643,
+        "held_out_majority_baseline": 0.575103734439834
       }
     ],
     "size_interaction_signal": {
@@ -167,9 +211,17 @@
       "feature": "gap_variance*density",
       "threshold": 294344.37451836927,
       "ef_wins_above": false,
-      "train_accuracy": 0.6919245819992885,
-      "held_out_accuracy": 0.6896265560165975,
-      "held_out_majority_baseline": 0.6896265560165975
+      "train_accuracy": 0.6808964781216649,
+      "held_out_accuracy": 0.6854771784232365,
+      "held_out_majority_baseline": 0.6854771784232365
+    },
+    "decode_var_interaction_signal": {
+      "feature": "gap_variance*density",
+      "threshold": 32648.777907184656,
+      "ef_wins_above": true,
+      "train_accuracy": 0.5908929206688012,
+      "held_out_accuracy": 0.5933609958506224,
+      "held_out_majority_baseline": 0.575103734439834
     },
     "go_no_go": "GO: out-of-sample signal found (size=false via density, skip=false via gap_variance*density, decode=true via density) -> proceed to Phase 2B"
   }

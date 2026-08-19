@@ -68,20 +68,32 @@ Three axes, three different answers — this is not a single GO/NO-GO, it is thr
 - **Size: no signal needed.** EF wins on compressed size for ~97.1% of real
   lists, consistently across reruns — not a "sometimes A, sometimes B" situation
   a per-list chooser could exploit, just a near-constant winner on this corpus.
-- **Decode: real, stable, out-of-sample signal found — GO.** `n` (equivalently
-  `density`, since universe is fixed across all lists in this pilot, making the
-  two literally proportional) predicts the full-decode winner at ~99.5% held-out
-  accuracy against a 69.7% majority baseline — a +30 percentage point lift,
-  stable across three reruns at 20,000 repeats/list. The found rule: EF wins
-  decode for very short lists (`n <= 8`), BP128 wins for longer ones. **This
-  needs a caveat before it drives Phase 2B**: `n <= 8` is far below
-  `BitPacker8x`'s own 256-value block size, so BP128 decodes a full padded
-  256-block to recover 8 real values on these lists — the signal may be
-  measuring block-granularity padding overhead specific to this pilot's
-  from-scratch BP128 encoder, not a fundamental algorithmic property. A cheap
-  variable-length-final-block fix to the encoder could plausibly close most of
-  this gap without needing any per-list codec choice at all — worth checking
-  before treating this as Phase 2B fuel.
+- **Decode: real, stable, out-of-sample signal found — GO. Checked against the
+  block-padding hypothesis; the hypothesis was real but only partial.** `n`
+  predicts the full-decode winner at ~99.5% held-out accuracy against a 69.7%
+  majority baseline (+30pp lift) against `BitPacker8x`'s fixed 256-value
+  block, padded for short lists. That padding was a real, testable
+  hypothesis for the whole effect, so it was tested: `bp128_variable_bench`
+  adds a minimal scalar bit-packer (shift/mask, no SIMD, no forced block
+  size) for a trailing partial block, sized to the real remaining count —
+  full 256-value blocks still use `BitPacker8x`'s SIMD kernel unchanged. The
+  hypothesis was confirmed as a real, substantial contributor, **not the
+  whole explanation**: with padding removed, EF's overall decode-win-rate
+  drops from 68.2% to 55.6% (much closer to a coin flip across the full
+  sample), and on the `n <= 8` lists specifically, EF's win rate drops from
+  98.0% to 79.5%. But a strong out-of-sample signal survives the fair
+  comparison — `n <= 4` now predicts the winner at 96.6% held-out accuracy
+  against a 57.5% baseline, a **+39pp lift, larger than the original**. So
+  roughly a third of the original signal's apparent strength really was
+  `BitPacker8x`-padding artifact — real, and worth fixing in any production
+  encoder regardless of this investigation's outcome — but something else,
+  not yet identified, still makes EF genuinely faster to decode on very short
+  lists even when BP128 is measured fairly. Candidate explanations not yet
+  distinguished: a real lower per-value marginal decode cost in `sucds`'s
+  select-based reconstruction, or a lower fixed per-call constant factor
+  (allocation, dispatch) that a hand-rolled scalar packer wasn't tuned to
+  match — this pilot cannot tell those apart, only that padding isn't the
+  whole story.
 - **Skip: no signal needed — corrected finding, superseding an earlier bug.**
   An earlier pass of this pilot reported "no signal found" here, with the
   underlying win/loss label swinging 60.8%–96.8% across identical reruns. That
@@ -117,14 +129,18 @@ after block-max's improvement — block-max narrows the gap, it doesn't close
 it.
 
 **Standing recommendation, not decided here**: the technical GO/NO-GO fired
-on the decode axis (a real signal, though its likely mundane explanation —
-block-padding overhead on tiny lists — means the cheaper next step is checking
-a trivial encoder fix before treating it as Phase 2B fuel); skip no longer
-needs a signal, EF simply wins; and block-max, STRAND's own already-designed
-mechanism, real-measured for the first time here, recovers most but not all of
-EF's skip advantage specifically on the long-list minority where it has
-something to skip. None of this commits to Phase 2B's multi-week,
-harness-building cost on its own. Full numeric detail:
+on the decode axis, and the encoder-padding hypothesis that could have
+explained it away has now actually been checked, not just proposed — it
+explains roughly a third of the effect, not all of it, so a real, unexplained
+decode-speed signal remains open; skip no longer needs a signal, EF simply
+wins; and block-max, STRAND's own already-designed mechanism, real-measured
+for the first time here, recovers most but not all of EF's skip advantage
+specifically on the long-list minority where it has something to skip. None
+of this commits to Phase 2B's multi-week, harness-building cost on its own —
+the open question now is narrower and more specific than before (why does EF
+decode short lists faster once padding is controlled for, not whether padding
+explains the whole thing), which is a better-scoped starting point for
+whoever picks this up next. Full numeric detail:
 `bench/results/hybrid-codec-pilot.json`.
 
 The plan was produced by generating four independent methodologies from different

@@ -106,14 +106,20 @@ struct ListRecord {
     bp128_bytes: usize,
     ef_bytes: usize,
     blockmax_bytes: usize,
+    bp128var_bytes: usize,
     bp128_decode_ns: f64,
     ef_decode_ns: f64,
+    bp128var_decode_ns: f64,
     bp128_skip_ns: f64,
     ef_skip_ns: f64,
     blockmax_skip_ns: f64,
+    bp128var_skip_ns: f64,
     winner_size_ef: bool,
     winner_skip_ef: bool,
     winner_decode_ef: bool,
+    /// EF vs. the variable-final-block BP128 variant specifically, isolating
+    /// whether the fixed-256-padding artifact explains the decode signal.
+    winner_decode_ef_vs_var: bool,
     /// Among {plain BP128, block-max BP128, EF}, which has the fastest skip.
     skip_winner: &'static str,
 }
@@ -126,6 +132,139 @@ fn gaps_of(list: &[u32]) -> Vec<u32> {
         prev = v;
     }
     gaps
+}
+
+/// Minimal scalar bit-packer (shift/mask, no SIMD, no forced block size) for
+/// the variable-length final block variant below. `bitpacking::BitPacker8x`
+/// has no API for anything but a fixed 256-value block; this exists only to
+/// test whether that fixed block size, not EF's own decode advantage, is
+/// what the Phase 1 decode signal (`n <= 8`) was actually measuring.
+fn scalar_bits_needed(values: &[u32]) -> u8 {
+    let max = values.iter().copied().max().unwrap_or(0);
+    if max == 0 { 0 } else { (32 - max.leading_zeros()) as u8 }
+}
+
+fn scalar_pack(values: &[u32], width: u8) -> Vec<u8> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut acc: u64 = 0;
+    let mut acc_bits: u32 = 0;
+    for &v in values {
+        acc |= (v as u64) << acc_bits;
+        acc_bits += width as u32;
+        while acc_bits >= 8 {
+            out.push((acc & 0xFF) as u8);
+            acc >>= 8;
+            acc_bits -= 8;
+        }
+    }
+    if acc_bits > 0 {
+        out.push((acc & 0xFF) as u8);
+    }
+    out
+}
+
+fn scalar_unpack(bytes: &[u8], count: usize, width: u8) -> Vec<u32> {
+    if width == 0 {
+        return vec![0u32; count];
+    }
+    let mut out = Vec::with_capacity(count);
+    let mut acc: u64 = 0;
+    let mut acc_bits: u32 = 0;
+    let mut byte_idx = 0;
+    let mask: u64 = (1u64 << width) - 1;
+    for _ in 0..count {
+        while acc_bits < width as u32 {
+            acc |= (bytes[byte_idx] as u64) << acc_bits;
+            byte_idx += 1;
+            acc_bits += 8;
+        }
+        out.push((acc & mask) as u32);
+        acc >>= width;
+        acc_bits -= width as u32;
+    }
+    out
+}
+
+/// BP128 with a variable-length final block: full 256-value blocks still use
+/// `BitPacker8x`'s SIMD kernel exactly as `bp128_bench` does; a trailing
+/// partial block (`n % 256` values, or the whole list for `n < 256`) is
+/// packed with the scalar packer above at its own bit width, sized to the
+/// real remaining count — no padding, no forced 256-wide decode. Tests
+/// directly whether Phase 1's `n <= 8` decode signal was measuring
+/// `BitPacker8x`'s fixed block-size padding overhead rather than a real
+/// property of the two codecs.
+fn bp128_variable_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
+    let gaps = gaps_of(list);
+    let bp = BitPacker8x::new();
+    let block_len = BitPacker8x::BLOCK_LEN;
+    let full_blocks = gaps.len() / block_len;
+    let remainder = gaps.len() % block_len;
+
+    let mut widths = Vec::with_capacity(full_blocks);
+    let mut compressed = vec![0u8; gaps.len() * 4 + 16];
+    let mut compressed_len = 0;
+    for b in 0..full_blocks {
+        let block = &gaps[b * block_len..(b + 1) * block_len];
+        let width = bp.num_bits(block);
+        widths.push(width);
+        let out = &mut compressed[compressed_len..];
+        compressed_len += bp.compress(block, out, width);
+    }
+    let tail_width = if remainder > 0 { scalar_bits_needed(&gaps[full_blocks * block_len..]) } else { 0 };
+    let tail_start = compressed_len;
+    if remainder > 0 {
+        let tail_bytes = scalar_pack(&gaps[full_blocks * block_len..], tail_width);
+        compressed[compressed_len..compressed_len + tail_bytes.len()].copy_from_slice(&tail_bytes);
+        compressed_len += tail_bytes.len();
+    }
+    let total_bytes = compressed_len;
+
+    let decode_all = || -> Vec<u32> {
+        let mut decompressed = vec![0u32; full_blocks * block_len];
+        let mut offset = 0;
+        for (b, &width) in widths.iter().enumerate() {
+            let block_bytes = width as usize * block_len / 8;
+            let src = &compressed[offset..offset + block_bytes];
+            let dst = &mut decompressed[b * block_len..(b + 1) * block_len];
+            bp.decompress(src, dst, width);
+            offset += block_bytes;
+        }
+        if remainder > 0 {
+            let tail_bytes_len = (remainder * tail_width as usize).div_ceil(8);
+            let tail = scalar_unpack(&compressed[tail_start..tail_start + tail_bytes_len], remainder, tail_width);
+            decompressed.extend(tail);
+        }
+        let mut out = Vec::with_capacity(decompressed.len());
+        let mut prev = 0u32;
+        for g in decompressed {
+            prev += g;
+            out.push(prev);
+        }
+        out
+    };
+
+    assert_eq!(decode_all(), list, "BP128 variable-final-block round-trip mismatch");
+
+    let decode_start = Instant::now();
+    for _ in 0..REPEATS {
+        std::hint::black_box(decode_all());
+    }
+    let decode_ns = decode_start.elapsed().as_nanos() as f64 / REPEATS as f64;
+
+    let skip_start = Instant::now();
+    for _ in 0..REPEATS {
+        for &t in targets {
+            let decoded = decode_all();
+            let pos = decoded.partition_point(|&v| v < t);
+            std::hint::black_box(pos);
+        }
+    }
+    let skip_ns = skip_start.elapsed().as_nanos() as f64 / (REPEATS * targets.len()) as f64;
+
+    (total_bytes, decode_ns, skip_ns)
 }
 
 fn skip_targets(list: &[u32]) -> [u32; 3] {
@@ -347,6 +486,7 @@ fn measure_list(list: &[u32], universe: u32) -> ListRecord {
     let (bp128_bytes, bp128_decode_ns, bp128_skip_ns) = bp128_bench(list, &targets);
     let (ef_bytes, ef_decode_ns, ef_skip_ns) = ef_bench(list, universe, &targets);
     let (blockmax_bytes, blockmax_skip_ns) = bp128_blockmax_bench(list, &targets);
+    let (bp128var_bytes, bp128var_decode_ns, bp128var_skip_ns) = bp128_variable_bench(list, &targets);
 
     let skip_winner = [
         ("bp128", bp128_skip_ns),
@@ -367,14 +507,18 @@ fn measure_list(list: &[u32], universe: u32) -> ListRecord {
         bp128_bytes,
         ef_bytes,
         blockmax_bytes,
+        bp128var_bytes,
         bp128_decode_ns,
         ef_decode_ns,
+        bp128var_decode_ns,
         bp128_skip_ns,
         ef_skip_ns,
         blockmax_skip_ns,
+        bp128var_skip_ns,
         winner_size_ef: ef_bytes < bp128_bytes,
         winner_skip_ef: ef_skip_ns < bp128_skip_ns,
         winner_decode_ef: ef_decode_ns < bp128_decode_ns,
+        winner_decode_ef_vs_var: ef_decode_ns < bp128var_decode_ns,
         skip_winner,
     }
 }
@@ -452,8 +596,10 @@ struct PilotResults {
     ef_wins_size_fraction: f64,
     ef_wins_skip_fraction: f64,
     ef_wins_decode_fraction: f64,
+    ef_wins_decode_vs_var_fraction: f64,
     mean_bp128_decode_ns: f64,
     mean_ef_decode_ns: f64,
+    mean_bp128var_decode_ns: f64,
     mean_bp128_skip_ns: f64,
     mean_ef_skip_ns: f64,
     mean_blockmax_skip_ns: f64,
@@ -466,9 +612,11 @@ struct PilotResults {
     size_signals: Vec<ThresholdSignal>,
     skip_signals: Vec<ThresholdSignal>,
     decode_signals: Vec<ThresholdSignal>,
+    decode_var_signals: Vec<ThresholdSignal>,
     size_interaction_signal: ThresholdSignal,
     skip_interaction_signal: ThresholdSignal,
     decode_interaction_signal: ThresholdSignal,
+    decode_var_interaction_signal: ThresholdSignal,
     go_no_go: String,
 }
 
@@ -535,6 +683,7 @@ fn main() {
     let mut size_signals = Vec::new();
     let mut skip_signals = Vec::new();
     let mut decode_signals = Vec::new();
+    let mut decode_var_signals = Vec::new();
     for (name, extractor) in &feature_extractors {
         let tr: Vec<(f64, bool)> = train.iter().map(|r| (extractor(r), r.winner_size_ef)).collect();
         let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (extractor(r), r.winner_size_ef)).collect();
@@ -547,6 +696,12 @@ fn main() {
         let tr: Vec<(f64, bool)> = train.iter().map(|r| (extractor(r), r.winner_decode_ef)).collect();
         let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (extractor(r), r.winner_decode_ef)).collect();
         decode_signals.push(fit_threshold(&tr, &ho, name));
+
+        let tr: Vec<(f64, bool)> =
+            train.iter().map(|r| (extractor(r), r.winner_decode_ef_vs_var)).collect();
+        let ho: Vec<(f64, bool)> =
+            held_out.iter().map(|r| (extractor(r), r.winner_decode_ef_vs_var)).collect();
+        decode_var_signals.push(fit_threshold(&tr, &ho, name));
     }
     let _ = (size_train, skip_train);
 
@@ -563,6 +718,11 @@ fn main() {
     let tr: Vec<(f64, bool)> = train.iter().map(|r| (interaction(r), r.winner_decode_ef)).collect();
     let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (interaction(r), r.winner_decode_ef)).collect();
     let decode_interaction_signal = fit_threshold(&tr, &ho, "gap_variance*density");
+
+    let tr: Vec<(f64, bool)> = train.iter().map(|r| (interaction(r), r.winner_decode_ef_vs_var)).collect();
+    let ho: Vec<(f64, bool)> =
+        held_out.iter().map(|r| (interaction(r), r.winner_decode_ef_vs_var)).collect();
+    let decode_var_interaction_signal = fit_threshold(&tr, &ho, "gap_variance*density");
 
     // GO/NO-GO: a signal counts only if it beats its own held-out majority
     // baseline by a real margin (not just "different from chance") — 10
@@ -639,6 +799,34 @@ fn main() {
         "mean bytes/list: BP128={mean_bp128_bytes:.1} blockmax={mean_blockmax_bytes:.1} EF={mean_ef_bytes:.1}"
     );
 
+    // Variable-length-final-block BP128 vs EF, isolating whether the n<=8
+    // decode signal from the first Phase 1 pass was really about
+    // BitPacker8x's fixed 256-value block padding rather than a fundamental
+    // property. Reported both overall and specifically for n<=8, the exact
+    // regime the original signal was about.
+    let mean_bp128var_decode_ns = records.iter().map(|r| r.bp128var_decode_ns).sum::<f64>() / n;
+    let ef_wins_decode_vs_var_fraction =
+        records.iter().filter(|r| r.winner_decode_ef_vs_var).count() as f64 / n;
+    eprintln!(
+        "variable-final-block BP128: mean decode ns/list={mean_bp128var_decode_ns:.1} (fixed-block was {mean_bp128_decode_ns:.1}) | EF still wins decode on {:.1}% of lists (was {:.1}% vs fixed-block)",
+        ef_wins_decode_vs_var_fraction * 100.0,
+        ef_wins_decode_fraction * 100.0
+    );
+    let short: Vec<&ListRecord> = records.iter().filter(|r| r.n <= 8).collect();
+    if !short.is_empty() {
+        let s = short.len() as f64;
+        let mean_bp128_short = short.iter().map(|r| r.bp128_decode_ns).sum::<f64>() / s;
+        let mean_bp128var_short = short.iter().map(|r| r.bp128var_decode_ns).sum::<f64>() / s;
+        let mean_ef_short = short.iter().map(|r| r.ef_decode_ns).sum::<f64>() / s;
+        let ef_wins_fixed = short.iter().filter(|r| r.winner_decode_ef).count() as f64 / s;
+        let ef_wins_var = short.iter().filter(|r| r.winner_decode_ef_vs_var).count() as f64 / s;
+        eprintln!(
+            "n<=8 lists only ({} of {} lists): mean decode ns: BP128-fixed={mean_bp128_short:.1} BP128-variable={mean_bp128var_short:.1} EF={mean_ef_short:.1} | EF wins vs fixed-block on {:.1}%, EF wins vs variable-block on {:.1}%",
+            short.len(), records.len(),
+            ef_wins_fixed * 100.0, ef_wins_var * 100.0
+        );
+    }
+
     // Block-max only has an opportunity to skip whole blocks on lists
     // spanning more than one BitPacker8x block (256 values) — report it
     // separately from the short-list-dominated aggregate above, which would
@@ -670,8 +858,10 @@ fn main() {
             ef_wins_size_fraction,
             ef_wins_skip_fraction,
             ef_wins_decode_fraction,
+            ef_wins_decode_vs_var_fraction,
             mean_bp128_decode_ns,
             mean_ef_decode_ns,
+            mean_bp128var_decode_ns,
             mean_bp128_skip_ns,
             mean_ef_skip_ns,
             mean_blockmax_skip_ns,
@@ -684,9 +874,11 @@ fn main() {
             size_signals,
             skip_signals,
             decode_signals,
+            decode_var_signals,
             size_interaction_signal,
             skip_interaction_signal,
             decode_interaction_signal,
+            decode_var_interaction_signal,
             go_no_go,
         },
     );

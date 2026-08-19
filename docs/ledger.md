@@ -117,10 +117,20 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `sucds::mii_sequences::EliasFano`, no new engineering). Size needs no signal
   (EF wins ~97.1% of lists, near-constant). Decode found a real, stable,
   out-of-sample signal (list length `n <= 8` predicts EF wins decode at ~99.5%
-  held-out accuracy vs. 69.7% baseline) but it is likely a `BitPacker8x`
-  256-value block-padding artifact of this pilot's own encoder, not a
-  fundamental property, so the cheaper next step is checking a variable-length-
-  final-block encoder fix before treating it as Phase 2B fuel. Skip's first
+  held-out accuracy vs. 69.7% baseline), flagged as possibly explained by
+  `BitPacker8x`'s 256-value block padding on short lists rather than a
+  fundamental property — **checked, not just proposed**: a minimal scalar
+  bit-packer (no SIMD, no forced block size) for the trailing partial block
+  confirms the hypothesis was real but only partial. With padding removed,
+  EF's overall decode-win-rate drops from 68.2% to 55.6%, and on `n <= 8`
+  lists specifically from 98.0% to 79.5% — but a strong signal survives the
+  fair comparison (`n <= 4` predicts the winner at 96.6% held-out accuracy vs.
+  a 57.5% baseline, +39pp, *larger* than the original). Roughly a third of the
+  original signal was padding artifact, worth fixing in any production
+  encoder regardless; the rest is a real, still-unexplained decode-speed
+  difference the pilot can't attribute further (candidate causes: EF's
+  genuine per-value marginal cost, or fixed per-call constant factors neither
+  implementation was tuned to match). Skip's first
   pass reported no signal with an unreproducible win/loss label (60.8%–96.8%
   swing across reruns) — traced to a real bug, not hardware noise: the BP128
   skip timer was decoding once and amortizing that decode across three
