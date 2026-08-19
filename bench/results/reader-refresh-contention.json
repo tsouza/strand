@@ -1,0 +1,20 @@
+{
+  "name": "reader-refresh-contention",
+  "date": "2026-08-19T20:18:42Z",
+  "commit": "163a9f091a48a88cea7e1203111fb8650e2ae523",
+  "result": {
+    "writers": 4,
+    "commits_per_writer": 15,
+    "total_commits": 60,
+    "readers": 4,
+    "total_reads": 691,
+    "total_wall_ms": 12422.819609999999,
+    "reads_needing_at_least_one_retry": 1,
+    "max_retries_observed": 1,
+    "retries_p50": 0.0,
+    "retries_p90": 0.0,
+    "retries_p99": 0.0,
+    "retries_exhausted_count": 0,
+    "current_retry_limit": 5
+  }
+}

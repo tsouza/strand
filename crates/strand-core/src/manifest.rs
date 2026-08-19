@@ -91,9 +91,25 @@ fn read_current<S: ConditionalStore>(store: &S) -> Result<CurrentState, StoreErr
 /// RFC 0001 §3: the retry count is a reader parameter the RFC deliberately
 /// does not pin, for the same reason the speculative tail size in the
 /// container's open protocol is unpinned — but the bound itself, unlike its
-/// exact value, is not optional. This default is provisional pending the
-/// M0 crash-test data the RFC calls for.
-const READER_REFRESH_RETRY_LIMIT: u32 = 5;
+/// exact value, is not optional. `pub` so
+/// `bench/src/reader_refresh_contention.rs` (the M0 crash-test data RFC 0001
+/// §3 calls for) and any caller that wants to reason about the bound can
+/// reference the real constant instead of a duplicated literal.
+///
+/// Grounded 2026-08-19 against real, sustained contention: 4 concurrent
+/// writers committing back-to-back against real MinIO with no artificial
+/// delay, a compactor deleting each snapshot the instant a newer one became
+/// current (the tightest race window the deletion-safety rule, `CLAUDE.md`
+/// §6, allows), and 4 readers hammering `read_snapshot` throughout. Across
+/// 691 real reads sampled (`bench/results/reader-refresh-contention.json`),
+/// the worst single call needed exactly 1 internal refresh; the other 690
+/// needed zero. 5 already carries roughly 5x that observed worst case as
+/// headroom — this benchmark, like `bench/src/cold_open.rs`, runs against
+/// MinIO on localhost with no injected network round-trip latency, which
+/// narrows the real race window relative to a production deployment's. The
+/// measurement confirms this provisional value rather than changing it: see
+/// RFC 0001's Discussion section for the full methodology.
+pub const READER_REFRESH_RETRY_LIMIT: u32 = 5;
 
 /// Commits `build_segments`'s output as a new snapshot, retrying per RFC 0001
 /// §3 if another writer's commit wins the pointer CAS first. `build_segments`

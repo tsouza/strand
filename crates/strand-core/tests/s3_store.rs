@@ -321,3 +321,101 @@ fn reader_on_a_compacted_snapshot_recovers_against_real_object_storage() {
         assert_eq!(read_back.segments.len(), 2);
     });
 }
+
+/// RFC 0001 §1 / Open questions item 3: does MinIO's `GetObject` honor the
+/// HTTP suffix-range request form (`Range: bytes=-N`, RFC 9110 §14.1.2,
+/// `references/rfc9110-range-requests.txt`), as opposed to only the
+/// explicit-end form (`bytes=start-end`) the container's open protocol
+/// actually uses? The protocol question was already settled by reading the
+/// RFC text directly; this is the server-support question, closed here by
+/// issuing a real suffix-range request against a real MinIO instance rather
+/// than inferring an answer from AWS's documentation, which — per
+/// `references/aws-s3-getobject-range-parameter.md` — demonstrates only the
+/// explicit-end form and is silent on the suffix form either way. This test
+/// bypasses `S3Store`/`ConditionalStore` deliberately: suffix-range support
+/// is not something the open protocol depends on (RFC 0001 §1 chose the
+/// explicit-end form specifically to avoid depending on it), so there is no
+/// production code path to exercise — only the raw SDK client, used the same
+/// way `start_store` builds one.
+#[test]
+fn suffix_range_get_is_honored_by_minio() {
+    let setup_runtime = tokio::runtime::Runtime::new().unwrap();
+    let result = setup_runtime.block_on(async {
+        let container = MinIO::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(9000).await.unwrap();
+        let endpoint = format!("http://127.0.0.1:{port}");
+
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .endpoint_url(&endpoint)
+            .region("us-east-1")
+            .credentials_provider(Credentials::new(
+                "minioadmin",
+                "minioadmin",
+                None,
+                None,
+                "static",
+            ))
+            .load()
+            .await;
+        let s3_config = aws_sdk_s3::config::Builder::from(&config)
+            .force_path_style(true)
+            .build();
+        let client = Client::from_conf(s3_config);
+        client
+            .create_bucket()
+            .bucket("suffix-range-test")
+            .send()
+            .await
+            .unwrap();
+
+        // A 26-byte object, so the last-10-bytes suffix range is
+        // unambiguous and independently checkable by eye: bytes 16..26 of
+        // the lowercase alphabet, "qrstuvwxyz".
+        let body: Vec<u8> = (b'a'..=b'z').collect();
+        client
+            .put_object()
+            .bucket("suffix-range-test")
+            .key("alphabet.bin")
+            .body(body.clone().into())
+            .send()
+            .await
+            .unwrap();
+
+        // The suffix form itself, RFC 9110 §14.1.2: "suffix-length gives the
+        // number of octets from the end of the representation" — no
+        // explicit start offset, unlike the explicit-end form RFC 0001 §1's
+        // open protocol actually uses.
+        let response = client
+            .get_object()
+            .bucket("suffix-range-test")
+            .key("alphabet.bin")
+            .range("bytes=-10")
+            .send()
+            .await;
+
+        let outcome = match response {
+            Ok(output) => {
+                let content_range = output.content_range().map(str::to_string);
+                let bytes = output.body.collect().await.unwrap().into_bytes().to_vec();
+                Some((content_range, bytes))
+            }
+            Err(_) => None,
+        };
+
+        drop(container);
+        outcome
+    });
+
+    let (content_range, bytes) =
+        result.expect("MinIO rejected the suffix-range GET outright (see test doc comment)");
+
+    assert_eq!(
+        bytes, b"qrstuvwxyz",
+        "suffix range 'bytes=-10' against a 26-byte object must return exactly its last 10 bytes"
+    );
+    assert_eq!(
+        content_range.as_deref(),
+        Some("bytes 16-25/26"),
+        "MinIO must report the resolved absolute range in Content-Range, per RFC 9110 §14.4"
+    );
+}

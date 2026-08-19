@@ -1939,3 +1939,62 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   presently exercised only by its own tests, not by any orchestrating
   writer); wiring either quantization strategy into a real writer pipeline
   remains future work, unblocked by this closure.
+
+- **X-2 (`docs/roadmap.md`) — RFC 0001's three remaining Open Questions items,
+  resolved 2026-08-19 against real measurement, not guessed.** All three named
+  in RFC 0001's own Open Questions section as owed a real value, not just a
+  bound's existence.
+
+  **Speculative tail-read size `N` and the hotcache-size ceiling.**
+  `bench/src/hotcache_tail_read.rs` built real segments across a blob-count
+  sweep (1, 12, 50, 100, 250, 500, 1000 — 12 is today's real maximum for one
+  field spanning every registered family, `spec/container.md` §9), committed
+  each to real MinIO, and executed RFC 0001 §1's actual two-phase open
+  protocol (`S3Store::get_range`, a real `Footer`/`Hotcache` decode, a
+  conditional second range GET) across candidate `N` values from 512 B to
+  16 KB. The measured one-RTT/two-RTT transition tracked the RFC's own
+  `hotcache_length + 40 <= N` check exactly: 100 blob entries (3,420-byte
+  hotcache) stayed one RTT by `N = 4096`; 250 blob entries (8,520-byte
+  hotcache) stayed one RTT by `N = 16384`; 500 and 1,000 blob entries needed
+  two RTTs at every tested `N`. Recommended default: **`N = 16384` bytes
+  (16 KiB)**, implying a hotcache-size ceiling of **16,344 bytes (≈480 blob
+  entries)** before an open silently degrades from one RTT to two —
+  comfortably above today's real 12-blob-entry maximum (428 bytes, ≈40x
+  headroom), chosen over smaller candidates because measured latency showed
+  no real marginal cost from the larger window. Full data:
+  `bench/results/hotcache-tail-read.json`;
+  `rfcs/0001-container-rowid-manifest.md` Discussion.
+
+  **Reader 404-refresh retry bound.** `bench/src/reader_refresh_contention.rs`
+  ran 4 concurrent writers committing back-to-back against real MinIO (60
+  total commits), a compactor deleting each snapshot the instant a newer one
+  became current (the tightest race window the deletion-safety rule,
+  `CLAUDE.md` §6, allows), and 4 concurrent readers hammering `read_snapshot`
+  throughout, recovering each real call's internal retry count from
+  `CountingStore`'s GET count. Across **691 reads** sampled, only **1** needed
+  a single internal retry and none exhausted the bound.
+  `manifest::READER_REFRESH_RETRY_LIMIT` stays at **5** — already ≈5x the
+  observed worst case, so this measurement confirms the provisional value
+  rather than changing it — and is now `pub`. Same standing caveat every
+  `bench/` cold-path measurement in this file carries: MinIO on localhost, no
+  injected network round-trip latency, so the observed race window is a lower
+  bound on a real deployment's, not an upper one. Full data:
+  `bench/results/reader-refresh-contention.json`.
+
+  **Suffix-range server support.** AWS's `GetObject` API reference
+  (`references/aws-s3-getobject-range-parameter.md`, fetched 2026-08-19)
+  demonstrates only the explicit-end range form and is silent on the suffix
+  form either way — confirming RFC 0001's original framing rather than
+  changing it. The server-support question itself is now closed empirically
+  for MinIO: `crates/strand-core/tests/s3_store.rs`'s
+  `suffix_range_get_is_honored_by_minio` issues a raw `bytes=-10` suffix-range
+  GET against real MinIO and confirms it is honored correctly (right bytes,
+  correct `Content-Range`). Real S3 remains untested — no AWS credentials were
+  available in this environment — so the finding is MinIO-specific, not a
+  claim about S3. RFC 0001's open protocol is unaffected either way, since it
+  was designed specifically not to depend on the answer.
+
+  `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D
+  warnings` both clean alongside this work. `rfcs/0001-container-rowid-
+  manifest.md` Discussion carries the full methodology; `docs/roadmap.md`'s
+  X-2 entry is updated to reflect this as done.
