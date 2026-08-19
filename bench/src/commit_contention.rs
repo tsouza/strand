@@ -60,6 +60,7 @@ fn run_writer(endpoint: &str, bucket: &str, writer_id: usize) -> u64 {
             let mut builder = SegmentBuilder::new(1);
             builder.add_blob(BlobSpec {
                 family_id: 0,
+                field_id: 0,
                 blob_type_id: 0,
                 storage_class: StorageClass::RawMappable,
                 tier: Tier::NotApplicable,

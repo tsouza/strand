@@ -27,6 +27,12 @@ use crate::store::ConditionalStore;
 pub struct BlobSpec {
     pub family_id: u16,
     pub blob_type_id: u16,
+    /// Which field this blob belongs to, or
+    /// [`crate::container::FIELD_ID_NONE`] for a segment-scoped blob with no
+    /// field association. `spec/container.md` §5a;
+    /// [`crate::container::field_id_from_name`] computes this from a
+    /// field's declared name.
+    pub field_id: u64,
     pub storage_class: StorageClass,
     pub tier: Tier,
     pub alignment: u16,
@@ -78,6 +84,7 @@ impl SegmentBuilder {
             entries.push(BlobEntry {
                 family_id: blob.family_id,
                 blob_type_id: blob.blob_type_id,
+                field_id: blob.field_id,
                 storage_class: blob.storage_class,
                 tier: blob.tier,
                 alignment: blob.alignment,
@@ -147,6 +154,7 @@ mod tests {
         let mut builder = SegmentBuilder::new(2);
         builder.add_blob(BlobSpec {
             family_id: 0,
+            field_id: crate::container::FIELD_ID_NONE,
             blob_type_id: 0,
             storage_class: crate::container::StorageClass::RawMappable,
             tier: crate::container::Tier::NotApplicable,
@@ -173,6 +181,7 @@ mod tests {
         let mut builder = SegmentBuilder::new(2);
         builder.add_blob(BlobSpec {
             family_id: 0,
+            field_id: crate::container::FIELD_ID_NONE,
             blob_type_id: 0,
             storage_class: StorageClass::RawMappable,
             tier: Tier::NotApplicable,
@@ -183,6 +192,7 @@ mod tests {
         });
         builder.add_blob(BlobSpec {
             family_id: 1,
+            field_id: crate::container::FIELD_ID_NONE,
             blob_type_id: 0,
             storage_class: StorageClass::RawMappable,
             tier: Tier::NotApplicable,
@@ -214,6 +224,7 @@ mod tests {
         let mut builder = SegmentBuilder::new(2);
         builder.add_blob(BlobSpec {
             family_id: 0,
+            field_id: crate::container::FIELD_ID_NONE,
             blob_type_id: 0,
             storage_class: StorageClass::RawMappable,
             tier: Tier::NotApplicable,
@@ -224,6 +235,7 @@ mod tests {
         });
         builder.add_blob(BlobSpec {
             family_id: 1,
+            field_id: crate::container::FIELD_ID_NONE,
             blob_type_id: 0,
             storage_class: StorageClass::ChunkCompressed,
             tier: Tier::ColdFetchable,
@@ -259,6 +271,7 @@ mod tests {
         let mut builder = SegmentBuilder::new(2);
         builder.add_blob(BlobSpec {
             family_id: 0,
+            field_id: crate::container::FIELD_ID_NONE,
             blob_type_id: 0,
             storage_class: StorageClass::RawMappable,
             tier: Tier::NotApplicable,
@@ -273,12 +286,12 @@ mod tests {
         assert_eq!(segment_ref.path, "segments/a.bin");
         assert_eq!(segment_ref.row_id_base, 1000);
         assert_eq!(segment_ref.row_id_count, 2);
-        assert_eq!(segment_ref.byte_length, 102);
+        assert_eq!(segment_ref.byte_length, 110);
 
         let (stored_bytes, _) = crate::store::ConditionalStore::get(&store, "segments/a.bin")
             .unwrap()
             .expect("segment must be written to the store");
-        assert_eq!(stored_bytes.len(), 102);
+        assert_eq!(stored_bytes.len(), 110);
         assert_eq!(
             segment_ref.checksum,
             twox_hash::XxHash3_64::oneshot(&stored_bytes)

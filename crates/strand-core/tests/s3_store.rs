@@ -34,6 +34,7 @@ fn toy_builder(row_id_count: u64, tag: u8) -> SegmentBuilder {
     let mut builder = SegmentBuilder::new(row_id_count);
     builder.add_blob(BlobSpec {
         family_id: 0,
+        field_id: 0,
         blob_type_id: 0,
         storage_class: StorageClass::RawMappable,
         tier: Tier::NotApplicable,
@@ -130,6 +131,7 @@ fn full_commit_and_read_round_trip_against_real_object_storage() {
             let mut builder = SegmentBuilder::new(2);
             builder.add_blob(BlobSpec {
                 family_id: 0,
+                field_id: 0,
                 blob_type_id: 0,
                 storage_class: strand_core::container::StorageClass::RawMappable,
                 tier: strand_core::container::Tier::NotApplicable,
@@ -154,7 +156,7 @@ fn full_commit_and_read_round_trip_against_real_object_storage() {
         assert_eq!(read_back, committed);
 
         let (segment_bytes, _) = store.get("segments/one.bin").unwrap().unwrap();
-        assert_eq!(segment_bytes.len(), 102);
+        assert_eq!(segment_bytes.len(), 110);
     });
 }
 

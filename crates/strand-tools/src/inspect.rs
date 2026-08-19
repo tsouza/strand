@@ -108,10 +108,11 @@ pub fn format_report(bytes: &[u8]) -> Result<String, InspectError> {
     for (i, blob) in hotcache.blobs.iter().enumerate() {
         writeln!(
             report,
-            "  [{i}] family={} type={} storage_class={} tier={} alignment={} \
+            "  [{i}] family={} type={} field={:016x} storage_class={} tier={} alignment={} \
              chunk_codec={} offset={} length={} checksum={:016x}",
             blob.family_id,
             blob.blob_type_id,
+            blob.field_id,
             storage_class_label(blob.storage_class),
             tier_label(blob.tier),
             blob.alignment,
@@ -140,9 +141,9 @@ mod tests {
 
         let report = format_report(&bytes).unwrap();
 
-        assert!(report.contains("file size: 102 bytes"), "{report}");
+        assert!(report.contains("file size: 110 bytes"), "{report}");
         assert!(report.contains("footer: ok"), "{report}");
-        assert!(report.contains("hotcache: offset=8 length=54"), "{report}");
+        assert!(report.contains("hotcache: offset=8 length=62"), "{report}");
         assert!(
             report.contains("row-ids: [1000, 1002) (count=2)"),
             "{report}"
@@ -150,8 +151,8 @@ mod tests {
         assert!(report.contains("blobs: 1"), "{report}");
         assert!(
             report.contains(
-                "[0] family=0 type=0 storage_class=raw-mappable tier=n/a alignment=8 \
-                 chunk_codec=none offset=0 length=8"
+                "[0] family=0 type=0 field=0000000000000000 storage_class=raw-mappable \
+                 tier=n/a alignment=8 chunk_codec=none offset=0 length=8"
             ),
             "{report}"
         );

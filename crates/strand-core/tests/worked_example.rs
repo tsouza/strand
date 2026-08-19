@@ -22,6 +22,7 @@ fn assemble_toy_segment() -> Vec<u8> {
     let mut builder = SegmentBuilder::new(2);
     builder.add_blob(BlobSpec {
         family_id: 0,
+        field_id: 0,
         blob_type_id: 0,
         storage_class: StorageClass::RawMappable,
         tier: Tier::NotApplicable,
@@ -37,12 +38,16 @@ fn assemble_toy_segment() -> Vec<u8> {
 fn worked_example_has_the_rfc_pinned_shape() {
     let segment = assemble_toy_segment();
 
-    assert_eq!(segment.len(), 102, "total file size per the RFC");
-    assert_eq!(&segment[62..66], b"STRD", "footer starts at offset 62");
+    // 110 bytes total, up from the RFC 0001 worked example's original 102:
+    // roadmap item X-1 (`field_id`, this RFC's own Discussion section)
+    // grew `blob_entry` from 34 to 42 bytes, so the hotcache grows from 54
+    // to 62 bytes and the footer now starts at 70, not 62.
+    assert_eq!(segment.len(), 110, "total file size after adding field_id");
+    assert_eq!(&segment[70..74], b"STRD", "footer starts at offset 70");
 
-    let footer = Footer::decode(&segment[62..102].try_into().unwrap()).unwrap();
+    let footer = Footer::decode(&segment[70..110].try_into().unwrap()).unwrap();
     assert_eq!(footer.hotcache_offset, 8);
-    assert_eq!(footer.hotcache_length, 54);
+    assert_eq!(footer.hotcache_length, 62);
 
     let hotcache_start = footer.hotcache_offset as usize;
     let hotcache_end = hotcache_start + footer.hotcache_length as usize;

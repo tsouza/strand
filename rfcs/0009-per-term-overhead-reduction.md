@@ -473,3 +473,27 @@ bytes for the overwhelming majority of terms.
   should change this RFC's Fix 1 from an in-place amendment to a new,
   separately-registered `blob_type_id` (Alternatives considered) — not
   needed today, named as a condition to watch for.
+
+## Discussion — post-approval amendments
+
+Per `CLAUDE.md` §3, corrections revealed after approval are recorded here.
+
+**Multi-field blob addressing (Non-goals, above) is resolved — 2026-08-19,
+roadmap item X-1.** This RFC's own Non-goals section states the gap
+precisely: `spec/container.md` §5's blob registry entry "carries no field
+identifier at all... Design §2's mutual-exclusivity rule (exactly one
+term-info shape per field) is therefore a real, correct requirement, but
+not yet a checkable one." `spec/container.md` §5 belongs to RFC 0001
+(container, row-ID space, manifest), not this one, so the fix — a new
+`field_id: u64` field on every `blob_entry`, `spec/container.md` §5a — is
+recorded in `rfcs/0001-container-rowid-manifest.md`'s own Discussion
+section. This RFC's Non-goals paragraph is left exactly as originally
+written, an accurate record of what was true at approval. Design §2's
+mutual-exclusivity rule is now genuinely checkable: `crates/strand-
+lexical/src/field.rs`'s `FieldReader::open` selects a field's term-info
+blob (either shape, `blob_type_id = 1` or `4`) by `field_id` in addition
+to `blob_type_id`, so two fields in one segment — one using the full
+record, one the short one — no longer collide, and each field's own
+"exactly one shape" property is enforced by construction: `to_blob_specs`
+emits exactly one term-info blob per field, tagged with that field's own
+`field_id`, never both shapes for the same field.

@@ -152,7 +152,7 @@ pub fn import_tantivy_field(
         per_term.insert(term_bytes.to_vec(), doc_postings);
     }
 
-    let field_blobs = build_field_from_postings(per_term, doc_lengths, true);
+    let field_blobs = build_field_from_postings(field_name, per_term, doc_lengths, true);
     Ok((field_blobs, doc_count as u64))
 }
 
@@ -225,7 +225,7 @@ mod tests {
         let segment_bytes = builder.build(0);
         let hotcache = open_segment_bytes(&segment_bytes);
 
-        let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)
+        let reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, &field)
             .expect("all four blobs present (importer always keeps positions)");
 
         let mut dog_docs: Vec<u32> = reader

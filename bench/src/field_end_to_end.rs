@@ -103,7 +103,7 @@ fn main() {
     let doc_refs: Vec<&str> = docs.iter().map(String::as_str).collect();
 
     let build_start = Instant::now();
-    let field = build_field(&doc_refs);
+    let field = build_field("passage", &doc_refs);
     let build_elapsed = build_start.elapsed();
     eprintln!(
         "build_field: {:.2}s — term_dict {} bytes, term_info {} bytes, postings {} bytes, positions {} bytes",
@@ -117,7 +117,7 @@ fn main() {
     // RFC 0009 Design §2's short term-info record, on the same real
     // corpus — a real, committed number for the fix's payoff, previously
     // unexercised (docs/ledger.md's RFC 0009 entry).
-    let field_no_positions = build_field_without_positions(&doc_refs);
+    let field_no_positions = build_field_without_positions("passage", &doc_refs);
     let term_info_savings =
         field.term_info.len() as i64 - field_no_positions.term_info.len() as i64;
     eprintln!(
@@ -162,8 +162,8 @@ fn main() {
         .expect("get succeeds")
         .expect("segment exists");
     let hotcache = open_segment_bytes(&segment_bytes);
-    let reader =
-        FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
+    let reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "passage")
+        .expect("all four blobs present");
     let open_elapsed = open_start.elapsed();
     eprintln!(
         "cold open (pointer -> snapshot -> segment -> hotcache -> FieldReader): {:.2}ms",
