@@ -127,7 +127,22 @@ feeds real doc-ID delta-gaps and term frequencies into
 earlier synthetic 95/5 split's 17x, while its ~7-8x decode-speed cost held steady
 between synthetic and real data (`docs/ledger.md` R9). Still not the full corpus or
 ARM hardware, so R9 remains open, but the "real, not synthetic" gap this milestone
-named is now measured, not asserted. Benchmarks: MS
+named is now measured, not asserted. **The postings codec itself is now RFC 0007**
+(`rfcs/0007-postings-codec.md`, Approved) — registers `BitPacker8x` (256-value
+blocks, vertical SIMD) as the default over FastPFOR and FastLanes on real,
+measured decode-throughput and compression numbers, with a required
+variable-length final block (no padding waste on short lists, which this session's
+own real MS MARCO sample is 69% of, by count) and a real, measured block-max
+sibling region (invariant 4) giving a ~7× skip-cost cut on multi-block lists. Its
+own napkin math found something real worth carrying forward: postings + term-info
+for the ~520K-passage sample already total ~73.2 MB, 73% of the 100 MB cold-open
+budget, on under 6% of the full corpus — a live input for R1's segment-sizing
+work, not just this RFC's own concern. Explicitly out of scope: positions,
+scoring-aware (term-frequency/document-length) block-max bounds, and ARM
+validation — the RFC's own adversarial review caught and corrected a false claim
+that the registered codec's crate mitigates the ARM gap; it doesn't, for the
+specific 256-value format this RFC registers, and that gap is now stated
+honestly rather than glossed over. Benchmarks: MS
 MARCO BM25 latency and size vs tantivy; Lucene parity per invariant 5;
 bytes-fetched vs bytes-used across term frequency deciles (the read-amplification
 number, `docs/data-structures.md`). Adapter-based results appear in this

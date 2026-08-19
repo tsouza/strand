@@ -136,7 +136,10 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   size needs no signal, but the direction is the *opposite* of what an
   earlier pass reported — **BP128 (fairly encoded) wins on size for 100% of
   lists, EF loses on every one** (the earlier "~97.1% EF" figure was the
-  padding bug, not a real result). The mechanism: `sucds::mii_sequences::
+  padding bug, not a real result). Mean bytes/list, padded `BitPacker8x`
+  ~672–673 (unfairly inflated) vs. variable-final-block `BitPacker8x` ~149.1
+  (fair) vs. EF ~295.2 (`bench/results/hybrid-codec-pilot.json`, stable across
+  reruns). The mechanism: `sucds::mii_sequences::
   EliasFano` is plain, un-partitioned EF, and the already-vendored Ottaviano
   & Venturini paper (`references/ottaviano-venturini-partitioned-elias-fano.md`)
   states plainly that plain EF "fails to exploit the local clustering that
@@ -147,7 +150,13 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   rate drops from ~68% to ~55–66% overall (and from ~98% to ~79–94% on
   `n <= 8` lists specifically), but a strong signal survives (`n <= 4`
   predicts the winner at ~97% held-out accuracy, a larger lift than the
-  original, uncorrected signal). Skip needs no signal — EF simply wins,
+  original, uncorrected signal). This sample is 69% lists of length `<= 8`
+  (2,788 of 4,016, `bench/results/hybrid-codec-pilot.json`) — real short-list
+  dominance under Zipf's law, not an edge case — and on exactly that
+  short-list group a representative rerun gives real mean decode-cost figures
+  (nanoseconds/list): `BitPacker8x` fixed-block ~117–137, `BitPacker8x`
+  variable-final-block ~89–100, EF ~58–66 (range across three reruns
+  2026-08-18/19; a specific rerun: 129.6/94.3/61.3). Skip needs no signal — EF simply wins,
   always, once measured fairly. A real block-max implementation
   (invariant 4, one `u32` max-value per block) gives a genuine ~7× skip-cost
   cut on the 177-of-4,016 lists spanning more than one block — the only
