@@ -41,13 +41,18 @@
 //! a caller-composed filter over its output, applied only when the
 //! segment's `SegmentRef` declares one. Step 5 (optional reranking
 //! against the flat-vector blob) is not implemented here: a thin wrapper
-//! over `crate::flat` this crate's own callers can already build from
-//! `flat::FlatVectorsReader` directly once they have a surviving candidate
-//! set.
+//! over `crate::flat` — implemented here as `rerank`, `spec/vectors.md` §6
+//! step 5's last piece: fetch the flat-vector blob's rows for the
+//! surviving candidates and recompute exact (unquantized, unrotated)
+//! distances, a second wave outside the cold-open budget (invariant 7).
+//! `Candidate.estimate`'s `lower_bound`/`upper_bound` collapse to the
+//! exact value after reranking — there is no more estimation uncertainty
+//! left to bound.
 
 use crate::estimate::{
     DistanceEstimate, QueryFactors, estimate_distance, estimate_distance_boosted,
 };
+use crate::flat::FlatVectorsReader;
 use crate::navigation::NavigationTierReader;
 use crate::posting_list::{PostingListError, PostingListReader};
 use crate::quantize::{MetricType, QuantizedVector};
@@ -228,6 +233,68 @@ pub fn filter_deleted(
             .filter(|c| !dv.is_deleted(c.row_id, row_id_base))
             .collect(),
     }
+}
+
+/// The exact (unquantized, unrotated) distance between `query` and `v`,
+/// under the same sign convention `estimate_distance` already uses: for
+/// `MetricType::L2`, squared Euclidean distance; for
+/// `MetricType::InnerProduct`, the *negative* inner product (minimizing
+/// finds the maximum true inner product). `DistanceMetric::Cosine`
+/// (`descriptor.rs`) has no separate case here — per `spec/vectors.md` §8,
+/// a writer using cosine MUST normalize vectors before quantization, so
+/// cosine similarity search is inner-product search over already-
+/// normalized vectors; the caller passes `MetricType::InnerProduct` for a
+/// cosine-descriptor field, the same convention `quantize.rs`/
+/// `estimate.rs` already use (neither has a distinct `Cosine` variant
+/// either).
+fn exact_distance(query: &[f32], v: &[f32], metric: MetricType) -> f32 {
+    match metric {
+        MetricType::L2 => query.iter().zip(v).map(|(&q, &x)| (q - x) * (q - x)).sum(),
+        MetricType::InnerProduct => -query.iter().zip(v).map(|(&q, &x)| q * x).sum::<f32>(),
+    }
+}
+
+/// `spec/vectors.md` §6 step 5: fetches `candidates`' rows from the
+/// resident flat-vector blob (already fetched — a second wave, outside
+/// the cold-open budget, invariant 7) and recomputes exact distances,
+/// re-sorting by them. `Candidate.estimate`'s `lower_bound`/`upper_bound`
+/// collapse to the recomputed exact value — reranking is what removes the
+/// estimation uncertainty those bounds existed to describe.
+///
+/// `row_id_base` MUST be the same segment's hotcache-declared base
+/// `flat_vectors` was built against (`flat::FlatVectorsReader::vector`'s
+/// own local-ordinal precondition — `spec/row-ids.md` §1's `local_ordinal
+/// = row_id - row_id_base`).
+///
+/// # Panics
+///
+/// Panics if any candidate's `row_id - row_id_base` is out of
+/// `flat_vectors`' range (`FlatVectorsReader::vector`'s own precondition).
+pub fn rerank(
+    candidates: Vec<Candidate>,
+    flat_vectors: &FlatVectorsReader,
+    row_id_base: u64,
+    query: &[f32],
+    metric: MetricType,
+) -> Vec<Candidate> {
+    let mut reranked: Vec<Candidate> = candidates
+        .into_iter()
+        .map(|c| {
+            let local_ordinal = (c.row_id - row_id_base) as usize;
+            let v = flat_vectors.vector(local_ordinal);
+            let exact = exact_distance(query, &v, metric);
+            Candidate {
+                row_id: c.row_id,
+                estimate: DistanceEstimate {
+                    estimate: exact,
+                    lower_bound: exact,
+                    upper_bound: exact,
+                },
+            }
+        })
+        .collect();
+    reranked.sort_by(|a, b| a.estimate.estimate.total_cmp(&b.estimate.estimate));
+    reranked
 }
 
 #[cfg(test)]
@@ -474,5 +541,42 @@ mod tests {
             vec![1000, 1002],
             "the tombstoned row-id is removed, survivors keep their order"
         );
+    }
+
+    #[test]
+    fn exact_distance_matches_hand_computed_values_for_both_metrics() {
+        let q = [1.0f32, 2.0, 3.0];
+        let v = [2.0f32, 2.0, 1.0];
+        // L2: (1-2)^2 + (2-2)^2 + (3-1)^2 = 1 + 0 + 4 = 5
+        assert_eq!(exact_distance(&q, &v, MetricType::L2), 5.0);
+        // IP: -(1*2 + 2*2 + 3*1) = -(2+4+3) = -9
+        assert_eq!(exact_distance(&q, &v, MetricType::InnerProduct), -9.0);
+    }
+
+    #[test]
+    fn rerank_fixes_a_ranking_the_quantized_estimate_got_wrong() {
+        let row_id_base = 500;
+        let query = [0.0f32, 0.0];
+        // row 500 (local ordinal 0): true nearest, distance 1.
+        // row 501 (local ordinal 1): actually farther, distance 100.
+        let flat = [1.0f32, 0.0, 10.0, 0.0];
+        let flat_bytes = crate::flat::build_flat_vectors(&flat, 2, 2);
+        let reader = FlatVectorsReader::new(&flat_bytes, 2).unwrap();
+
+        // The quantized scan (simulated) got it backwards: 501 ranked
+        // ahead of 500, a real, plausible RaBitQ estimation error.
+        let candidates = vec![candidate(501, 0.1), candidate(500, 0.2)];
+
+        let reranked = rerank(candidates, &reader, row_id_base, &query, MetricType::L2);
+
+        assert_eq!(
+            reranked.iter().map(|c| c.row_id).collect::<Vec<_>>(),
+            vec![500, 501],
+            "reranking against exact distances must fix the quantized estimate's mistake"
+        );
+        assert_eq!(reranked[0].estimate.estimate, 1.0);
+        assert_eq!(reranked[0].estimate.lower_bound, 1.0);
+        assert_eq!(reranked[0].estimate.upper_bound, 1.0);
+        assert_eq!(reranked[1].estimate.estimate, 100.0);
     }
 }

@@ -1518,3 +1518,55 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   manifest.tla` to model `commit_deletion_vector`'s new transition shape,
   and reranking against the flat-vector blob (RFC 0010 Design §6 step 5)
   — the one item left from the original vector-family Non-goals list.
+- **Reranking against the flat-vector blob implemented — 2026-08-19, same
+  day, prompted by "implement reranking against the flat-vector blob
+  next."** The last item on RFC 0010's original Non-goals list, and
+  deliberately *not* a new design question: unlike every RFC-gated module
+  this session, this one required no new RFC and no new spec text — RFC
+  0010 already designed, cited, and adversarially reviewed the
+  flat-vector blob's own byte format (`spec/vectors.md` §5) and the exact
+  query-resolution step this closes (`spec/vectors.md` §6 step 5: "fetch
+  the flat-vector blob's rows for the surviving candidates and recompute
+  exact distances"). The pattern itself — quantize aggressively for the
+  cheap cold scan, recompute exact distances against full-precision
+  vectors for the small surviving set — is not a novel technique either;
+  it is what DiskANN, SPANN, turbopuffer, and Faiss IVF+PQ all do, already
+  cited in `docs/lineage.md`/`docs/data-structures.md` as "the shape the
+  entire cloud-native evidence base converges on." This was purely wiring
+  already-approved design into real code, not a research task.
+
+  `crates/strand-vector/src/query.rs` gained `exact_distance` (a private
+  helper: squared L2 or negative inner product between raw, unrotated
+  vectors — no separate `Cosine` case, since `spec/vectors.md` §8 already
+  requires a cosine-descriptor writer to pre-normalize before
+  quantization, making cosine search inner-product search over normalized
+  vectors, the identical convention `quantize.rs`/`estimate.rs` already
+  use for the same reason) and `rerank` (public): fetches each surviving
+  candidate's row from the resident `flat::FlatVectorsReader`, recomputes
+  the exact distance, and re-sorts. `Candidate.estimate`'s `lower_bound`/
+  `upper_bound` collapse to the exact value post-rerank — reranking is
+  precisely what removes the estimation uncertainty those bounds existed
+  to describe, so collapsing them (rather than leaving stale quantized
+  bounds) is the only self-consistent choice.
+
+  **The real property this feature exists for, tested directly**
+  (`tests/rerank_end_to_end.rs`): a real, deliberately tight and
+  ambiguous 40-vector cluster (real quantization, real posting list, real
+  flat-vector blob, all keyed by the same real row-ids — the regime where
+  1-bit RaBitQ's own lossiness has a real chance to misorder close
+  candidates, unlike `query_a_real_cluster.rs`'s earlier, deliberately
+  well-separated case) is scanned, filtered, and reranked; the reranked
+  order is asserted equal to an independently computed brute-force
+  ordering over the original raw vectors, **not just "plausible" — exact,
+  row-id for row-id**, and every reranked distance matches the true exact
+  distance to within `1e-4`. A second, synthetic unit test
+  (`rerank_fixes_a_ranking_the_quantized_estimate_got_wrong`) demonstrates
+  the mechanism directly: two candidates deliberately handed to `rerank`
+  in the *wrong* order (as a lossy quantized scan plausibly could) come
+  back correctly ordered. 3 new tests, all passing; workspace total now
+  194, clippy clean.
+
+  This closes RFC 0010's original Non-goals list completely. What remains
+  project-wide: everything RFC 0012 itself named as open (compaction,
+  deletion-vector merge semantics, retention/orphan-sweep, the TLA+
+  model gap) — all M3 scope, unchanged by this entry.

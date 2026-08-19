@@ -457,11 +457,21 @@ appends a segment; it has no shape for revising one in place) — both fixed or 
 precisely rather than glossed. `tests/deletion_end_to_end.rs` proves the whole chain: a
 real segment committed through the real manifest CAS protocol, a real deletion vector
 committed against it, and a real vector-family query excluding the tombstoned row and
-promoting the runner-up. **Still deliberately out of scope**: `faster_quantize_ex`'s
-construction-time speedup (unregistered, real writer-side optimization); reranking
-against the flat-vector blob (Design §6 step 5); and, named in RFC 0012's own
-Non-goals, compaction-time physical removal, deletion-vector merge semantics, and
-extending the TLA+ model to cover the new commit shape — all pulled forward to M3.
+promoting the runner-up. **Reranking against the flat-vector blob is implemented
+too** (Design §6 step 5, `query.rs`'s `exact_distance`/`rerank`), closing RFC 0010's
+Non-goals list completely — no new RFC needed, since the flat-vector blob's format and
+this exact step were already designed, cited (DiskANN/SPANN/turbopuffer's own
+"quantize for the scan, exact-rerank the survivors" pattern, `docs/lineage.md`), and
+adversarially reviewed when RFC 0010 was approved; this was wiring, not new design.
+`tests/rerank_end_to_end.rs` proves the real property: a real, deliberately tight
+40-vector cluster (the regime where 1-bit RaBitQ's lossiness can plausibly misorder
+close candidates) is scanned and reranked, and the reranked order matches an
+independently computed brute-force ordering exactly, row-id for row-id, not just
+plausibly. **Still deliberately out of scope**: `faster_quantize_ex`'s
+construction-time speedup (unregistered, real writer-side optimization); and, named in
+RFC 0012's own Non-goals, compaction-time physical removal, deletion-vector merge
+semantics, and extending the TLA+ model to cover the new commit shape — all pulled
+forward to M3.
 
 **M3 — Hybrid + deletes + merge.** The deletion-vector *mechanism* now exists (pulled
 forward via RFC 0012, above); M3's own scope narrows to what that RFC named as
