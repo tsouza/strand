@@ -32,31 +32,72 @@ path, JSON where humans and cross-engine tooling read it.
 
 **Table metadata** (`_strand/metadata.json`, written once, immutable
 thereafter except for the CAS-host move, the one declared amendment
-(`CLAUDE.md` §6)): format version, the declared
-CAS host, minimum snapshot retention. *Not yet implemented in the
-reference implementation* — table-metadata-driven retention is M3 scope
-(compaction); this chapter states the shape now so no future session
-invents a different one.
+(`CLAUDE.md` §6)). Unlike the other two object kinds, this object never
+participates in the `_strand/current` CAS race described in §2 below — it
+has no pointer, no proposed-vs-current distinction, and no retry loop.
+Creating it is a single `put_if_absent` to a fixed key
+(`table_metadata::write_table_metadata`); an `Ambiguous` outcome is
+resolved by a follow-up read that checks whether this attempt's own bytes
+are the ones now present, the same disambiguation principle §2's pointer
+CAS uses, applied to a plain create instead of a compare-and-swap.
+
+| field          | type              | notes                                                                                                                       |
+| -------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| format_version | u32               | this object's own format version, distinct from a segment's `format_major`/`format_minor` (`spec/container.md` §1)          |
+| cas_host       | `CasHost`         | `{"type": "native", "store": "<name>"}` or `{"type": "catalog", "uri": "<uri>"}` — `CLAUDE.md` §6's "one declared CAS host" |
+| retention      | `RetentionPolicy` | below                                                                                                                       |
+
+A `RetentionPolicy`:
+
+| field                   | type | notes                                                                   |
+| ----------------------- | ---- | ----------------------------------------------------------------------- |
+| min_snapshots_to_keep   | u32? | keep at least this many of the most recent snapshots, regardless of age |
+| max_snapshot_age_millis | u64? | keep any snapshot committed within this many milliseconds of "now"      |
+
+At least one of the two `RetentionPolicy` fields MUST be set —
+`write_table_metadata` rejects a policy declaring neither, since a table
+with no retention floor at all would let a sweep treat every snapshot but
+the current one as immediately expired. When both fields are set, a
+snapshot is retained if it satisfies *either* one — the union, not the
+intersection — resolved in RFC 0001's Discussion section (2026-08-19)
+because the original approval left the both-set case unstated: the
+deletion-safety rule's cost of under-retaining (real, unrecoverable data
+loss for a reader with an expired-but-still-open snapshot) so outweighs
+the cost of over-retaining (storage only, a cost `CLAUDE.md` §6 already
+accepts elsewhere) that the safer reading wins outright, not as a close
+call. This matches Apache Iceberg's own documented behavior for its
+equivalent pair of knobs (`history.expire.min-snapshots-to-keep`,
+`history.expire.max-snapshot-age-ms`).
+
+The current snapshot (the one `_strand/current` names) is retained
+unconditionally, regardless of what the policy alone would otherwise
+say — nothing safely lets a policy expire the one snapshot every live
+reader is using. `table_metadata::retained_snapshots` implements this
+whole rule as a pure function: given a `RetentionPolicy`, a snapshot
+list, and a "now" timestamp, it returns exactly the retained subset.
+Boundary rule: a snapshot exactly `max_snapshot_age_millis` old is
+retained (`age <= max_age`, inclusive).
 
 **Snapshot metadata** (`_strand/snapshots/{version:020}-{writer_nonce}.json`,
 immutable, one per *proposed* commit — §3 explains the nonce). Fields:
 
-| field          | type                | notes                                                     |
-| -------------- | ------------------- | --------------------------------------------------------- |
-| version        | u64                 | this snapshot's version                                   |
-| next_row_id    | u64                 | one past the highest row-ID any referenced segment claims |
-| segments       | array of SegmentRef | the segment set (below)                                   |
-| index_versions | per-blob-family map | each blob family's index version (below)                  |
+| field               | type                | notes                                                                                                                                                                        |
+| ------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| version             | u64                 | this snapshot's version                                                                                                                                                      |
+| next_row_id         | u64                 | one past the highest row-ID any referenced segment claims                                                                                                                    |
+| segments            | array of SegmentRef | the segment set (below)                                                                                                                                                      |
+| index_versions      | per-blob-family map | each blob family's index version (below)                                                                                                                                     |
+| committed_at_millis | u64                 | milliseconds since the Unix epoch, stamped by the proposing writer (RFC 0001 Discussion, 2026-08-19, M3-4); not an invariant-11 byte-determinism target, like `writer_nonce` |
 
 A `SegmentRef`:
 
-| field        | type   | notes                                       |
-| ------------ | ------ | ------------------------------------------- |
-| path         | string | the segment object's key                    |
-| row_id_base  | u64    | must match the segment's own hotcache       |
-| row_id_count | u64    | must match the segment's own hotcache       |
-| byte_length  | u64    | the segment object's total size             |
-| checksum     | u64    | xxHash3-64 over the segment's on-disk bytes |
+| field           | type                 | notes                                                                                     |
+| --------------- | -------------------- | ----------------------------------------------------------------------------------------- |
+| path            | string               | the segment object's key                                                                  |
+| row_id_base     | u64                  | must match the segment's own hotcache                                                     |
+| row_id_count    | u64                  | must match the segment's own hotcache                                                     |
+| byte_length     | u64                  | the segment object's total size                                                           |
+| checksum        | u64                  | xxHash3-64 over the segment's on-disk bytes                                               |
 | deletion_vector | `DeletionVectorRef?` | absent iff no row in this segment has ever been deleted (`spec/deletion.md` §3, RFC 0012) |
 
 Per the Lance model (`docs/lineage.md`), `index_versions` references each
@@ -182,7 +223,8 @@ specified. Enforcement beyond convention is out of scope for v0.1.
 
 **Deletion safety and reader 404-refresh.** A segment file or a snapshot
 metadata object MUST NOT be physically deleted while any retained
-snapshot (per table metadata's retention policy) references it. A reader
+snapshot (per table metadata's retention policy, §1's `RetentionPolicy`
+and `table_metadata::retained_snapshots`) references it. A reader
 that gets 404 on an object its snapshot references MUST treat the
 snapshot as expired — refresh and retry per §3 — rather than report
 corruption.
@@ -192,9 +234,11 @@ writing segment or snapshot metadata files but before its commit lands
 (§2 step 3 never completing) leaves orphans. Orphans are harmless to
 correctness — nothing live references them — and cost only storage. They
 are removed by listing the prefix, subtracting everything referenced by a
-retained snapshot, and deleting the remainder older than the retention
-window. The sweep tool lands at M3; this rule is stated now so that tool
-has nothing to invent.
+retained snapshot (§1's retention-eligibility rule, now implemented — see
+`table_metadata::retained_snapshots`), and deleting the remainder older
+than the retention window. The sweep tool itself lands at M3-5
+(`docs/roadmap.md`); this rule is stated now so that tool has nothing to
+invent.
 
 **Reader freshness has a price, and it is stated.** A reader's consistency
 model is snapshot-at-load. Freshness costs one GET of the
@@ -214,9 +258,14 @@ Verified against real S3-compatible object storage (MinIO, via
 conditional-write semantics, the full commit-and-read round trip, the
 step-3 recompute-on-retry requirement under genuine concurrent writers
 (`bench/src/commit_contention.rs`), the orphan-harmless crash test, and
-the reader 404-refresh recovery path. Not yet implemented: table metadata
-itself (`_strand/metadata.json`), retention-policy-driven snapshot
-expiry, and the orphan-sweep tool — all M3 scope. `commit`/`read_snapshot`
+the reader 404-refresh recovery path. Table metadata
+(`_strand/metadata.json`, `table_metadata::write_table_metadata`/
+`read_table_metadata`) and retention-policy-driven snapshot-eligibility
+(`table_metadata::retained_snapshots`) are implemented and unit-tested
+against `InMemoryStore` (M3-4, `docs/roadmap.md`); neither has yet been
+exercised against real MinIO the way the CAS protocol itself has. Not yet
+implemented: the orphan-sweep tool itself — M3-5, which consumes
+`retained_snapshots`'s output directly. `commit`/`read_snapshot`
 propagate definite backend failures as typed errors (`CommitError::Io`,
 `ReadError::Io`) and resolve ambiguous pointer-write outcomes per §2
 (`StoreError::Ambiguous`, `crates/strand-core/src/store.rs`), classified

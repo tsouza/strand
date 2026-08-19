@@ -275,15 +275,40 @@ Non-goals and Open questions still leave genuinely open:
   implemented... table-metadata-driven retention is M3 scope"), restated
   in RFC 0012 Non-goals as a named, inherited gap. **Missing from this
   document's first draft entirely** — found by the adversarial review.
-  Status: open. Depends on: nothing technically, but M3-6/M3-7's orphan-
-  adjacent accounting and the deletion-safety retention rule
-  (`CLAUDE.md` §6) are more meaningful once real retention policy exists
-  to enforce, so sequencing alongside M3-1 is sensible.
+  **Status: done (2026-08-19).** `crates/strand-core/src/table_metadata.rs`:
+  `TableMetadata`/`CasHost`/`RetentionPolicy` (the exact shapes RFC 0001
+  Design §3 already named), `write_table_metadata`/`read_table_metadata`
+  (write-once `put_if_absent` to `_strand/metadata.json`, outside the
+  `_strand/current` CAS protocol entirely — no new manifest commit action,
+  `verification/manifest.tla` unchanged), and `retained_snapshots`, the
+  pure retention-eligibility function M3-5 depends on. Implementing this
+  surfaced a real spec gap — `spec/manifest.md` §1 named "a count, a
+  duration, or both" but never said how both combine, and `SnapshotMetadata`
+  had no timestamp field for a duration policy to compare against — both
+  resolved properly through RFC 0001's Discussion section (2026-08-19,
+  `committed_at_millis` added additively, both-set retention resolved as a
+  union, current snapshot always retained), not decided silently; see that
+  RFC's Discussion entry and `spec/manifest.md` §1 for the normative
+  result. 17 new tests (round-trips, the two `CasHost` JSON shapes checked
+  byte-for-byte, and `retained_snapshots` against a snapshot inside/outside
+  the duration window, the inclusive/exclusive boundary, the count-only
+  floor, the union case, and the always-retain-current floor), all
+  `InMemoryStore`-backed — real-MinIO coverage for this object remains
+  open, unlike the CAS protocol's own `tests/s3_store.rs` coverage.
 - **M3-5** — The orphan-sweep tool (`strand-tools`). Source:
   `docs/milestones.md` M3 entry; `spec/manifest.md`'s "Orphan files" rule,
-  already stated, unimplemented. Status: open. Depends on: M3-4 (retention
-  policy governs what "old enough to sweep" means); more valuable once
-  M3-1 (compaction) exists to produce orphans at realistic volume.
+  already stated, unimplemented. Status: open — M3-4's dependency is now
+  satisfied (`table_metadata::retained_snapshots` gives this tool exactly
+  the "which files are still referenced" answer it needs: list the
+  `_strand/snapshots/` and `_strand/current`-derived prefix, read every
+  snapshot object found, call `retained_snapshots` with the table's real
+  `RetentionPolicy` and a real clock reading, union every retained
+  snapshot's `segments[].path`/`deletion_vector.path` plus the retained
+  snapshot object paths themselves, and delete anything else older than
+  the retention window). Still more valuable once M3-1 (compaction)
+  exists to produce orphans at realistic volume, and still needs its own
+  real-MinIO crash-test coverage, matching the rest of this layer's
+  verification bar.
 - **M3-6** — End-to-end hybrid RRF fusion across both blob families over
   one row-ID space. Source: `docs/milestones.md` M3 entry — this is the
   project's actual thesis, exercised for the first time. **A real,

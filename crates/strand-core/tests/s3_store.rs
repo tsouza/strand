@@ -191,6 +191,9 @@ fn orphaned_writer_crash_is_harmless_to_readers() {
             version: baseline.version + 1,
             next_row_id: baseline.next_row_id + 3,
             segments: orphan_segments,
+            // Irrelevant to this crash test — no retention logic is
+            // exercised here, only that the orphan stays invisible.
+            committed_at_millis: 0,
         };
         store
             .put_if_absent(
