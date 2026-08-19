@@ -130,7 +130,10 @@ pub fn closure_replicate(
         n,
         "primary_assignments must have exactly n entries"
     );
-    assert!(n > 0 && dims > 0 && num_clusters > 0, "n, dims, and num_clusters must be non-zero");
+    assert!(
+        n > 0 && dims > 0 && num_clusters > 0,
+        "n, dims, and num_clusters must be non-zero"
+    );
     assert!(
         config.max_replicas > 0,
         "max_replicas must be nonzero — every vector always keeps its primary assignment"
@@ -170,7 +173,8 @@ pub fn closure_replicate(
                     break;
                 }
                 let accept = if config.apply_rng_rule {
-                    let d_centroids = squared_distance(centroid_at(prev_centroid_idx), centroid_at(c));
+                    let d_centroids =
+                        squared_distance(centroid_at(prev_centroid_idx), centroid_at(c));
                     d <= d_centroids
                 } else {
                     true
@@ -262,7 +266,11 @@ mod tests {
             apply_rng_rule: false,
         };
         let result = closure_replicate(&vectors, 1, dims, &centroids, 2, &primary, &config);
-        assert_eq!(result[0], vec![0, 1], "midpoint vector replicates into both clusters");
+        assert_eq!(
+            result[0],
+            vec![0, 1],
+            "midpoint vector replicates into both clusters"
+        );
     }
 
     #[test]
@@ -296,7 +304,11 @@ mod tests {
             apply_rng_rule: false,
         };
         let result = closure_replicate(&vectors, 1, dims, &centroids, 4, &primary, &config);
-        assert_eq!(result[0].len(), 2, "max_replicas=2 must cap total assignments at 2");
+        assert_eq!(
+            result[0].len(),
+            2,
+            "max_replicas=2 must cap total assignments at 2"
+        );
         assert_eq!(result[0][0], 0, "primary is always kept");
     }
 
@@ -322,7 +334,11 @@ mod tests {
         let per_vector = vec![vec![0, 1], vec![1], vec![2]];
         let grouped = group_by_cluster(&per_vector, 3);
         assert_eq!(grouped[0], vec![0]);
-        assert_eq!(grouped[1], vec![0, 1], "vector 0 must appear in cluster 1 too");
+        assert_eq!(
+            grouped[1],
+            vec![0, 1],
+            "vector 0 must appear in cluster 1 too"
+        );
         assert_eq!(grouped[2], vec![2]);
     }
 
@@ -364,12 +380,20 @@ mod tests {
         assert_eq!(result[0], vec![0], "v0: no replication, close to c0");
         assert_eq!(result[1], vec![1], "v1: no replication, close to c1");
         assert_eq!(result[2], vec![1], "v2: no replication, very close to c1");
-        assert_eq!(result[3], vec![0, 1], "v3: exact midpoint, replicates into c1");
+        assert_eq!(
+            result[3],
+            vec![0, 1],
+            "v3: exact midpoint, replicates into c1"
+        );
         assert_eq!(result[4], vec![2], "v4: no replication, close to c2");
 
         let grouped = group_by_cluster(&result, 3);
         assert_eq!(grouped[0], vec![0, 3], "cluster 0: v0 primary, v3 replica");
-        assert_eq!(grouped[1], vec![1, 2, 3], "cluster 1: v1, v2 primary, v3 replica");
+        assert_eq!(
+            grouped[1],
+            vec![1, 2, 3],
+            "cluster 1: v1, v2 primary, v3 replica"
+        );
         assert_eq!(grouped[2], vec![4], "cluster 2: v4 primary only");
 
         // Realized replication factor for this tiny example: 6 total

@@ -98,8 +98,16 @@ fn closure_replication_hand_checked_byte_layout() {
     );
 
     let grouped = group_by_cluster(&assignments, 2);
-    assert_eq!(grouped[0], vec![0, 2], "cluster 0: idx0 primary, idx2 replica");
-    assert_eq!(grouped[1], vec![1, 2], "cluster 1: idx1 primary, idx2 replica");
+    assert_eq!(
+        grouped[0],
+        vec![0, 2],
+        "cluster 0: idx0 primary, idx2 replica"
+    );
+    assert_eq!(
+        grouped[1],
+        vec![1, 2],
+        "cluster 1: idx1 primary, idx2 replica"
+    );
 
     // Row-ids monotonic in vector index (100, 150, 200), so grouping by
     // ascending vector index already yields ascending row-id order within

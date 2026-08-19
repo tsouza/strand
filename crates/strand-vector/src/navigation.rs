@@ -215,9 +215,7 @@ pub fn build_navigation_tier_with_replication(
         "centroids must be exactly num_clusters*padded_dims f32 values"
     );
     let mut out = Vec::with_capacity(
-        8 + centroids.len() * 4
-            + num_clusters * CLUSTER_DIR_ENTRY_LEN
-            + REPLICATION_DESCRIPTOR_LEN,
+        8 + centroids.len() * 4 + num_clusters * CLUSTER_DIR_ENTRY_LEN + REPLICATION_DESCRIPTOR_LEN,
     );
     out.extend_from_slice(&(num_clusters as u32).to_le_bytes());
     out.extend_from_slice(&0u32.to_le_bytes()); // reserved
