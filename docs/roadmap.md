@@ -417,20 +417,36 @@ Non-goals and Open questions still leave genuinely open:
   (`InvertedLists`/FastScan over external storage); (c) Quickwit
   split/hotcache internals post-relicense; (d) the fork reader-module
   list / fork failure triggers; (e) warm-tier graph host choice. Source:
-  `docs/ledger.md` R11 ("gates all adapter work"). Status: **(a) and (c)
-  done** (2026-08-19) — (a): tantivy has no codec SPI (`Directory` is a
+  `docs/ledger.md` R11 ("gates all adapter work"). Status: **(a), (b), and
+  (c) done** (2026-08-19) — (a): tantivy has no codec SPI (`Directory` is a
   byte-range abstraction, `SegmentComponent` a closed enum); Lucene's
   `Codec`/`PostingsFormat` SPI is real and confirmed current, resolved via
   `ServiceLoader`
-  (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`). (c):
-  Quickwit is confirmed Apache-2.0 both byte-level and commit-level (PR
+  (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`). (b):
+  a STRAND-backed `InvertedLists` subclass (deriving from FAISS's own
+  `ReadOnlyInvertedLists`) fully serves plain `IndexIVFRaBitQ` search over
+  external storage — confirmed by reading every call site in
+  `IndexIVF.cpp`'s generic `search_preassigned`, zero `dynamic_cast` to any
+  concrete type. FastScan search is equally generic (only two
+  `dynamic_cast<BlockInvertedLists>` sites in `IndexIVFFastScan.cpp`, both
+  in the *write* path, none in `search_implem_*`), so a custom
+  `InvertedLists` returning already-block-packed bytes is read correctly at
+  query time with no FAISS-side change; building those packed bytes still
+  requires a literal `BlockInvertedLists` (`add_with_ids` throws "only
+  block inverted lists supported" otherwise), so every STRAND→FastScan path
+  needs a repack, quantified at `O(ntotal · d)` bit work plus one
+  `CodePacker::pack_1` call per vector via FAISS's own conversion
+  constructor, paid once per segment open, not per query — no FAISS fork
+  required for either kernel
+  (`references/r11b-faiss-invertedlists-external-storage-feasibility.md`).
+  (c): Quickwit is confirmed Apache-2.0 both byte-level and commit-level (PR
   #5645, 2025-01-23); the inherits-from-the-fork hypothesis's *mechanism*
   half is confirmed (ordinary `Directory`/`FileHandle` consumer, no
   tantivy-internals patch), its *code* half is not (Quickwit's split/
   hotcache wire format doesn't transfer)
-  (`references/r11c-quickwit-relicense-and-hotcache-source.md`). (b), (d),
+  (`references/r11c-quickwit-relicense-and-hotcache-source.md`). (d) and
   (e) remain open — pure research/verification, no code dependency, and
-  genuinely independent of each other and of (a)/(c). Depends on: (e)
+  genuinely independent of each other and of (a)/(b)/(c). Depends on: (e)
   depends on M2-3 existing at least in RFC-draft form — the other
   sub-parts have no dependency.
 - **M4-2** — CIFF importer (lossless where CIFF permits). Source:
@@ -473,7 +489,14 @@ Non-goals and Open questions still leave genuinely open:
   sweep. Source: `docs/milestones.md` M5 entry. Status: **blocked** on
   M5-1 and M3-6 (hybrid RRF must exist to benchmark).
 - **M5-3** — FAISS adapter. Source: `docs/milestones.md` M5 entry, "per
-  R11(b)'s feasibility finding." Status: **blocked** on M4-1(b).
+  R11(b)'s feasibility finding." Status: **unblocked on M4-1(b)**, now
+  resolved (`references/r11b-faiss-invertedlists-external-storage-feasibility.md`):
+  a STRAND-backed `InvertedLists` subclass serves both `IndexIVFRaBitQ` and
+  `IndexIVFRaBitQFastScan` search with no FAISS fork; the FastScan leg needs
+  a one-time per-segment-open repack into `BlockInvertedLists`, whose cost
+  is now quantified. Still most sensibly built against a frozen manifest
+  (M4-3) and an RFC of its own (the finding settles feasibility and design
+  shape, not the RFC text).
 
 ## Cross-cutting grounding debt (not milestone-gating, real nonetheless)
 

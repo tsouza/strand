@@ -586,9 +586,9 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   current source, not memory: (a) **resolved 2026-08-19** — tantivy's reader
   surface — map the modules a STRAND read path must replace, settling the codec-SPI
   question as a by-product, and confirm the exact Lucene codec SPI class surface for
-  `StrandCodec`; (b) FAISS per-kernel feasibility — whether the generic
-  `InvertedLists` path serves `IndexIVFRaBitQ` search over external storage, and
-  whether the FastScan path can run over external lists at all given its
+  `StrandCodec`; (b) **resolved 2026-08-19** — FAISS per-kernel feasibility — whether
+  the generic `InvertedLists` path serves `IndexIVFRaBitQ` search over external
+  storage, and whether the FastScan path can run over external lists at all given its
   `CodePacker`/`BlockInvertedLists` packing, including the load-time repack cost if
   so; (c) Quickwit split/hotcache internals post-relicense, testing the
   inherits-from-the-fork hypothesis — **resolved 2026-08-19**
@@ -613,8 +613,8 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   practice of the STRAND fork pinning its own explicit commit rather than assuming
   crates.io and tantivy's git trunk behave identically; (d) the fork reader-module
   list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier
-  graph host choice. Adapter milestones remain conditional on R11 (b), (d), and
-  (e), still open.
+  graph host choice. Adapter milestones remain conditional on R11 (d) and (e), still
+  open — (b) below is no longer a blocker.
 
   **R11(a) finding (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`,
   fetched against tantivy tag `0.26.1` and Lucene tag `releases/lucene/10.5.1`,
@@ -652,6 +652,42 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   the exact mechanism confirmed by reading Lucene's own shipping
   `META-INF/services/org.apache.lucene.codecs.Codec` file, which names
   `org.apache.lucene.codecs.lucene104.Lucene104Codec`.
+
+  **R11(b) finding (`references/r11b-faiss-invertedlists-external-storage-feasibility.md`,
+  fetched against FAISS tag `v1.15.0`, 2026-08-19):** both kernels are feasible
+  without forking FAISS, and the split is narrower than the open question assumed.
+  **Plain `IndexIVFRaBitQ`:** a STRAND-cluster-blob-backed `InvertedLists` subclass
+  (deriving from FAISS's own `ReadOnlyInvertedLists`, which already supplies the
+  three throwing write-method stubs a read-only backend needs to satisfy the
+  interface's pure-virtual contract) fully serves search over external storage — a
+  full-file read of `faiss/IndexIVF.cpp`'s `search_preassigned` (the code path
+  `IndexIVFRaBitQ` inherits unmodified) found zero `dynamic_cast` to any concrete
+  `InvertedLists` subtype anywhere in the file; every list read goes through the
+  plain virtual `list_size`/`get_codes`/`get_ids` trio via `ScopedCodes`/`ScopedIds`.
+  **FastScan (`IndexIVFRaBitQFastScan`):** the same is true at *search* time — an
+  exhaustive grep of `IndexIVFFastScan.cpp` for `dynamic_cast<BlockInvertedLists`
+  found exactly two hits, both inside code-*writing* functions
+  (`init_code_packer`, `add_with_ids`), never in any `search_implem_*` path; the
+  RaBitQ-FastScan specialization's own `postprocess_packed_codes`
+  (`IndexIVFRaBitQFastScan.cpp`) adds one more `dynamic_cast<BlockInvertedLists>`,
+  also strictly in the write path — so a custom `InvertedLists` whose `get_codes`
+  returns bytes already in FAISS's block-packed layout is read correctly by FastScan
+  search with no FAISS-side change. What does force a literal `BlockInvertedLists` is
+  the *build* path: `add_with_ids` unconditionally throws `"only block inverted lists
+  supported"` if `dynamic_cast<BlockInvertedLists*>(invlists)` fails, then writes
+  through that class's public `codes`/`ids` members directly, bypassing
+  `add_entries` entirely. Since STRAND's wire bytes are never themselves
+  block-packed (invariant 10 forbids baking FAISS's register-shuffle layout into the
+  spec), every STRAND→FastScan path needs a repack, and FAISS's own conversion
+  constructor `IndexIVFRaBitQFastScan(const IndexIVFRaBitQ&, int bbs)` is real,
+  quoted, load-bearing evidence for its cost: it reads the source `InvertedLists`
+  generically (confirming a STRAND-backed list works as the repack's *source*) and
+  does `O(ntotal · d)` bit-level re-derivation plus one `CodePacker::pack_1` call per
+  vector to produce a fresh, owned `BlockInvertedLists` — a one-time, whole-segment
+  cost best paid once at segment open (matching invariant 3's parallel-wave model),
+  not per query. No FAISS fork is required for either kernel; the R11(b) open
+  question is resolved in the more favorable direction than
+  `docs/benchmarks.md`'s prior hedge assumed.
 - **Postings block size** (conditional): this entry previously said "128 was the
   default by shared lineage" — stale, predating RFC 0007's approval; corrected here
   (found during `docs/roadmap.md`'s own adversarial review, 2026-08-19). RFC 0007
@@ -710,8 +746,8 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   mechanism now exists in `bench/src/lib.rs` (`inject_netem_delay`,
   `with_minio_latency`) for a future session to point at that benchmark too. tantivy
   codec-SPI
-  absence — resolved, R11(a) above; FAISS FastScan external-list feasibility
-  (R11(b)). The Quickwit inheritance hypothesis
+  absence — resolved, R11(a) above; FAISS FastScan external-list feasibility —
+  resolved, R11(b) above. The Quickwit inheritance hypothesis
   (R11(c)) is no longer pending — resolved above with vendored primary sources. The
   M0 vendoring deliverable is partially
   done — `references/` holds the R2 and RFC-0002 grounding, all four turbopuffer

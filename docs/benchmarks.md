@@ -173,23 +173,35 @@ LICENSE vendored 2026-08-18, `references/faiss-LICENSE.txt`) exposes an
 inverted-lists extension point
 (`faiss/invlists/InvertedLists.h`, with `OnDiskInvertedLists` as prior art), and
 `IndexIVFRaBitQ` runs on the generic `IndexIVF` list machinery — so a
-STRAND-cluster-blob-backed `InvertedLists` plausibly gives an engine-constant
-vector benchmark **for the multi-bit path**. The 1-bit path is FastScan, and
-FAISS's FastScan indexes run over `CodePacker`-packed block lists
-(`BlockInvertedLists`), a different byte contract; whether external storage can
-feed that path, and at what load-time repack cost, is R11(b)'s question, and
-until it answers, the engine-constant vector claim extends to multi-bit only,
-with the 1-bit path benchmarked by the naive harness. STRAND blobs MUST NOT
-adopt FAISS's packed layout as a wire format — that would bake one engine's
-register-shuffle layout into wire bytes against invariant 10; any repack is
-adapter-side, charged to load, and stated. Fairness protocol: train once in
+STRAND-cluster-blob-backed `InvertedLists` gives an engine-constant vector
+benchmark **for the multi-bit path**, with no adapter-side repack: R11(b)
+(`references/r11b-faiss-invertedlists-external-storage-feasibility.md`) confirmed
+by reading every call site in `IndexIVF.cpp`'s generic `search_preassigned` that
+zero code there `dynamic_cast`s to a concrete `InvertedLists` type. The 1-bit path
+is FastScan, and FAISS's FastScan indexes run over `CodePacker`-packed block lists
+(`BlockInvertedLists`), a different byte contract — but R11(b) found FastScan's own
+*search* code equally generic (the only two `dynamic_cast<BlockInvertedLists>`
+sites in `IndexIVFFastScan.cpp` are both in the write path, never in a
+`search_implem_*` function), so external storage does feed the 1-bit path too, at
+query time, without a FAISS fork. What is required is a one-time repack at segment
+open: FastScan's own build path (`add_with_ids`) unconditionally requires a literal
+`BlockInvertedLists`, so producing block-packed bytes from STRAND's flat RaBitQ blob
+means running the same `O(ntotal · d)` bit-rederivation-plus-`CodePacker::pack_1`
+work FAISS's own `IndexIVFRaBitQFastScan(const IndexIVFRaBitQ&, int bbs)` conversion
+constructor performs, once per segment open. STRAND blobs MUST NOT adopt FAISS's
+packed layout as a wire format — that would bake one engine's register-shuffle
+layout into wire bytes against invariant 10; the repack above is exactly this
+rule's cost made concrete, adapter-side, charged to load, and now stated with a
+real order of magnitude rather than left open. Fairness protocol: train once in
 FAISS; export centroids and codes bit-exactly into the blob; pass the
 build-equivalence gate; then run three legs — native lists in memory, adapter
 with the blob fully resident (the identity backend), and adapter over MinIO —
 with the MinIO leg reported as the format's cold story, never in the same column
 as the memory legs; the adapter holds no cross-query cache the native
-configuration lacks. FAISS was already the M2 baseline; this upgrades it from
-published-numbers baseline to engine-constant adapter.
+configuration lacks; the FastScan leg's reported cold-open number includes the
+per-segment repack, stated separately from the multi-bit leg's repack-free open.
+FAISS was already the M2 baseline; this upgrades it from published-numbers
+baseline to engine-constant adapter for both kernels.
 
 **Warm-tier graph benchmark host (optional, decided in R11(e)).** The graph blob
 family needs a traversal host for warm benchmarks; candidates are hnswlib-class

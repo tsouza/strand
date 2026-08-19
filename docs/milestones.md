@@ -620,3 +620,26 @@ Indri with better licensing, and we have chosen not to be that in writing. The
 TableProvider is additionally the hybrid-fusion benchmark host, running the `CLAUDE.md` §7 fusion
 workload with its selectivity sweep. The FAISS adapter lands alongside M2's
 benchmarks or here, per R11(b)'s feasibility finding.
+
+**R11(b), resolved 2026-08-19
+(`references/r11b-faiss-invertedlists-external-storage-feasibility.md`), confirms
+the FAISS adapter is buildable without forking FAISS, for both kernels.** FAISS
+(verified at tag `v1.15.0`) reads inverted lists exclusively through the abstract
+`InvertedLists` interface in its generic `IndexIVF` search path — a full read of
+`IndexIVF.cpp`'s `search_preassigned` found no `dynamic_cast` to any concrete
+`InvertedLists` subtype, so a STRAND-cluster-blob-backed subclass (deriving from
+FAISS's own `ReadOnlyInvertedLists`) fully serves plain `IndexIVFRaBitQ` search with
+no repack. FastScan's *search* code is equally generic — the only two
+`dynamic_cast<BlockInvertedLists>` sites in `IndexIVFFastScan.cpp` sit in the
+code-writing functions (`add_with_ids`, `postprocess_packed_codes`), never in a
+`search_implem_*` path — so external storage feeds the 1-bit FastScan path too, at
+query time. What FastScan's *build* path (`add_with_ids`) does require is a literal
+`BlockInvertedLists` object (it throws `"only block inverted lists supported"`
+otherwise), so every STRAND→FastScan path needs a one-time repack; FAISS's own
+`IndexIVFRaBitQFastScan(const IndexIVFRaBitQ&, int bbs)` conversion constructor is
+direct evidence of that repack's shape and cost — `O(ntotal · d)` bit-level
+re-derivation plus one `CodePacker::pack_1` call per vector, paid once per segment
+open rather than per query. The FAISS adapter's design is therefore settled ahead of
+its RFC: one `ReadOnlyInvertedLists`-derived class serves both kernels, the
+multi-bit leg needs no repack, and the FastScan leg's repack is a stated,
+quantified, load-time cost, not an open feasibility question.
