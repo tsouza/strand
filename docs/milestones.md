@@ -366,14 +366,20 @@ wire format (`descriptor.rs`, `navigation.rs`, `posting_list.rs`, `flat.rs`, plu
 proptest suite, worked-example golden files (`conformance/vectors/`) matching RFC
 0010's own worked example byte-for-byte, and a full end-to-end test assembling all
 four blobs into a real segment via `strand-core`'s actual `SegmentBuilder`, opening
-it cold, and re-reading every blob. **Deliberately out of scope for this
-implementation pass, matching RFC 0010's own Design §4**: the actual RaBitQ
-quantization math (rotation application, sign-based bit selection, the `f_add`/
-`f_rescale`/`f_error` factor formulas) — this crate packs and unpacks already-
-quantized codes and factors, however they were produced; a real quantizer,
-`MatrixRotator`'s realized-matrix generation (QR decomposition), real k-means
-clustering, and the actual `nprobe` query-resolution/scan/rerank pipeline are all
-real, separate, unwritten work.
+it cold, and re-reading every blob. **The real RaBitQ 1-bit quantization math is
+now implemented too** (`quantize.rs`'s `quantize_one_bit`) — the sign-based binary
+code and the `f_add`/`f_rescale`/`f_error` factor formulas, grounded against the
+reference implementation's actual source and cross-checked against an
+independently compiled and executed C++ reimplementation, with an end-to-end test
+quantizing real vectors straight into a real posting-list blob. **Still
+deliberately out of scope, matching RFC 0010's own Design §4**: rotation
+*application* itself (as opposed to the rotation payload's storage format, already
+handled) — `quantize_one_bit` assumes its inputs are already rotated;
+`MatrixRotator`'s realized-matrix generation (QR decomposition); the query-side
+distance estimator that consumes these factors against a query vector (FastScan's
+`accumulate()` plus the formula built on top of it); real k-means clustering; and
+the actual `nprobe` query-resolution/scan/rerank pipeline. All real, separate,
+unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,

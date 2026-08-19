@@ -574,6 +574,43 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   already-fetched posting-list blob bytes with no further round trip,
   confirming invariant 3's one-wave rule holds in code, not just in the
   RFC's own prose.
+- **Real RaBitQ 1-bit quantization math implemented — 2026-08-19, same
+  day, prompted by "implement the real RaBitQ quantization math next."**
+  `crates/strand-vector/src/quantize.rs`'s `quantize_one_bit` is the piece
+  RFC 0010 Design §4 explicitly left as "the algorithm's concern, not this
+  container-layer RFC's" — the sign-based binary-code rule and the
+  `f_add`/`f_rescale`/`f_error` distance-correction factor formulas,
+  grounded by fetching the reference implementation's actual
+  `one_bit_code_with_factor`/`one_bit_compact_code`/`pack_binary` source
+  (`references/rabitq-library-one-bit-quantization-source.md`).
+  **Verification went beyond transcription-and-trust**: this session wrote
+  a standalone, dependency-free C++ reimplementation of the identical
+  fetched formula (plain loops, no Eigen), compiled it with `g++ -O2`, and
+  ran it against three real test cases (dim 8 and 16, both `METRIC_L2` and
+  `METRIC_IP`) to obtain real reference values — then tested the Rust
+  transcription against those executed outputs, not against its own
+  derivation. One example, hand-traced independently of both
+  implementations as a third check: `data = [1.0, -2.0, 3.5, 0.5, -1.5,
+  2.0, -0.25, 4.0]` against `centroid = [0.5, -1.0, 2.0, 1.0, -1.0, 1.5,
+  0.0, 3.0]` (dim 8) → residual signs `[1,0,1,0,0,1,0,1]` → packed
+  MSB-first → `0xA5`, confirmed by both the compiled C++ and the Rust
+  implementation. A new `tests/quantize_to_posting_list.rs` end-to-end test
+  quantizes 37 real (synthetic-noise) vectors against a real centroid,
+  packs them into an actual posting-list blob spanning two FastScan
+  batches, and reads every code and factor back byte-for-byte — proving
+  the quantizer and the wire format actually compose. 6 new tests, all
+  passing; workspace total now 125, clippy clean.
+
+  Precondition made explicit, not glossed: `quantize_one_bit`'s `data`/
+  `centroid` inputs MUST already be rotated (confirmed by the reference
+  IVF construction path's own comment, "we first rotate... then compute
+  the 1-bit codes") — rotation *application* itself (as opposed to the
+  rotation *payload's* storage format, which `descriptor.rs` already
+  handles) is not implemented by this work and remains real, separate,
+  unwritten work, alongside the query-side distance estimator that
+  consumes these factors (FastScan's `accumulate()` plus the formula built
+  on top of it), `MatrixRotator`'s matrix generation, k-means clustering,
+  and multi-bit Extended-RaBitQ (all unchanged Non-goals from RFC 0010).
 - **RFC 0010 (vector blob family, cluster-native cold-open index) —
   Approved 2026-08-19.** M2's opening RFC, prompted directly by "draft the
   M2 vector RFC" after M1's gating deliverables (postings, positions, term
