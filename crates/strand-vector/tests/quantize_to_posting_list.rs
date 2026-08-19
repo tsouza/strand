@@ -32,6 +32,10 @@ fn next_f32(state: &mut u64) -> f32 {
     ((*state % 2001) as f32 - 1000.0) / 100.0 // roughly [-10.0, 10.0]
 }
 
+fn bits_of(values: &[f32]) -> Vec<u32> {
+    values.iter().map(|v| v.to_bits()).collect()
+}
+
 #[test]
 fn quantizes_real_vectors_and_round_trips_them_through_the_posting_list_blob() {
     let padded_dims = 64;
@@ -47,9 +51,10 @@ fn quantizes_real_vectors_and_round_trips_them_through_the_posting_list_blob() {
     let mut row_ids = Vec::with_capacity(vector_count);
 
     for i in 0..vector_count {
-        // Each vector is the centroid plus real per-dimension noise, so
-        // every vector has a real, non-degenerate residual against the
-        // centroid (quantize_one_bit panics on an exact-zero residual).
+        // Each vector is the centroid plus real per-dimension noise —
+        // quantize_one_bit handles an exact-zero residual too (it's a
+        // real, finite degenerate case, not a panic), but real noise
+        // exercises the ordinary, non-degenerate path this test is about.
         let vector: Vec<f32> = centroid.iter().map(|&c| c + next_f32(&mut state)).collect();
         let q = quantize_one_bit(&vector, &centroid, MetricType::L2);
         assert_eq!(q.compact_code.len(), padded_dims / 8);
@@ -84,11 +89,15 @@ fn quantizes_real_vectors_and_round_trips_them_through_the_posting_list_blob() {
         .expect("valid cluster region");
 
     // Every real quantized code and factor round-trips through the wire
-    // format exactly.
+    // format exactly — compared by exact bit pattern, not `==`, so a
+    // regression that silently changes -0.0 to +0.0 (invariant 11 byte
+    // determinism, RFC 0010's own `f_rescale`/`-0.0` note) or that
+    // round-trips a NaN's payload to a different NaN bit pattern would
+    // fail this test even though `==` would not catch either case.
     assert_eq!(region.compact_codes, all_compact_codes);
-    assert_eq!(region.f_add, f_add);
-    assert_eq!(region.f_rescale, f_rescale);
-    assert_eq!(region.f_error, f_error);
+    assert_eq!(bits_of(&region.f_add), bits_of(&f_add));
+    assert_eq!(bits_of(&region.f_rescale), bits_of(&f_rescale));
+    assert_eq!(bits_of(&region.f_error), bits_of(&f_error));
     assert_eq!(region.row_ids, row_ids);
 
     // Sanity check on the quantization itself: f_rescale is always

@@ -149,6 +149,22 @@ Each column contributes exactly 32 bytes; `cols` columns give
 already-stated size. This is the reference RaBitQ-Library's own
 `fastscan::pack_codes` algorithm, adopted verbatim (invariant 8).
 
+**Factor computation is non-normative at this layer, by design (RFC 0010
+Design §4).** This chapter pins the byte layout of `f_add`/`f_rescale`/
+`f_error` (three little-endian f32 values per vector, per batch) but not
+the formula that computes them — that is RaBitQ's own algorithm, out of
+the container layer's scope. `crates/strand-vector/src/quantize.rs`'s
+`quantize_one_bit` is the de-facto normative scalar reference for that
+formula in this codebase (invariant 9): its literal computation, including
+summation order and its documented corner-case handling (a zero residual
+yields finite, exact degenerate factors rather than a panic or a `NaN`; a
+near-degenerate residual is clamped rather than left to round to a
+negative `sqrt` argument), is what a second implementation must match to
+produce bit-identical factors. A reader MUST NOT assume two conforming
+writers produce identical factor bytes for the same logical vectors unless
+they share that same scalar reference — this chapter's own byte-layout
+guarantee covers structure, not the factors' numeric provenance.
+
 **Row-id array**, per cluster: exactly `vector_count` little-endian u64
 values, in ascending row-id order.
 

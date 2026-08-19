@@ -611,6 +611,82 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   consumes these factors (FastScan's `accumulate()` plus the formula built
   on top of it), `MatrixRotator`'s matrix generation, k-means clustering,
   and multi-bit Extended-RaBitQ (all unchanged Non-goals from RFC 0010).
+- **`quantize.rs` adversarially reviewed and fixed — 2026-08-19, same day,
+  prompted by "does it needs and ACPR?" then "go."** Not the RFC-style
+  ACPR gate (this module transcribes an external, already-published
+  algorithm rather than making a STRAND design decision), but a real
+  review was warranted for numerically load-bearing code, and one was run.
+  Found **2 Critical, 7 Important, 5 Minor**, all fixed or explicitly
+  deferred with reasoning recorded. The reviewer's own claims were
+  independently re-verified, not trusted: the Critical finding's central
+  claim (an f32-rounding-induced negative `sqrt` argument) was checked
+  with a real NumPy `float32` trace before any fix was written, confirming
+  `bracket = -1.703e-8` for `data=[0.1;8]`, `centroid=[0.0;8]` — real,
+  reproducible, not a false positive.
+
+  **Critical (2):** (1) the pre-`sqrt` bracket in `tmp_error`'s formula is
+  `>= 0` by Cauchy-Schwarz *mathematically*, with equality exactly when
+  every `|residual_i|` is equal — a reachable boundary, not an asymptote —
+  and f32 rounding pushes it a few ulps negative there, producing `NaN`
+  that would have silently poisoned real posting-list blobs. Fixed with a
+  documented `.max(0.0)` clamp, proven a no-op everywhere the unclamped
+  reference value would have been correct (Cauchy-Schwarz), so it cannot
+  change a value the reference would have gotten right. (2) The
+  zero-residual case (`data == centroid` exactly — real and expected for
+  any singleton k-means cluster, not exotic) previously panicked; traced
+  the reference implementation's own `+inf` substitution all the way
+  through the formula by hand and confirmed two of the three resulting
+  factors are already correct as-is (`f_add = 0.0`/`1.0`, `f_rescale =
+  -0.0`, both metrics) and the third (`f_error`) was only `NaN` because of
+  finding (1)'s same root cause — so fixing (1) fixes (2) for free, and the
+  panic was simply removed (`assert!` and its test deleted). Both findings
+  cross-checked against a second, independently compiled-and-run C++
+  program (this time with both fixes applied identically), not just
+  re-derived by hand.
+
+  **Important (7), summarized:** a real finiteness guard now lives at
+  `build_posting_lists`'s own write boundary (`posting_list.rs`), not just
+  inside the quantizer, so a future caller bypassing `quantize_one_bit`
+  can't silently write `NaN`/`inf` factors either; the module doc's
+  "cross-checked... independently" claim was overstated — corrected to
+  state precisely that the cross-check validates the *formula and
+  operation grouping*, not RaBitQ-Library's own Eigen-reduction numeric
+  output, which differs in the last few ulps due to summation-order
+  differences invariant 9 already anticipates (scalar-normative, not
+  bit-identical-to-every-other-implementation); `f_rescale`'s `-0.0` sign
+  bit is now pinned as deterministic (invariant 11) with a
+  `to_bits()`-comparing test, not left to `==`, which cannot distinguish
+  `-0.0` from `0.0`; `padded_dims % 64 == 0` (the registered FastScan
+  codec's own real requirement, not just a STRAND alignment convenience)
+  is now enforced at `build_posting_lists` — the actual wire-format
+  boundary — rather than nowhere; shape-precondition panics were kept
+  (consistent with every sibling module in this crate, and `dim` is always
+  writer-controlled) while value-domain failures (non-finite input) were
+  fixed to produce correct output instead of requiring a `Result` type;
+  test coverage gained a `proptest` suite (this crate's first use of the
+  dev-dependency it already had) that reproduces the Critical finding
+  immediately rather than requiring a hand-picked case, plus explicit
+  edge-case tests (underflow, all-ones code, a large-negative-dot-product
+  `METRIC_IP` case); a real conformance test against RaBitQ-Library's own
+  compiled binary output remains genuinely open — named in the module doc
+  as owed work, not attempted this session (the one Important finding
+  deferred rather than fixed, since it requires building the full
+  reference library with its Eigen dependency, a real undertaking of its
+  own).
+
+  **Minor (5):** doc-comment inaccuracies fixed (`dim/8` not `ceil(dim/8)`
+  since `dim` is already asserted a multiple of 8; the `cb = -0.5`
+  constant's general `bit_width`-dependent form now noted); a non-finite-
+  input guard added with a clear message naming the actual culprit;
+  `pack_binary`'s length check upgraded from `debug_assert!` to a real
+  `assert!`; `spec/vectors.md` §4 gained an explicit "factor computation is
+  non-normative at this layer" paragraph naming `quantize.rs` as the
+  de-facto normative scalar reference (invariant 9), closing a real gap —
+  before this, a wire-visible value had no spec chapter and no stated
+  cross-writer byte-identity guarantee; a batch-shaped `quantize_batch` API
+  (avoiding four small heap allocations per vector at index-build scale)
+  remains a real, deferred efficiency improvement, not implemented this
+  session. Workspace total now 134 tests, clippy clean.
 - **RFC 0010 (vector blob family, cluster-native cold-open index) —
   Approved 2026-08-19.** M2's opening RFC, prompted directly by "draft the
   M2 vector RFC" after M1's gating deliverables (postings, positions, term

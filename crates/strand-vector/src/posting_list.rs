@@ -87,13 +87,20 @@ fn build_code_region(input: &ClusterInput, padded_dims: usize) -> Vec<u8> {
 ///
 /// # Panics
 ///
-/// Panics if any cluster's `compact_codes`/`f_add`/`f_rescale`/`f_error`
-/// lengths don't match its `row_ids` length, or if `row_ids` is not
-/// strictly ascending.
+/// Panics if `padded_dims` is not a positive multiple of 64 (the
+/// registered FastScan codec's own requirement — Design §4's
+/// `one_bit_batch_code` — not merely a STRAND alignment convenience,
+/// `references/rabitq-library-fastscan-pack-codes-source.md`), or if any
+/// cluster's `compact_codes`/`f_add`/`f_rescale`/`f_error` lengths don't
+/// match its `row_ids` length, or if `row_ids` is not strictly ascending.
 pub fn build_posting_lists(
     clusters: &[ClusterInput],
     padded_dims: usize,
 ) -> (Vec<u8>, Vec<ClusterDirEntry>) {
+    assert!(
+        padded_dims > 0 && padded_dims.is_multiple_of(64),
+        "padded_dims must be a positive multiple of 64"
+    );
     let cols = padded_dims / 8;
     let mut out = Vec::new();
     let mut dirs = Vec::with_capacity(clusters.len());
@@ -118,6 +125,15 @@ pub fn build_posting_lists(
             input.f_error.len(),
             vector_count,
             "f_error length must match row_ids.len()"
+        );
+        assert!(
+            input
+                .f_add
+                .iter()
+                .chain(input.f_rescale)
+                .chain(input.f_error)
+                .all(|v| v.is_finite()),
+            "distance-correction factors must all be finite (NaN/inf would silently corrupt distance estimates for every reader of this cluster)"
         );
         assert!(
             input.row_ids.windows(2).all(|w| w[0] < w[1]),
@@ -367,6 +383,24 @@ mod tests {
         let row_ids = vec![5u64, 3];
         let (compact_codes, f_add, f_rescale, f_error) =
             synthetic_cluster(padded_dims, row_ids.clone());
+        let input = ClusterInput {
+            compact_codes: &compact_codes,
+            f_add: &f_add,
+            f_rescale: &f_rescale,
+            f_error: &f_error,
+            row_ids: &row_ids,
+        };
+        build_posting_lists(&[input], padded_dims);
+    }
+
+    #[test]
+    #[should_panic(expected = "distance-correction factors must all be finite")]
+    fn rejects_non_finite_factors() {
+        let padded_dims = 64;
+        let row_ids = vec![1u64, 2, 3];
+        let (compact_codes, _, f_rescale, f_error) =
+            synthetic_cluster(padded_dims, row_ids.clone());
+        let f_add = vec![1.0f32, f32::NAN, 3.0];
         let input = ClusterInput {
             compact_codes: &compact_codes,
             f_add: &f_add,
