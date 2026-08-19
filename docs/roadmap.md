@@ -113,8 +113,10 @@ Non-goals and Open questions still leave genuinely open:
   family (the same way `bench/src/cold_open.rs` gave invariant 3 a
   measured baseline). Source: RFC 0010 Open questions ("M2's own
   milestone gate should not be considered met until one exists"). Status:
-  open — genuinely unblocked now (a real vector blob family exists to
-  measure). Depends on: nothing.
+  **done** (2026-08-19) — `bench/src/vector_cold_open.rs`; real
+  four-blob-type segment (10,000 real 768d vectors) committed to real
+  MinIO and reopened cold 30 times: 1,238,808 open-wave bytes (1.24% of
+  the 100 MB budget), 3 GETs/open, p50=92.6ms. Depends on: nothing.
 - **M2-3** — The graph-blob family (warm tier, DiskANN/Vamana), including
   R1's second half (the node-order permutation algorithm question,
   Starling vs. an untested alternative). Source: `CLAUDE.md`'s own mission
@@ -131,14 +133,22 @@ Non-goals and Open questions still leave genuinely open:
   loose ends don't compete for the same design attention.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
-  replication estimate. Source: RFC 0010 Open questions. Status: open,
-  pure grounding. Depends on: nothing (informs M2-1 but doesn't block it).
+  replication estimate. Source: RFC 0010 Open questions. Status: **done**
+  (2026-08-19) — SPANN's own paper contains no GIST1M/index-size figure;
+  the real 13.0 GB/7.5 GB replica-8/replica-2 figures live in the
+  companion Li et al. benchmark paper (`references/spann-body-figures.md`).
+  The 1.73× ratio is unchanged; only its citation and confidence label
+  are. Depends on: nothing (informed M2-1 but didn't block it).
 - **M2-5** — FastScan `kBatchSize = 32`'s hardware-vs-algorithm
   provenance: fetch `src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp` to
   settle whether 32 is algorithm-shaped or has residual hardware
-  provenance. Source: RFC 0010 "How this could be wrong." Status: open,
-  pure grounding, no code depends on the answer changing. Depends on:
-  nothing.
+  provenance. Source: RFC 0010 "How this could be wrong." Status: **done**
+  (2026-08-19) — both `accumulate_avx2` and `accumulate_avx512` produce
+  exactly 32 results per call regardless of register width; 32 traces to
+  the FastScan/PQ nibble-LUT's fixed 16-entry table doubled by hi/lo
+  nibble packing, not to any ISA
+  (`references/rabitq-library-fastscan-accumulate-source.md`).
+  Algorithm-shaped, confirmed. Depends on: nothing.
 - **M2-6** — `faster_quantize_ex`'s construction-time speedup
   (unregistered writer-side optimization). Source: RFC 0011 Non-goals.
   Status: open, real but low-priority performance work. Depends on:
@@ -266,14 +276,25 @@ Non-goals and Open questions still leave genuinely open:
   (`InvertedLists`/FastScan over external storage); (c) Quickwit
   split/hotcache internals post-relicense; (d) the fork reader-module
   list / fork failure triggers; (e) warm-tier graph host choice. Source:
-  `docs/ledger.md` R11 ("gates all adapter work"). Status: open — pure
-  research/verification, no code dependency, and its five sub-parts are
-  genuinely independent of each other. Depends on: (e) depends on M2-3
-  existing at least in RFC-draft form — the other sub-parts have no
-  dependency.
+  `docs/ledger.md` R11 ("gates all adapter work"). Status: **(a) and (c)
+  done** (2026-08-19) — (a): tantivy has no codec SPI (`Directory` is a
+  byte-range abstraction, `SegmentComponent` a closed enum); Lucene's
+  `Codec`/`PostingsFormat` SPI is real and confirmed current, resolved via
+  `ServiceLoader`
+  (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`). (c):
+  Quickwit is confirmed Apache-2.0 both byte-level and commit-level (PR
+  #5645, 2025-01-23); the inherits-from-the-fork hypothesis's *mechanism*
+  half is confirmed (ordinary `Directory`/`FileHandle` consumer, no
+  tantivy-internals patch), its *code* half is not (Quickwit's split/
+  hotcache wire format doesn't transfer)
+  (`references/r11c-quickwit-relicense-and-hotcache-source.md`). (b), (d),
+  (e) remain open — pure research/verification, no code dependency, and
+  genuinely independent of each other and of (a)/(c). Depends on: (e)
+  depends on M2-3 existing at least in RFC-draft form — the other
+  sub-parts have no dependency.
 - **M4-2** — CIFF importer (lossless where CIFF permits). Source:
   `docs/milestones.md` M4 entry. Status: open. Depends on: M4-1(a)/(c)
-  informing exact scope, not strictly blocking a first pass.
+  (now done) informed exact scope, not strictly blocking a first pass.
 - **M4-3** — Conformance manifest frozen at spec v0.1. Source:
   `docs/milestones.md` M4 entry. Status: **blocked** on every spec
   chapter that's still gaining golden files — practically, this should
@@ -282,7 +303,8 @@ Non-goals and Open questions still leave genuinely open:
 - **M4-4** — Second-reader independence: tantivy fork (primary path) or
   clean-room implementation (fallback, activates on an R11(d) failure
   trigger). Source: `docs/milestones.md` M4 entry. Status: **blocked** on
-  M4-1(a)/(d) and M1-5 (tantivy length-accounting parity). **Scope
+  M4-1(d) (M4-1(a) is now done) and M1-5 (tantivy length-accounting
+  parity). **Scope
   correction, per the adversarial review**: this document's first draft
   stated the fork depends on the *full* v0.1 spec freeze (M4-3);
   precisely, it needs the freeze only for the spec chapters the fork
@@ -294,9 +316,9 @@ Non-goals and Open questions still leave genuinely open:
 - **M4-5** — Puffin blob-type packaging RFC. Source: `docs/milestones.md`
   M4 entry. Status: open, design work. Depends on: nothing.
 - **M4-6** — Lucene `StrandCodec` (JVM parity vehicle). Source:
-  `docs/milestones.md` M4 entry. Status: **blocked** on M4-1(a) (now
-  correctly including its Lucene-codec-SPI half, above) and, like M4-4,
-  most sensibly built against a frozen manifest (M4-3).
+  `docs/milestones.md` M4 entry. Status: **unblocked on M4-1(a)**, which
+  is now done (including its Lucene-codec-SPI half, above); still, like
+  M4-4, most sensibly built against a frozen manifest (M4-3).
 
 ## M5 — The consumer
 
@@ -342,8 +364,14 @@ Non-goals and Open questions still leave genuinely open:
   on: nothing.
 - **X-3** — The ~250ms p90 tail-latency figure: currently a flagged
   placeholder (`CLAUDE.md` §7). Replace with a real vendored source
-  sentence or a real measured MinIO/S3 tail figure. Status: open, pure
-  grounding. Depends on: nothing.
+  sentence or a real measured MinIO/S3 tail figure. Status: **half done**
+  (2026-08-19) — the "vendor a source sentence" half landed: the AWS
+  whitepaper "Best Practices Design Patterns: Optimizing Amazon S3
+  Performance" states "consistent small object latencies... of roughly
+  100–200 milliseconds" (`references/aws-s3-small-object-latency.md`),
+  honestly labeled as not a named percentile. The "or a real measured
+  MinIO/S3 tail figure" half is still open — that is X-4's job. Depends
+  on: nothing.
 - **X-4** — Real-network cold-open tail latency (MinIO with injected
   latency, or real S3) — `bench/`'s existing cold-open measurement is
   against localhost MinIO with no injected latency, confirming the
