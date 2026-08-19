@@ -598,6 +598,23 @@ is not where the byte budget is actually being spent.
 Per `CLAUDE.md` §3, corrections revealed after approval are recorded here;
 the Napkin math section above is left unmodified as the historical record.
 
+**Multi-field blob addressing (Non-goals, above) is resolved — 2026-08-19,
+roadmap item X-1.** This RFC's own Non-goals section names the gap
+precisely: "how a segment's flat blob registry disambiguates two fields'
+positions blobs sharing the same `blob_type_id`... is not solved here."
+`spec/container.md` §5 does not belong to this RFC — RFC 0001 (container,
+row-ID space, manifest) owns it — so the fix, a new `field_id: u64` field
+on every `blob_entry`, lands in `rfcs/0001-container-rowid-manifest.md`'s
+own Discussion section, not here. This Non-goals paragraph is left exactly
+as originally written: an accurate record of what was true at this RFC's
+approval, not retroactively edited. `crates/strand-lexical/src/field.rs`'s
+`FieldReader::open`/`open_by_name` now select a field's positions blob
+(`blob_type_id = 3`, registered by this RFC) by `field_id` in addition to
+`blob_type_id`, so the "one positions blob per field" scope this RFC's
+Design §2 already assumed is now a real, checkable property across
+multiple fields in one segment, not just true by construction for a
+single-field segment.
+
 **This RFC's combined cold-open figure inherited an overestimate from RFC
 0007, now corrected, 2026-08-19.** RFC 0007's own Discussion section
 records that its `~73.2 MB` postings-plus-term-info figure was built on a

@@ -44,7 +44,7 @@ fn open_segment_bytes(bytes: &[u8]) -> Hotcache {
 
 #[test]
 fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
-    let field = build_field(&DOCS);
+    let field = build_field("body", &DOCS);
     assert_eq!(field.doc_lengths.len(), 3);
 
     let mut builder = SegmentBuilder::new(DOCS.len() as u64);
@@ -82,8 +82,8 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
     let hotcache = open_segment_bytes(&segment_bytes);
     assert_eq!(hotcache.row_id_count, 3);
 
-    let reader =
-        FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
+    let reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "body")
+        .expect("all four blobs present");
 
     // "dog" appears in docs 0 and 2; "cat" in docs 1 and 2; "park" in 0 and 2.
     let dog_matches = reader.lookup("dog").expect("dog is a real term");
@@ -147,8 +147,8 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
 
 #[test]
 fn a_field_that_opts_out_of_positions_builds_a_smaller_segment_and_still_answers_term_queries() {
-    let with_positions = build_field(&DOCS);
-    let without_positions = build_field_without_positions(&DOCS);
+    let with_positions = build_field("body", &DOCS);
+    let without_positions = build_field_without_positions("body", &DOCS);
 
     // RFC 0009 Design §2: the short term-info record is real bytes smaller
     // than the 28-byte one, and the whole positions blob is gone.
@@ -186,7 +186,7 @@ fn a_field_that_opts_out_of_positions_builds_a_smaller_segment_and_still_answers
         .expect("segment exists");
     let hotcache = open_segment_bytes(&segment_bytes);
 
-    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)
+    let reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "body")
         .expect("term-dictionary, short term-info, and postings are present");
 
     // Term queries and BM25 search still work exactly as with the
@@ -206,4 +206,123 @@ fn a_field_that_opts_out_of_positions_builds_a_smaller_segment_and_still_answers
     // panic) since this field has no positions blob at all.
     assert!(reader.phrase_query(&["dog", "cat"]).is_empty());
     assert!(reader.lookup_with_positions("dog").is_none());
+}
+
+/// Real, end-to-end proof that two fields' blobs of the *same*
+/// `blob_type_id` now coexist in one segment and are correctly
+/// disambiguated on read (roadmap item X-1,
+/// `rfcs/0001-container-rowid-manifest.md` Discussion) — the gap RFC
+/// 0008's and RFC 0009's own Non-goals both flagged: before `field_id`, a
+/// segment could hold at most one field,
+/// because `FieldReader::open`'s `find(blob_type_id)` had no way to tell
+/// two same-`blob_type_id` registry entries apart. `title` and `body` here
+/// deliberately share a term ("dog") with *different* postings in each
+/// field, so a reader that opened the wrong field's blob by accident would
+/// silently return the wrong answer rather than an error — the failure
+/// mode this test would actually catch.
+#[test]
+fn two_fields_with_the_same_blob_type_ids_coexist_in_one_segment_and_stay_disambiguated() {
+    const TITLES: [&str; 3] = ["dog park guide", "cat care basics", "dog and cat care"];
+
+    let title_field = build_field("title", &TITLES);
+    let body_field = build_field("body", &DOCS);
+    assert_eq!(title_field.field_id, strand_core::container::field_id_from_name("title"));
+    assert_eq!(body_field.field_id, strand_core::container::field_id_from_name("body"));
+    assert_ne!(title_field.field_id, body_field.field_id);
+
+    let mut builder = SegmentBuilder::new(DOCS.len() as u64);
+    // Every blob from both fields lands in the same registry, term-dictionary
+    // (`blob_type_id = 0`) and postings (`blob_type_id = 2`) included — the
+    // exact `family_id`/`blob_type_id` collision this roadmap item exists
+    // to resolve.
+    for blob in title_field.to_blob_specs() {
+        builder.add_blob(blob);
+    }
+    for blob in body_field.to_blob_specs() {
+        builder.add_blob(blob);
+    }
+
+    let store = InMemoryStore::new();
+    commit(&store, |row_id_base| {
+        vec![write_segment(
+            &store,
+            "segments/field-multi.bin",
+            &builder,
+            row_id_base,
+        )]
+    })
+    .expect("commit succeeds against an empty table");
+
+    let read_back = read_snapshot(&store)
+        .expect("read succeeds")
+        .expect("a snapshot exists");
+    let segment_ref = &read_back.segments[0];
+    let (segment_bytes, _) = ConditionalStore::get(&store, &segment_ref.path)
+        .expect("get succeeds")
+        .expect("segment exists");
+    let hotcache = open_segment_bytes(&segment_bytes);
+
+    // Two entries at family_id=1, blob_type_id=0 (term-dictionary) now
+    // really do coexist in one registry — the exact scenario that was
+    // impossible before this change.
+    let term_dict_entries: Vec<_> = hotcache
+        .blobs
+        .iter()
+        .filter(|b| b.family_id == 1 && b.blob_type_id == 0)
+        .collect();
+    assert_eq!(
+        term_dict_entries.len(),
+        2,
+        "two fields' term-dictionary blobs must both be present, distinctly registered"
+    );
+    assert_ne!(term_dict_entries[0].field_id, term_dict_entries[1].field_id);
+
+    let title_reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "title")
+        .expect("title field's blobs are present");
+    let body_reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "body")
+        .expect("body field's blobs are present");
+
+    // "dog" occurs in title docs 0 and 2, but in body docs 0 and 2 too --
+    // pick fields whose postings for the shared term differ so a
+    // misrouted lookup is visible, not accidentally correct.
+    let title_dog: Vec<u32> = {
+        let mut docs: Vec<u32> = title_reader
+            .lookup("dog")
+            .expect("dog is a real term in title")
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect();
+        docs.sort_unstable();
+        docs
+    };
+    let body_dog: Vec<u32> = {
+        let mut docs: Vec<u32> = body_reader
+            .lookup("dog")
+            .expect("dog is a real term in body")
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect();
+        docs.sort_unstable();
+        docs
+    };
+    assert_eq!(title_dog, vec![0, 2], "title's own postings for \"dog\"");
+    assert_eq!(body_dog, vec![0, 2], "body's own postings for \"dog\"");
+
+    // A term that exists only in one field must miss cleanly in the other,
+    // proving the reader is not silently falling back to the wrong blob.
+    assert!(
+        title_reader.lookup("sleeps").is_none(),
+        "\"sleeps\" only occurs in body, must miss in title"
+    );
+    assert!(
+        body_reader.lookup("guide").is_none(),
+        "\"guide\" only occurs in title, must miss in body"
+    );
+
+    // Opening a field name that was never built at all is a clean miss,
+    // not a panic or a misroute to some other field's blobs.
+    assert!(matches!(
+        FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "nonexistent"),
+        Err(strand_lexical::field::FieldReaderError::MissingBlob(_))
+    ));
 }

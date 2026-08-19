@@ -397,9 +397,32 @@ Non-goals and Open questions still leave genuinely open:
   correct requirement, but not yet a checkable one"). RFC 0005/0006/0007
   do not discuss the gap in their own text. Directly relevant to M5-1
   (a `TableProvider` cannot usefully read a multi-field index without
-  it). Status: open, real design work. Depends on: nothing technically,
-  though M5-1's own design should account for it early rather than
-  discover it late.
+  it). Status: **done (2026-08-19)** — a `field_id: u64` field added to
+  `spec/container.md` §5's blob registry entry (§5a), computed as
+  `xxHash3-64` over a field's declared UTF-8 name (`field_id_from_name`,
+  `crates/strand-core/src/container.rs`), with `0` reserved for "no field
+  association." A reader now selects a blob by `(family_id, blob_type_id,
+  field_id)`, not the first two alone. Design, the alternatives considered
+  (a per-segment ordinal; an explicit name-catalog blob — both rejected)
+  and their rejection reasons, the quantified collision-risk analysis, and
+  a byte-exact worked example (two fields sharing one `blob_type_id`,
+  disambiguated) live in `rfcs/0001-container-rowid-manifest.md`
+  Discussion, the RFC that owns the blob registry structure; short pointer
+  notes were added to RFC 0008's and RFC 0009's own Discussion sections
+  since their Non-goals first named the gap. `crates/strand-lexical/
+  src/field.rs`'s `build_field`/`build_field_without_positions`/
+  `build_field_from_postings` now take a field name and
+  `FieldReader::open`/`open_by_name` select by `field_id`, proven by a new
+  end-to-end test
+  (`two_fields_with_the_same_blob_type_ids_coexist_in_one_segment_and_stay_disambiguated`,
+  `crates/strand-lexical/tests/field_end_to_end.rs`) building two real
+  fields with different postings for a shared term and confirming neither
+  reader ever resolves the other's blob. `conformance/container/
+  toy-segment.bin` regenerated (34→42-byte `blob_entry`); a new golden
+  file, `conformance/container/multi-field-segment.bin`, pins the
+  two-field worked example. `cargo test --workspace` and `cargo clippy
+  --workspace --all-targets -- -D warnings` both clean. Directly unblocks
+  M5-1, not implemented here. Depends on: nothing technically — done.
 - **X-2** — RFC 0001's three own remaining open items: the hotcache size
   ceiling / speculative tail-read default `N`'s actual value, the
   404-refresh retry bound's actual value (both currently "a reader

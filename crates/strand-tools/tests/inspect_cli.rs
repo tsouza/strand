@@ -33,7 +33,7 @@ fn inspect_prints_a_report_and_exits_zero() {
 
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("file size: 102 bytes"), "{stdout}");
+    assert!(stdout.contains("file size: 110 bytes"), "{stdout}");
     assert!(
         stdout.contains("row-ids: [1000, 1002) (count=2)"),
         "{stdout}"

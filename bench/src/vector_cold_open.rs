@@ -275,6 +275,7 @@ fn main() {
         let mut builder = SegmentBuilder::new(NUM_VECTORS as u64);
         builder.add_blob(BlobSpec {
             family_id: FAMILY_ID,
+            field_id: 0,
             blob_type_id: BLOB_FLAT_VECTORS,
             storage_class: StorageClass::RawMappable,
             tier: Tier::NotApplicable,
@@ -285,6 +286,7 @@ fn main() {
         });
         builder.add_blob(BlobSpec {
             family_id: FAMILY_ID,
+            field_id: 0,
             blob_type_id: BLOB_DESCRIPTOR,
             storage_class: StorageClass::RawMappable,
             tier: Tier::ColdFetchable,
@@ -295,6 +297,7 @@ fn main() {
         });
         builder.add_blob(BlobSpec {
             family_id: FAMILY_ID,
+            field_id: 0,
             blob_type_id: BLOB_NAVIGATION_TIER,
             storage_class: StorageClass::RawMappable,
             tier: Tier::ColdFetchable,
@@ -305,6 +308,7 @@ fn main() {
         });
         builder.add_blob(BlobSpec {
             family_id: FAMILY_ID,
+            field_id: 0,
             blob_type_id: BLOB_POSTING_LISTS,
             storage_class: StorageClass::RawMappable,
             tier: Tier::ColdFetchable,

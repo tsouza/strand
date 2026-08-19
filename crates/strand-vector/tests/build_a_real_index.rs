@@ -181,6 +181,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
     let mut builder = SegmentBuilder::new(vector_count as u64);
     builder.add_blob(BlobSpec {
         family_id: FAMILY_ID,
+        field_id: 0,
         blob_type_id: BLOB_DESCRIPTOR,
         storage_class: StorageClass::RawMappable,
         tier: Tier::ColdFetchable,
@@ -191,6 +192,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
     });
     builder.add_blob(BlobSpec {
         family_id: FAMILY_ID,
+        field_id: 0,
         blob_type_id: BLOB_NAVIGATION_TIER,
         storage_class: StorageClass::RawMappable,
         tier: Tier::ColdFetchable,
@@ -201,6 +203,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
     });
     builder.add_blob(BlobSpec {
         family_id: FAMILY_ID,
+        field_id: 0,
         blob_type_id: BLOB_POSTING_LISTS,
         storage_class: StorageClass::RawMappable,
         tier: Tier::ColdFetchable,
@@ -211,6 +214,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
     });
     builder.add_blob(BlobSpec {
         family_id: FAMILY_ID,
+        field_id: 0,
         blob_type_id: BLOB_FLAT_VECTORS,
         storage_class: StorageClass::RawMappable,
         tier: Tier::NotApplicable,

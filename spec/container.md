@@ -104,20 +104,23 @@ The navigation tier fetched wholesale at open: the segment's row-ID range
 
 ## 5. Blob registry entry
 
-One `blob_entry`, fixed 34 bytes, per blob in the segment.
+One `blob_entry`, fixed 42 bytes, per blob in the segment. (34 bytes under
+RFC 0001 as originally approved; grown by `field_id`, §5a, roadmap item
+X-1 — `rfcs/0001-container-rowid-manifest.md` Discussion.)
 
-| field             | type | notes                                                     |
-| ----------------- | ---- | --------------------------------------------------------- |
-| family_id         | u16  | registry-assigned blob family (lexical, vector, ...)      |
-| blob_type_id      | u16  | registered codec ID within the family                     |
-| storage_class     | u8   | `0` = chunk-compressed, `1` = raw-mappable (invariant 10) |
-| tier              | u8   | `0` = n/a, `1` = cold-fetchable, `2` = warm (invariant 7) |
-| alignment         | u16  | power-of-two byte alignment; raw-mappable blobs only      |
-| chunk_codec       | u8   | `0` = none, `1` = zstd (invariant 11 default)             |
-| chunk_codec_level | u8   | compressor level; meaningful only when chunk_codec ≠ 0    |
-| offset            | u64  | byte offset of the blob's data, within the segment file   |
-| length            | u64  | byte length of the blob's on-disk data                    |
-| checksum          | u64  | checksum_algo over the blob's on-disk bytes (§6)          |
+| field             | type | notes                                                      |
+| ----------------- | ---- | ----------------------------------------------------------- |
+| family_id         | u16  | registry-assigned blob family (lexical, vector, ...)       |
+| blob_type_id      | u16  | registered codec ID within the family                      |
+| field_id          | u64  | which field this blob belongs to, or `0` for none (§5a)    |
+| storage_class     | u8   | `0` = chunk-compressed, `1` = raw-mappable (invariant 10)  |
+| tier              | u8   | `0` = n/a, `1` = cold-fetchable, `2` = warm (invariant 7)  |
+| alignment         | u16  | power-of-two byte alignment; raw-mappable blobs only       |
+| chunk_codec       | u8   | `0` = none, `1` = zstd (invariant 11 default)              |
+| chunk_codec_level | u8   | compressor level; meaningful only when chunk_codec ≠ 0     |
+| offset            | u64  | byte offset of the blob's data, within the segment file    |
+| length            | u64  | byte length of the blob's on-disk data                     |
+| checksum          | u64  | checksum_algo over the blob's on-disk bytes (§6)           |
 
 A `chunk-compressed` blob's internal chunk offset table (chunk lengths,
 per-chunk checksums, the mapping from chunk index to byte range) is part of
@@ -133,6 +136,46 @@ segments (invariant 11) — padding content is otherwise unread by any
 conforming reader, which always seeks to `offset` and reads exactly
 `length` bytes, but an unpinned padding value would still break
 byte-for-byte golden-file comparison between implementations.
+
+### 5a. Field identifiers
+
+`family_id` and `blob_type_id` together name *what kind* of blob an entry
+is, never *which field* it belongs to. Before this section, a segment
+could hold at most one blob of a given `(family_id, blob_type_id)` pair,
+because nothing in the registry could tell two same-typed blobs apart —
+the real implementation was hard-limited to one field per segment as a
+direct consequence (`rfcs/0008-positions.md` and
+`rfcs/0009-per-term-overhead-reduction.md` both named this gap in their own
+Non-goals, resolved here per roadmap item X-1).
+
+`field_id` is a `u64`. The value `0` (`FIELD_ID_NONE`) is reserved and
+means "this blob has no field association" — a segment-scoped blob (a
+deletion vector, RFC 0012) or the anonymous placeholder blob RFC 0001's
+own worked example (§7) uses. Every other value is computed as
+`xxHash3-64` (the same algorithm the footer's `checksum_algo` already
+names, reused rather than registering a second hash function, invariant 8)
+over the field's declared name, taken as raw UTF-8 bytes with no
+normalization, case-folding, or trimming applied. A writer computes this
+value independently, with no catalog blob and no coordination with any
+other writer: any two conforming implementations given the same field name
+bytes compute the same `field_id` (invariant 11), so a reader that already
+knows the name of the field it wants can locate that field's blobs among
+any number of others without an extra round trip (invariant 3's one-wave
+rule stays intact — no navigation-tier structure grows to carry a
+name-to-ID mapping).
+
+A reader selects a field's blobs by matching all three of `family_id`,
+`blob_type_id`, and `field_id` — not `family_id`/`blob_type_id` alone.
+Two blobs of the same `family_id`/`blob_type_id` pair but different
+`field_id`s are different fields' independent data and MUST both be
+addressable; a writer MUST NOT reuse a nonzero `field_id` for two fields
+it considers logically distinct, and two different declared field names
+that happen to hash to the same `field_id` (a real, if astronomically
+unlikely, possibility — see `rfcs/0001-container-rowid-manifest.md`
+Discussion for the quantified risk) are indistinguishable to a reader.
+Full design rationale, the adversarial review, and a byte-level worked
+example live in `rfcs/0001-container-rowid-manifest.md` Discussion — this
+section states the settled result.
 
 ## 6. Byte-determinism scope of the registry checksum (invariant 11)
 
@@ -165,7 +208,8 @@ raw-mappable blob storing two little-endian `u32` values, `42` and `43`,
 | ------------------------- |
 | `2A 00 00 00 2B 00 00 00` |
 
-**Hotcache region** (offset 8, 54 bytes):
+**Hotcache region** (offset 8, 62 bytes — 54 bytes under RFC 0001 as
+originally approved; grown by `field_id`, §5a):
 
 | field        | type | value | bytes (little-endian)     |
 | ------------ | ---- | ----- | ------------------------- |
@@ -173,12 +217,16 @@ raw-mappable blob storing two little-endian `u32` values, `42` and `43`,
 | row_id_count | u64  | 2     | `02 00 00 00 00 00 00 00` |
 | blob_count   | u32  | 1     | `01 00 00 00`             |
 
-`blob_entry[0]`:
+`blob_entry[0]`. This blob is anonymous (RFC 0001's own worked example
+predates fields), so `field_id = FIELD_ID_NONE = 0`; §5a's own worked
+example (`rfcs/0001-container-rowid-manifest.md` Discussion) shows two
+real, nonzero `field_id`s disambiguating two fields' blobs instead:
 
 | field             | type | value                               | bytes (little-endian)                    |
 | ----------------- | ---- | ----------------------------------- | ---------------------------------------- |
 | family_id         | u16  | 0                                   | `00 00`                                  |
 | blob_type_id      | u16  | 0                                   | `00 00`                                  |
+| field_id          | u64  | 0 (FIELD_ID_NONE)                   | `00 00 00 00 00 00 00 00`                |
 | storage_class     | u8   | 1 (raw-mappable)                    | `01`                                     |
 | tier              | u8   | 0 (n/a)                             | `00`                                     |
 | alignment         | u16  | 8                                   | `08 00`                                  |
@@ -188,7 +236,7 @@ raw-mappable blob storing two little-endian `u32` values, `42` and `43`,
 | length            | u64  | 8                                   | `08 00 00 00 00 00 00 00`                |
 | checksum          | u64  | xxHash3-64(data region bytes above) | computed by the reference implementation |
 
-**Footer trailer** (offset 62, 40 bytes):
+**Footer trailer** (offset 70, 40 bytes):
 
 | field           | value                   | bytes                                    |
 | --------------- | ----------------------- | ---------------------------------------- |
@@ -196,12 +244,13 @@ raw-mappable blob storing two little-endian `u32` values, `42` and `43`,
 | format_major    | 0                       | `00 00`                                  |
 | format_minor    | 1                       | `01 00`                                  |
 | hotcache_offset | 8                       | `08 00 00 00 00 00 00 00`                |
-| hotcache_length | 54                      | `36 00 00 00 00 00 00 00`                |
+| hotcache_length | 62                      | `3E 00 00 00 00 00 00 00`                |
 | checksum_algo   | 1 (xxHash3-64)          | `01`                                     |
 | reserved        | 0 (7 bytes)             | `00 00 00 00 00 00 00`                   |
 | footer_checksum | xxHash3-64(bytes[0,32)) | computed by the reference implementation |
 
-Total file size: 102 bytes.
+Total file size: 110 bytes (102 bytes under RFC 0001 as originally
+approved; grown by `field_id`, §5a).
 
 ## 8. Open questions
 
@@ -212,10 +261,16 @@ Total file size: 102 bytes.
   `bench/results/hotcache-tail-read.json`): the recommended reader default is
   **`N = 16384` bytes
   (16 KiB)**, still a reader-side tuning parameter rather than a format
-  constant, implying a hotcache-size ceiling of **16,344 bytes (≈480 blob
-  entries)** before an open degrades from one RTT to two — roughly 40x
-  today's real 12-blob-entry maximum. Full methodology:
-  `rfcs/0001-container-rowid-manifest.md` Discussion.
+  constant, implying a hotcache-size ceiling of **16,344 bytes** before an
+  open degrades from one RTT to two. That ceiling is stated in bytes, not
+  blob-entry count, on purpose: it is unaffected by the `blob_entry` size
+  itself. At the current 42-byte `blob_entry` (§5, grown from 34 bytes by
+  `field_id`, roadmap item X-1) it holds **≈388 blob entries**
+  (`(16344 − 20) / 42`, floored) — roughly 32x today's real 12-blob-entry
+  maximum (recomputed from the original 34-byte-entry ≈480 figure this
+  measurement produced; the underlying `N = 16384` measurement itself did
+  not change). Full methodology: `rfcs/0001-container-rowid-manifest.md`
+  Discussion.
 - GCS/Azure conditional-write and range-request header semantics are R5,
   open (`docs/ledger.md`); this chapter's open protocol is written and
   verified against S3/MinIO only.

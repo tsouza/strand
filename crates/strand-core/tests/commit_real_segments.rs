@@ -26,6 +26,7 @@ use strand_core::store::{ConditionalStore, InMemoryStore};
 fn toy_blob(byte_a: u8, byte_b: u8) -> BlobSpec {
     BlobSpec {
         family_id: 0,
+        field_id: 0,
         blob_type_id: 0,
         storage_class: StorageClass::RawMappable,
         tier: Tier::NotApplicable,

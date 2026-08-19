@@ -549,6 +549,17 @@ opens any segment, there was no reason to depend on the unconfirmed server behav
   should not be over-read as "S3 too."
 - Whether the manifest should eventually carry optional per-segment summary metadata
   for cross-segment pruning is R10 and stays explicitly out of this RFC's scope.
+- **(added by Task X-1's Discussion entry, 2026-08-19)** Whether a future
+  higher-level writer (or `strand-tools`) should assemble a segment's field
+  names and reject a same-`field_id` collision before committing —
+  `SegmentBuilder` itself structurally cannot, since it never sees field
+  names, only already-hashed `field_id`s.
+- **(added by Task X-1's Discussion entry, 2026-08-19)** Whether
+  `format_minor` should start being bumped consistently for in-place
+  breaking changes to already-approved wire structures — this RFC's own
+  `field_id` addition and RFC 0009's Fix 1 (the positions blob's
+  `postings_block_pos_prefix` trim) are both real examples that left it
+  unbumped, a project-wide inconsistency neither RFC resolved.
 
 ## Discussion — post-approval amendments
 
@@ -698,6 +709,230 @@ segment file in one RTT via a suffix range instead of a `HEAD` first — is now
 confirmed safe for a MinIO target specifically, still open for a real-S3
 target.
 
+**Task X-1: multi-field blob addressing, `field_id` — resolved 2026-08-19.**
+`docs/roadmap.md`'s X-1 named a real, load-bearing gap the adversarial
+review found and this RFC's own prior Discussion entry (above, the `N`/
+hotcache-ceiling measurement) explicitly deferred: this RFC's Design §1
+`blob_entry` table has no field identifier, so nothing in the registry
+could tell two same-`(family_id, blob_type_id)` blobs apart. RFC 0008's
+Non-goals is the first to name the gap explicitly ("Multi-field blob
+addressing... is not solved here. Neither RFC 0005, 0006, nor 0007 solved
+this... this RFC inherits whatever mechanism eventually resolves it, not a
+new one"); RFC 0009's Non-goals repeats and inherits it directly ("Design
+§2's mutual-exclusivity rule... is therefore a real, correct requirement,
+but not yet a checkable one"). Neither RFC owns `spec/container.md` §5 —
+this RFC does — so the fix lands here, with both of theirs left as
+originally written (an accurate record of the gap as it stood at their own
+approval) and pointing back to this entry.
+
+*Design: `field_id: u64`, a stable hash of the field's declared name, not
+an ordinal.* Three shapes were considered for "which field does this blob
+belong to":
+
+1. **An ordinal assigned at commit time** (field 0, field 1, ... in
+   whatever order a writer built them) — rejected. Ordinals are
+   per-segment-build-order, not stable identity: two writers building two
+   segments for the same logical field independently (this format's own
+   multi-writer CAS protocol, §3 above, exists precisely because
+   independent writers are a real case) have no reason to assign it the
+   same ordinal, and nothing forces them to agree without an external
+   coordination mechanism this format does not have. A future cross-segment
+   reader (M5-1's `TableProvider`, the exact consumer `docs/roadmap.md`'s
+   X-1 entry names as blocked on this) would need "field 2 in segment A" and
+   "field 2 in segment B" to mean the same thing without a per-segment
+   decoder ring, and a bare ordinal cannot promise that.
+2. **An explicit name-to-ID catalog blob** (a small FST or table mapping
+   each field's name to a compact integer, referenced from the hotcache) —
+   rejected. It would work, but it is a real, avoidable novelty-budget
+   spend (invariant 8): either the catalog rides in the hotcache itself
+   (growing the one structure invariant 3's one-wave rule already bounds
+   carefully — X-2's own hotcache-ceiling measurement, above, exists
+   because that budget is real, not decorative) or it becomes a second
+   cold-fetchable blob a reader must locate and fetch before it can resolve
+   *any* field by name, adding a real dependent step invariant 3 exists to
+   rule out. A self-computing hash needs neither: a reader that already
+   knows the field name it wants computes the same `field_id` a writer
+   did, with nothing to fetch and nothing to keep in sync.
+3. **A hash of the field's declared name** — chosen. `field_id_from_name`
+   (`crates/strand-core/src/container.rs`) is `xxHash3-64` over the name's
+   raw UTF-8 bytes, exactly as given: no Unicode normalization, case
+   folding, or trimming. Reusing `xxHash3-64` rather than registering a
+   second hash function is invariant 8's minimal-novelty rule applied
+   directly — the footer's `checksum_algo` already names this algorithm as
+   this format's one registered choice. `0` (`FIELD_ID_NONE`) is reserved
+   for "no field association" (a segment-scoped blob — a deletion vector,
+   RFC 0012 — or this RFC's own anonymous worked-example blob, §Worked
+   example above, which predates fields entirely and is unaffected:
+   `field_id = 0` there, same meaning "not applicable" `tier = 0` already
+   carries for that blob). `field_id_from_name` folds a real (if
+   vanishingly unlikely) hash output of exactly `0` away from the
+   sentinel by adding `1`, so the sentinel's meaning never collides with a
+   real name's hash by chance; it panics on an empty name rather than let
+   that case depend on `xxHash3-64("")` happening not to be `0` by luck.
+
+*Wire layout: `blob_entry` grows from 34 to 42 bytes.* `field_id` is placed
+immediately after `blob_type_id`, before `storage_class`, grouping the
+three fields that jointly name *what a blob is* (`family_id`,
+`blob_type_id`, `field_id`) ahead of the fields that describe *how it's
+stored* (`storage_class` onward) — a readability choice, not a functional
+one, since nothing about wire determinism depends on field order beyond it
+being pinned. `spec/container.md` §5 carries the full, current byte table;
+this RFC's own Design §1 table above is left as originally approved,
+per this section's own standing rule that Design sections are a historical
+record. This is a **breaking, in-place change** to a structure every
+already-approved RFC that registers a blob (0005 through 0012) depends on
+— there is no format-version discriminator at the `blob_entry` granularity
+(only `Footer.format_major`/`format_minor`, RFC 0009's own Design §1
+observation about the positions blob applies identically here), and this
+RFC does not introduce one now: `format_minor` stays `1`, unbumped,
+consistent with RFC 0009's own Fix 1 (an equally breaking, in-place change
+to the positions blob's internal layout) also leaving it unbumped. Neither
+change is hidden — both are recorded here and in `docs/ledger.md` — but the
+container-level version discriminator existing without ever actually being
+exercised by two coexisting layouts is a real, project-wide gap this
+change does not fix, named again in Open questions below rather than
+silently decided.
+
+*Worked example: two fields, one `(family_id, blob_type_id)` pair,
+disambiguated.* Two fields, `"title"` and `"body"`, each contributing a
+`family_id = 1, blob_type_id = 0` blob (the shape a real term-dictionary
+FST blob, RFC 0005, would use) to one segment — the exact collision that
+was unrepresentable before this change. Computed by the reference
+implementation, not hand-derived, and pinned so a second implementation's
+own `xxHash3-64`-over-UTF-8-bytes computation can be checked byte-for-byte
+(`crates/strand-core/tests/multi_field_worked_example.rs`):
+
+- `field_id_from_name("title")` = `10,810,058,128,357,433,557` =
+  `0x9605_0a97_f611_a0d5`, little-endian bytes
+  `D5 A0 11 F6 97 0A 05 96`.
+- `field_id_from_name("body")` = `9,579,940,282,309,272,058` =
+  `0x84f2_c8ee_187f_e1fa`, little-endian bytes
+  `FA E1 7F 18 EE C8 F2 84`.
+
+Assembling a one-row segment with `"title"`'s blob (4 bytes, `11 11 11
+11`, offset 0) then `"body"`'s blob (4 bytes, `22 22 22 22`, offset 4,
+both 4-byte aligned, `storage-class: raw-mappable`, `tier:
+cold-fetchable` — RFC 0005's real registered classification for a
+term-dictionary blob) produces a 152-byte segment
+(`conformance/container/multi-field-segment.bin`), whose two registry
+entries are, in full:
+
+| field             | entry 0 (`"title"`)      | entry 1 (`"body"`)        |
+| ----------------- | ------------------------- | -------------------------- |
+| family_id         | `1`                        | `1`                         |
+| blob_type_id       | `0`                        | `0`                         |
+| field_id          | `D5 A0 11 F6 97 0A 05 96` | `FA E1 7F 18 EE C8 F2 84`  |
+| storage_class      | `1` (raw-mappable)         | `1` (raw-mappable)         |
+| tier               | `1` (cold-fetchable)       | `1` (cold-fetchable)       |
+| alignment          | `4`                        | `4`                         |
+| chunk_codec        | `0` (none)                 | `0` (none)                 |
+| chunk_codec_level  | `0`                        | `0`                         |
+| offset             | `0`                        | `4`                         |
+| length             | `4`                        | `4`                         |
+| checksum           | `1F D2 69 F9 D3 9E 1C FE`  | `42 D8 F7 04 BC 1B E2 2C`  |
+
+`family_id` and `blob_type_id` are identical on both rows — `field_id` is
+the only column that tells them apart, and a reader selecting "the term-
+dictionary blob for field `body`" matches all three columns
+(`family_id == 1 && blob_type_id == 0 && field_id ==
+field_id_from_name("body")`) and gets exactly one entry, never the other
+field's. `crates/strand-lexical/src/field.rs`'s `FieldReader::open`/
+`open_by_name` implement exactly this three-way match; `crates/strand-
+lexical/tests/field_end_to_end.rs`'s
+`two_fields_with_the_same_blob_type_ids_coexist_in_one_segment_and_stay_disambiguated`
+proves it end-to-end with real, different term-dictionary/term-info/
+postings content for both fields, not just registry entries — including
+the negative case (a term real in one field must miss cleanly, not
+silently fall through to the other field's blob).
+
+*Invariant-11 checklist, for `field_id` specifically (the full registry
+entry's checklist is this RFC's original one above, unchanged elsewhere):*
+
+- **Endianness:** little-endian, matching every other multi-byte
+  `blob_entry` field.
+- **Term sort order:** not applicable — `field_id` is a hash output, not a
+  sorted structure.
+- **Chunk codec:** not applicable — `field_id` is a registry-level field,
+  never itself chunk-compressed.
+- **Checksums:** `field_id`'s bytes are covered by no dedicated checksum of
+  their own — an inherited property of the whole hotcache region, not new
+  here: `spec/container.md` §5's registry entries are protected only by the
+  blob-content `checksum` field and the footer's own `footer_checksum`
+  (covering the 32-byte footer, not the hotcache), so a corrupted registry
+  entry byte is not independently detected by this layer today. Real, not
+  new, and not fixed here — see How this could be wrong.
+- **Codec-variant provenance:** not applicable to this field, but the
+  algorithm computing it is fully named: `xxHash3-64`, the identical
+  registration the footer's `checksum_algo = 1` already names, applied to
+  raw UTF-8 name bytes with no variant parameters of its own.
+- **Stochastic-transform provenance:** not applicable — `field_id_from_name`
+  is a deterministic, pure function of externally supplied bytes, not a
+  stochastic transform in the sense invariant 11 means for RaBitQ's random
+  rotation; two conforming implementations given the same name bytes always
+  compute the same value, with nothing to pin beyond the algorithm name
+  already covered above.
+- **Golden files:** `conformance/container/toy-segment.bin` regenerated
+  (34-byte to 42-byte `blob_entry`, `field_id = 0` for that blob's
+  unaffected anonymous case) and a new golden file,
+  `conformance/container/multi-field-segment.bin`, added specifically for
+  this change — both uncompressed, byte-for-byte comparable per invariant
+  11's own rule for `raw-mappable` blobs.
+
+**How this could be wrong.** A hash-based identifier trades a small,
+quantifiable collision risk for coordination-free addressing; both sides
+of that trade are stated precisely, not glossed. `xxHash3-64` is a
+64-bit space: for `n` distinct field names in one segment, the birthday-
+bound collision probability is approximately `n² / 2⁶⁵`. At `n = 100`
+fields (a large schema by any real search-index standard — this project's
+own real fields, `docs/ledger.md`, number one or two per benchmark), that
+probability is about `10,000 / 3.7 × 10¹⁹ ≈ 2.7 × 10⁻¹⁶` — smaller than
+the chance of an undetected bit-flip surviving `xxHash3-64`'s own use as a
+*content* checksum elsewhere in this same spec chapter, a risk this project
+already accepts for the on-disk blob-integrity check itself (§6 above). A
+real deployment would need on the order of `2^32` distinct field names
+before this probability crosses 50% — not a scale any schema this format
+targets remotely approaches. The risk is not zero, and is stated as such
+rather than rounded to zero: two *different* declared field names that
+happen to hash to the same `field_id` are genuinely indistinguishable to a
+reader, and nothing in this layer detects that condition, because
+detecting it needs the two colliding names in hand simultaneously, which
+requires an external schema catalog this format deliberately does not
+specify (the same layering choice invariant 6 already makes for analyzer
+descriptor agreement: two writers must agree on inputs out-of-band, and
+disagreement is a deployment bug, not a format-detectable one). This is
+this design's nearest grave from `docs/lineage.md`: **Pilosa** — "a good
+structure with a spec is not a distribution strategy." A coordination-free
+hash is elegant on paper the same way Pilosa's bitmap-index structure was;
+the real risk is not the formula being wrong, it is real deployments
+needing an external field-name catalog anyway (to keep two writers honest
+about what "the same field" means) and this format not specifying one,
+leaving that catalog's discipline entirely to deployment convention the
+way Pilosa's adoption depended on infrastructure the project itself never
+built. Naming the grave does not resolve the risk; it is why the residual
+risk above is stated as a number, not asserted away.
+
+A second, narrower risk: this RFC does not add a writer-side duplicate-
+`field_id` guard anywhere in `crates/strand-core` (`SegmentBuilder` accepts
+whatever `field_id`s its caller's `BlobSpec`s carry, with no check that two
+different logical fields did not collide). This is a deliberate scope
+boundary, not an oversight: `SegmentBuilder` only ever sees already-hashed
+`u64`s, never the field names that produced them, so it structurally
+cannot detect a name-level collision — only a caller holding all of a
+segment's field names at once (a real, separate schema-assembly layer this
+project has not built) could. Named here as real, open follow-on work
+rather than silently assumed impossible.
+
+Open questions this leaves, added to the section below: whether a future
+higher-level writer (or `strand-tools`) should assemble field names for a
+segment and reject a same-hash collision before committing, and whether
+`format_minor` should start being bumped consistently for in-place
+breaking changes like this one and RFC 0009's Fix 1 — both real, neither
+decided here.
+
 Verification: `cargo test --workspace` and `cargo clippy --workspace
---all-targets -- -D warnings`, both clean, alongside the new tests and
-benchmarks themselves.
+--all-targets -- -D warnings`, both clean, alongside the new tests
+(`crates/strand-core/src/container.rs`'s property tests and
+`two_fields_own_blob_type_id_are_disambiguated_by_field_id`,
+`crates/strand-core/tests/multi_field_worked_example.rs`, and
+`crates/strand-lexical/tests/field_end_to_end.rs`'s new multi-field test)
+and every other benchmark/test in this Discussion section.

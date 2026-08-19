@@ -111,7 +111,7 @@ fn main() {
     let doc_refs: Vec<&str> = docs.iter().map(String::as_str).collect();
     eprintln!("Loaded {} real passages; building field...", doc_refs.len());
 
-    let field = build_field(&doc_refs);
+    let field = build_field("passage", &doc_refs);
     let vocabulary_size =
         field.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN;
     eprintln!(
@@ -188,7 +188,7 @@ fn main() {
                 let segment_ref = &snapshot.segments[0];
                 let (segment_bytes, _) = counting.get(&segment_ref.path).unwrap().unwrap();
                 let hotcache = open_segment_bytes(&segment_bytes);
-                let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)
+                let reader = FieldReader::open_by_name(&segment_bytes, &hotcache.blobs, "passage")
                     .expect("all four blobs present");
 
                 let bm25 = reader.search_bm25("state", &doc_lengths, &profile);

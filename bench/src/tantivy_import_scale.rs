@@ -95,7 +95,7 @@ fn main() {
 
     // Path 1: native.
     let native_start = Instant::now();
-    let native = build_field(&doc_refs);
+    let native = build_field("body", &doc_refs);
     eprintln!(
         "native build_field: {:.2}s — term_dict {} bytes, term_info {} bytes, postings {} bytes, positions {} bytes",
         native_start.elapsed().as_secs_f64(),

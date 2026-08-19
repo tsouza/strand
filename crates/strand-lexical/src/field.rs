@@ -22,19 +22,27 @@
 //! in-memory round trips) with nothing assembling them into a segment or
 //! resolving a query end to end.
 //!
-//! Scope, deliberately narrow: one field, one segment, no compaction, no
-//! merge. `build_field` builds every field with positions by default
-//! (matching tantivy's own default for a `TEXT` field);
-//! `build_field_without_positions` opts a field out entirely, using RFC
-//! 0009's short, positions-free term-info record (`blob_type_id = 4`)
-//! instead of paying `TermInfo`'s 12-byte-per-term dead weight for a
-//! feature that field will never use (`rfcs/0009-per-term-overhead-
-//! reduction.md`). Filter bitmaps (RFC 0006) are a separate field kind,
-//! not included. Multi-field blob addressing is unsolved project-wide (RFC
-//! 0008's/RFC 0009's own Non-goals) — this module assumes exactly one
-//! `family_id = 1` blob of each `blob_type_id` per segment, which is true
-//! for a single-field index and stays a stated boundary, not a silent
-//! assumption, until that question is resolved.
+//! Scope, deliberately narrow: one segment, no compaction, no merge.
+//! `build_field` builds every field with positions by default (matching
+//! tantivy's own default for a `TEXT` field); `build_field_without_positions`
+//! opts a field out entirely, using RFC 0009's short, positions-free
+//! term-info record (`blob_type_id = 4`) instead of paying `TermInfo`'s
+//! 12-byte-per-term dead weight for a feature that field will never use
+//! (`rfcs/0009-per-term-overhead-reduction.md`). Filter bitmaps (RFC 0006)
+//! are a separate field kind, not included.
+//!
+//! Multi-field blob addressing (roadmap item X-1,
+//! `rfcs/0001-container-rowid-manifest.md` Discussion — the gap RFC 0008's
+//! and RFC 0009's own Non-goals both flagged as unsolved project-wide) is
+//! now solved at the registry level:
+//! every blob this module builds carries a `field_id`
+//! (`strand_core::container::field_id_from_name`, `spec/container.md`
+//! §5a), computed from the field's own declared name and passed to
+//! `build_field`/`build_field_without_positions`/`build_field_from_postings`
+//! explicitly. `FieldReader::open`/`open_by_name` select a field's blobs by
+//! `(family_id, blob_type_id, field_id)`, not `(family_id, blob_type_id)`
+//! alone, so a segment may now hold any number of fields, each with its own
+//! term-dictionary/term-info/postings/positions blobs, without collision.
 //!
 //! Document length (`dl`) and the collection average (`avdl`) that
 //! `strand_core::scoring::Bm25Profile` needs are not yet a registered blob
@@ -45,7 +53,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use strand_core::container::{BlobEntry, ChunkCodec, StorageClass, Tier};
+use strand_core::container::{BlobEntry, ChunkCodec, StorageClass, Tier, field_id_from_name};
 use strand_core::scoring::Bm25Profile;
 use strand_core::segment::BlobSpec;
 
@@ -85,6 +93,12 @@ pub struct FieldBlobs {
     pub postings: Vec<u8>,
     pub positions: Vec<u8>,
     has_positions: bool,
+    /// This field's registry-entry `field_id` (`spec/container.md` §5a):
+    /// `field_id_from_name` applied to the field name passed to whichever
+    /// builder produced this `FieldBlobs`. Every `BlobSpec` `to_blob_specs`
+    /// emits carries this same value, which is what lets two fields'
+    /// same-`blob_type_id` blobs coexist in one segment.
+    pub field_id: u64,
     /// One entry per document, in the same order as `docs` was given to
     /// `build_field` — that order is this field's row-ID/doc-ordinal space.
     pub doc_lengths: Vec<u32>,
@@ -97,8 +111,8 @@ pub struct FieldBlobs {
 /// built from this field's blobs must use (`spec/row-ids.md` §1). Token
 /// index within each document (`0`-based) becomes that token's within-
 /// document position for the positions blob (`spec/positions.md` §2).
-pub fn build_field(docs: &[&str]) -> FieldBlobs {
-    build_field_impl(docs, true)
+pub fn build_field(field_name: &str, docs: &[&str]) -> FieldBlobs {
+    build_field_impl(field_name, docs, true)
 }
 
 /// `build_field`, but this field never carries positions (RFC 0009 Design
@@ -107,11 +121,11 @@ pub fn build_field(docs: &[&str]) -> FieldBlobs {
 /// `positions_offset`/`positions_length` fields it will never populate.
 /// The returned `FieldBlobs.positions` is empty and `to_blob_specs`
 /// already omits it from the segment.
-pub fn build_field_without_positions(docs: &[&str]) -> FieldBlobs {
-    build_field_impl(docs, false)
+pub fn build_field_without_positions(field_name: &str, docs: &[&str]) -> FieldBlobs {
+    build_field_impl(field_name, docs, false)
 }
 
-fn build_field_impl(docs: &[&str], with_positions: bool) -> FieldBlobs {
+fn build_field_impl(field_name: &str, docs: &[&str], with_positions: bool) -> FieldBlobs {
     // BTreeMap<Vec<u8>, _> iterates in unsigned byte order (invariant 11) —
     // exactly the order build_term_dictionary requires, with no separate
     // sort step. Each posting carries its within-document positions
@@ -147,27 +161,33 @@ fn build_field_impl(docs: &[&str], with_positions: bool) -> FieldBlobs {
         }
     }
 
-    build_field_from_postings(per_term, doc_lengths, with_positions)
+    build_field_from_postings(field_name, per_term, doc_lengths, with_positions)
 }
 
 /// Builds a field's blobs directly from already-extracted per-term postings
 /// — the shared core `build_field`/`build_field_without_positions` and any
 /// other real data source (e.g. `strand-tools convert`'s tantivy importer)
-/// both funnel into. `per_term` maps each term's bytes (already in
-/// unsigned UTF-8 byte order, invariant 11 — a `BTreeMap` guarantees this)
-/// to that term's postings: `(doc_ordinal, within_document_positions)`
-/// pairs, in ascending `doc_ordinal` order. `doc_lengths[i]` is document
-/// `i`'s token count (`spec/scoring-profiles.md`'s `dl` input).
+/// both funnel into. `field_name` becomes this field's registry `field_id`
+/// (`field_id_from_name`, `spec/container.md` §5a) — the value every blob
+/// `to_blob_specs` emits carries, and the value a reader must pass back to
+/// `FieldReader::open`/`open_by_name` to find these blobs again. `per_term`
+/// maps each term's bytes (already in unsigned UTF-8 byte order, invariant
+/// 11 — a `BTreeMap` guarantees this) to that term's postings:
+/// `(doc_ordinal, within_document_positions)` pairs, in ascending
+/// `doc_ordinal` order. `doc_lengths[i]` is document `i`'s token count
+/// (`spec/scoring-profiles.md`'s `dl` input).
 ///
 /// # Panics
 ///
-/// Panics if any term's `doc_ordinal`s are not strictly increasing, or if
-/// `with_positions` is `true` and any posting's positions are not
+/// Panics if `field_name` is empty (`field_id_from_name`'s own
+/// precondition), if any term's `doc_ordinal`s are not strictly increasing,
+/// or if `with_positions` is `true` and any posting's positions are not
 /// non-empty and strictly increasing (`postings::build_postings`'s and
 /// `positions::build_positions`'s own preconditions — this function does
 /// not re-validate them itself, matching `build_field_impl`'s own
 /// by-construction guarantee for the analyzer-based path).
 pub fn build_field_from_postings(
+    field_name: &str,
     per_term: BTreeMap<Vec<u8>, Vec<(u32, Vec<u32>)>>,
     doc_lengths: Vec<u32>,
     with_positions: bool,
@@ -221,6 +241,7 @@ pub fn build_field_from_postings(
         postings: postings_bytes,
         positions: positions_bytes,
         has_positions: with_positions,
+        field_id: field_id_from_name(field_name),
         doc_lengths,
     }
 }
@@ -238,6 +259,7 @@ impl FieldBlobs {
         let spec = |blob_type_id: u16, data: Vec<u8>| BlobSpec {
             family_id: LEXICAL_FAMILY,
             blob_type_id,
+            field_id: self.field_id,
             storage_class: StorageClass::RawMappable,
             tier: Tier::ColdFetchable,
             alignment: BLOB_ALIGNMENT,
@@ -319,21 +341,34 @@ pub struct FieldReader<'a> {
 }
 
 impl<'a> FieldReader<'a> {
-    /// Opens a field's blobs from a resident segment's raw bytes and its
+    /// Opens one field's blobs from a resident segment's raw bytes and its
     /// already-decoded `Hotcache`'s blob registry
     /// (`strand_core::container::Hotcache::blobs`) — no further round trip,
-    /// per invariant 3's one-wave rule. The term-info blob may be either
-    /// shape (`blob_type_id = 1` or `4`, tried in that order); the
-    /// positions blob is always optional, and additionally never present
-    /// when the short (`4`) term-info shape is in use (RFC 0009 Design
-    /// §2's mutual-exclusivity rule) — this method does not itself verify
-    /// that exclusivity (Non-goals: no mechanism exists yet to check it
-    /// against a real field identity, `spec/term-dictionary.md` §3a).
-    pub fn open(segment_bytes: &'a [u8], blobs: &[BlobEntry]) -> Result<Self, FieldReaderError> {
+    /// per invariant 3's one-wave rule. `field_id` selects which field
+    /// among any number the segment may hold (`spec/container.md` §5a,
+    /// roadmap item X-1): every candidate entry must match `field_id`
+    /// exactly, not just `family_id`/`blob_type_id`, so two fields' blobs
+    /// of the same `blob_type_id` never collide. Most callers that already
+    /// know the field's name should call `open_by_name` instead, which
+    /// computes `field_id` the same way a writer did. The term-info blob
+    /// may be either shape (`blob_type_id = 1` or `4`, tried in that
+    /// order); the positions blob is always optional, and additionally
+    /// never present when the short (`4`) term-info shape is in use (RFC
+    /// 0009 Design §2's mutual-exclusivity rule) — this method does not
+    /// itself verify that exclusivity (Non-goals: no mechanism exists yet
+    /// to check it against a real field identity, `spec/term-dictionary.md`
+    /// §3a).
+    pub fn open(
+        segment_bytes: &'a [u8],
+        blobs: &[BlobEntry],
+        field_id: u64,
+    ) -> Result<Self, FieldReaderError> {
         let find = |blob_type_id: u16| {
-            blobs
-                .iter()
-                .find(|b| b.family_id == LEXICAL_FAMILY && b.blob_type_id == blob_type_id)
+            blobs.iter().find(|b| {
+                b.family_id == LEXICAL_FAMILY
+                    && b.blob_type_id == blob_type_id
+                    && b.field_id == field_id
+            })
         };
         let slice_of = |entry: &BlobEntry| {
             &segment_bytes[entry.offset as usize..(entry.offset + entry.length) as usize]
@@ -369,6 +404,21 @@ impl<'a> FieldReader<'a> {
             postings,
             positions,
         })
+    }
+
+    /// `open`, computing `field_id` from `field_name` the same way a writer
+    /// did (`field_id_from_name`, `spec/container.md` §5a) — the ergonomic
+    /// entry point for a caller that already knows the field's name and
+    /// does not want to depend on `strand_core::container::field_id_from_name`
+    /// directly. Two conforming implementations calling this with the same
+    /// `field_name` against the same segment always resolve to the same
+    /// blobs (invariant 11): no catalog blob or coordination is needed.
+    pub fn open_by_name(
+        segment_bytes: &'a [u8],
+        blobs: &[BlobEntry],
+        field_name: &str,
+    ) -> Result<Self, FieldReaderError> {
+        Self::open(segment_bytes, blobs, field_id_from_name(field_name))
     }
 
     /// Full query resolution (`spec/postings.md` §6): term string → FST

@@ -84,6 +84,7 @@ fn build_and_commit(
         for i in 0..blob_count {
             builder.add_blob(BlobSpec {
                 family_id: 1,
+                field_id: 0,
                 blob_type_id: (i % 5) as u16,
                 storage_class: StorageClass::RawMappable,
                 tier: Tier::NotApplicable,
@@ -142,7 +143,8 @@ fn main() {
         for &blob_count in BLOB_COUNTS {
             let path = format!("segments/sweep-{blob_count}.bin");
             let segment_ref = build_and_commit(&store, &path, blob_count);
-            let hotcache_length = 20 + 34 * blob_count as u64;
+            let hotcache_length =
+                20 + strand_core::container::BLOB_ENTRY_SIZE as u64 * blob_count as u64;
             let trailing_region_bytes = hotcache_length + 40;
 
             for &n in CANDIDATE_N {

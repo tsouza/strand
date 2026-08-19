@@ -2016,3 +2016,86 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   warnings` both clean alongside this work. `rfcs/0001-container-rowid-
   manifest.md` Discussion carries the full methodology; `docs/roadmap.md`'s
   X-2 entry is updated to reflect this as done.
+- **X-1 (`docs/roadmap.md`) — multi-field blob addressing, resolved
+  2026-08-19.** The real, load-bearing gap the adversarial review found:
+  `spec/container.md` §5's blob registry entry carried no field
+  identifier, so two fields' blobs sharing a `blob_type_id` (a real-world
+  requirement for any index with more than one text field) could not
+  coexist in one segment — RFC 0008's and RFC 0009's own Non-goals both
+  named this as unsolved project-wide, inherited from RFC 0005/0006/0007.
+
+  **Design.** A new `field_id: u64` field on `blob_entry`
+  (`spec/container.md` §5a), growing it from 34 to 42 bytes. `0`
+  (`FIELD_ID_NONE`) is reserved for "no field association" (segment-scoped
+  blobs — deletion vectors, RFC 0012 — or RFC 0001's own anonymous
+  worked-example blob, unaffected). Every other value is `xxHash3-64`
+  (`crates/strand-core/src/container.rs`'s `field_id_from_name`) over the
+  field's declared name, raw UTF-8 bytes, no normalization — the same
+  checksum algorithm the footer already names, reused rather than
+  registering a second one (invariant 8). A reader now matches
+  `(family_id, blob_type_id, field_id)`, not the first two alone. Two
+  alternatives were considered and rejected in
+  `rfcs/0001-container-rowid-manifest.md` Discussion: a per-segment
+  ordinal (rejected — not stable across independently built segments
+  without external coordination, defeating a future cross-segment reader
+  like M5-1's `TableProvider`) and an explicit name-to-ID catalog blob
+  (rejected — either grows the hotcache's own one-wave budget or adds a
+  dependent fetch invariant 3 rules out, for no benefit over a
+  self-computing hash). The residual collision risk is quantified, not
+  waved away: at 100 fields in one segment, the birthday-bound collision
+  probability is ≈2.7 × 10⁻¹⁶; the design's nearest grave from
+  `docs/lineage.md` is named as Pilosa ("a good structure with a spec is
+  not a distribution strategy") — the real risk is real deployments
+  needing an external field-name catalog anyway, which this format does
+  not specify, the same layering choice invariant 6 already makes for
+  analyzer descriptor agreement.
+
+  **Wire change and its downstream effects.** `crates/strand-core/src/
+  container.rs`'s `BlobEntry`/`Hotcache` encode/decode updated
+  (`BLOB_ENTRY_SIZE = 42`); `crates/strand-core/src/segment.rs`'s
+  `BlobSpec`/`SegmentBuilder` thread `field_id` through to the registry.
+  `crates/strand-lexical/src/field.rs`'s `build_field`/
+  `build_field_without_positions`/`build_field_from_postings` now take a
+  `field_name: &str`, storing `field_id_from_name(field_name)` on the
+  returned `FieldBlobs` and every `BlobSpec` `to_blob_specs` emits;
+  `FieldReader::open` takes an explicit `field_id`, and a new
+  `FieldReader::open_by_name` computes it from a name the same way a
+  writer did. Every caller across `crates/strand-tools`, `bench/`, and
+  `crates/strand-lexical/tests` updated to pass a field name (`"passage"`,
+  `"body"`, `"title"`, or, for `strand-tools convert`, the real imported
+  tantivy field name). `format_minor` was deliberately left at `1`,
+  unbumped — consistent with RFC 0009's own Fix 1 (an equally breaking,
+  in-place wire change) also leaving it unbumped — named as a real,
+  project-wide inconsistency in RFC 0001's Discussion rather than fixed
+  unilaterally here.
+
+  **Proof.** `conformance/container/toy-segment.bin` regenerated
+  (34-byte → 42-byte `blob_entry`, `field_id = 0` for that blob's
+  unaffected anonymous case). A new golden file,
+  `conformance/container/multi-field-segment.bin`, pins a real two-field
+  worked example (`"title"`/`"body"`, both `family_id = 1, blob_type_id =
+  0`, disambiguated only by `field_id`) —
+  `crates/strand-core/tests/multi_field_worked_example.rs` checks both the
+  byte-exact golden file and that reading it back resolves each field's
+  own 4-byte payload, never the other's. Property-based round-trip tests
+  (`crates/strand-core/src/container.rs`, `proptest`) cover `BlobEntry`
+  and `Hotcache` encode/decode for arbitrary `field_id` values, including
+  arbitrary multi-blob, multi-field-id hotcaches, plus a dedicated
+  property test that `field_id_from_name` never produces the reserved
+  sentinel for any non-empty input. A new end-to-end test,
+  `crates/strand-lexical/tests/field_end_to_end.rs`'s
+  `two_fields_with_the_same_blob_type_ids_coexist_in_one_segment_and_stay_disambiguated`,
+  builds two real fields (different documents, different postings for a
+  shared term "dog") into one segment and confirms each field's reader
+  resolves only its own matches — including the negative case, a term real
+  in only one field missing cleanly in the other rather than silently
+  falling through. `cargo test --workspace` and `cargo clippy --workspace
+  --all-targets -- -D warnings` both clean. Full design, the alternatives
+  considered, and the adversarial "how this could be wrong" review live in
+  `rfcs/0001-container-rowid-manifest.md` Discussion (the RFC that owns
+  `spec/container.md` §5); short pointer notes were added to RFC 0008's
+  and RFC 0009's own Discussion sections, both left otherwise unmodified
+  as an accurate record of the gap at their own approval. Directly
+  unblocks M5-1 (a `TableProvider` reading a multi-field index needs this)
+  — M5-1 itself is not implemented here. `docs/roadmap.md`'s X-1 entry is
+  updated to reflect this as done.
