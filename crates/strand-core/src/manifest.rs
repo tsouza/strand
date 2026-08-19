@@ -13,8 +13,12 @@
 // limitations under the License.
 
 //! The snapshot manifest and its CAS commit protocol, per RFC 0001 §3
-//! (`rfcs/0001-container-rowid-manifest.md`).
+//! (`rfcs/0001-container-rowid-manifest.md`), extended by RFC 0012
+//! (`rfcs/0012-deletion-vectors.md`, `spec/deletion.md` §4) with a second
+//! commit path, `commit_deletion_vector`, sharing the same CAS mechanics
+//! via [`propose_snapshot`].
 
+use crate::deletion::DeletionVectorRef;
 use crate::store::{ConditionalStore, StoreError};
 use serde::{Deserialize, Serialize};
 
@@ -125,65 +129,139 @@ pub fn commit<S: ConditionalStore>(
             segments,
         };
 
-        let nonce = format!("{:016x}", rand_nonce());
-        let snapshot_bytes = serde_json::to_vec(&snapshot).unwrap();
-        let path = snapshot_key(version, &nonce);
-        match store.put_if_absent(&path, &snapshot_bytes) {
-            Ok(_) => {}
-            Err(StoreError::Io(msg)) => return Err(CommitError::Io(msg)),
-            // No disambiguation needed here, unlike the pointer CAS below:
-            // `path` is attempt-unique, so whether this write actually
-            // landed or not, nothing will ever reference it under a wrong
-            // assumption. Landed-but-unacked just leaves a harmless orphan
-            // object (CLAUDE.md §6) once this attempt is abandoned.
-            Err(StoreError::Ambiguous(msg)) => return Err(CommitError::Io(msg)),
-            Err(StoreError::PreconditionFailed) => panic!(
-                "snapshot path {path} collided despite the per-attempt nonce — \
-                 this should be statistically impossible"
-            ),
+        if let Some(committed) = propose_snapshot(store, &current, snapshot)? {
+            return Ok(committed);
         }
+    }
+}
 
-        let pointer_result = match &current.pointer_etag {
-            Some(etag) => store.put_if_match(CURRENT_POINTER_KEY, path.as_bytes(), etag),
-            None => store.put_if_absent(CURRENT_POINTER_KEY, path.as_bytes()),
+/// Updates one existing segment's `deletion_vector` reference — the
+/// `spec/deletion.md` §4 commit path (RFC 0012), sharing `commit`'s exact
+/// CAS mechanics via [`propose_snapshot`] but substituting a different
+/// transform: revise one entry in place rather than append a new one.
+/// `next_row_id` is unchanged; no segment is appended or removed.
+///
+/// `build_deletion_vector` is called fresh on every CAS retry, receiving
+/// that retry's current `SegmentRef` for `segment_path` — carrying
+/// `row_id_base`, `row_id_count`, and the segment's current
+/// `deletion_vector` (if any) in one parameter, the same role `commit`'s
+/// own `build_segments` gives `next_row_id`. This is what makes concurrent
+/// deletes against the same segment safe: a caller's closure MUST read the
+/// `deletion_vector` it is handed (not one captured once outside this
+/// call), union in its own new tombstone(s), and write that union as a
+/// fresh object under an attempt-unique path — so an attempt that loses
+/// the pointer CAS re-reads the winner's current state on its next
+/// iteration and recomputes against it, rather than clobbering the
+/// winner's write with a stale union (`spec/deletion.md` §4,
+/// "Superseding, not accumulating").
+///
+/// # Errors
+///
+/// Returns [`CommitError::SegmentNotFound`] if `segment_path` does not
+/// name any segment in the current snapshot (never deleted mid-retry-loop
+/// — the segment either exists at read time or it doesn't; a segment
+/// disappearing between retries would itself be a `SegmentNotFound` on the
+/// next iteration).
+pub fn commit_deletion_vector<S: ConditionalStore>(
+    store: &S,
+    segment_path: &str,
+    build_deletion_vector: impl Fn(&SegmentRef) -> DeletionVectorRef,
+) -> Result<SnapshotMetadata, CommitError> {
+    loop {
+        let current = read_current(store).map_err(CommitError::from_store_error)?;
+        let Some(idx) = current.segments.iter().position(|s| s.path == segment_path) else {
+            return Err(CommitError::SegmentNotFound(segment_path.to_string()));
         };
 
-        match pointer_result {
-            Ok(_) => return Ok(snapshot),
-            Err(StoreError::PreconditionFailed) => {
-                // Lost the pointer CAS: another writer committed first. Loop
-                // back to re-read the fresh current state and recompute —
-                // not retry — the version and row-ID range.
-            }
-            Err(StoreError::Io(msg)) => {
-                // Not a race — the backend itself failed. Retrying forever
-                // on the assumption a rival will eventually stop contending
-                // would turn a permanent outage into an infinite loop.
-                return Err(CommitError::Io(msg));
-            }
-            Err(StoreError::Ambiguous(msg)) => {
-                // We don't know whether this pointer write applied before
-                // the failure — the CAS itself is atomic on the backend, so
-                // a plain read now resolves it completely: either our path
-                // is current (the write landed, the ack was lost) or it
-                // isn't (it didn't land, or a rival won first).
-                match store.get(CURRENT_POINTER_KEY) {
-                    Ok(Some((pointer_bytes, _))) if pointer_bytes == path.as_bytes() => {
-                        return Ok(snapshot);
-                    }
-                    Ok(_) => {
-                        // Did not land. Loop back and recompute against
-                        // fresh state, same as losing the CAS outright.
-                    }
-                    Err(StoreError::Io(follow_up) | StoreError::Ambiguous(follow_up)) => {
-                        return Err(CommitError::Io(format!(
-                            "pointer write was ambiguous ({msg}) and the follow-up \
-                             read to resolve it also failed: {follow_up}"
-                        )));
-                    }
-                    Err(StoreError::PreconditionFailed) => {
-                        unreachable!("ConditionalStore::get never returns PreconditionFailed")
-                    }
+        let new_deletion_vector = build_deletion_vector(&current.segments[idx]);
+        let version = current.version.map_or(0, |v| v + 1);
+        let mut segments = current.segments.clone();
+        segments[idx].deletion_vector = Some(new_deletion_vector);
+        let snapshot = SnapshotMetadata {
+            version,
+            next_row_id: current.next_row_id,
+            segments,
+        };
+
+        if let Some(committed) = propose_snapshot(store, &current, snapshot)? {
+            return Ok(committed);
+        }
+    }
+}
+
+/// Writes `snapshot` as a new snapshot object and races the pointer CAS to
+/// make it current — the shared write-and-race mechanics both `commit`
+/// and `commit_deletion_vector` use (`spec/manifest.md` §2, "A second
+/// commit path, same protocol, different transform"). Returns `Ok(Some
+/// (snapshot))` on success, `Ok(None)` to signal "re-read current state
+/// and retry" (the pointer CAS was lost, or an ambiguous pointer write
+/// resolved to "did not land"), or `Err` for a definite, non-retryable
+/// failure.
+fn propose_snapshot<S: ConditionalStore>(
+    store: &S,
+    current: &CurrentState,
+    snapshot: SnapshotMetadata,
+) -> Result<Option<SnapshotMetadata>, CommitError> {
+    let nonce = format!("{:016x}", rand_nonce());
+    let snapshot_bytes = serde_json::to_vec(&snapshot).unwrap();
+    let path = snapshot_key(snapshot.version, &nonce);
+    match store.put_if_absent(&path, &snapshot_bytes) {
+        Ok(_) => {}
+        Err(StoreError::Io(msg)) => return Err(CommitError::Io(msg)),
+        // No disambiguation needed here, unlike the pointer CAS below:
+        // `path` is attempt-unique, so whether this write actually
+        // landed or not, nothing will ever reference it under a wrong
+        // assumption. Landed-but-unacked just leaves a harmless orphan
+        // object (CLAUDE.md §6) once this attempt is abandoned.
+        Err(StoreError::Ambiguous(msg)) => return Err(CommitError::Io(msg)),
+        Err(StoreError::PreconditionFailed) => panic!(
+            "snapshot path {path} collided despite the per-attempt nonce — \
+             this should be statistically impossible"
+        ),
+    }
+
+    let pointer_result = match &current.pointer_etag {
+        Some(etag) => store.put_if_match(CURRENT_POINTER_KEY, path.as_bytes(), etag),
+        None => store.put_if_absent(CURRENT_POINTER_KEY, path.as_bytes()),
+    };
+
+    match pointer_result {
+        Ok(_) => Ok(Some(snapshot)),
+        Err(StoreError::PreconditionFailed) => {
+            // Lost the pointer CAS: another writer committed first. Caller
+            // loops back to re-read the fresh current state and recompute —
+            // not retry — the version and row-ID range.
+            Ok(None)
+        }
+        Err(StoreError::Io(msg)) => {
+            // Not a race — the backend itself failed. Retrying forever
+            // on the assumption a rival will eventually stop contending
+            // would turn a permanent outage into an infinite loop.
+            Err(CommitError::Io(msg))
+        }
+        Err(StoreError::Ambiguous(msg)) => {
+            // We don't know whether this pointer write applied before
+            // the failure — the CAS itself is atomic on the backend, so
+            // a plain read now resolves it completely: either our path
+            // is current (the write landed, the ack was lost) or it
+            // isn't (it didn't land, or a rival won first).
+            match store.get(CURRENT_POINTER_KEY) {
+                Ok(Some((pointer_bytes, _))) if pointer_bytes == path.as_bytes() => {
+                    Ok(Some(snapshot))
+                }
+                Ok(_) => {
+                    // Did not land. Caller loops back and recomputes against
+                    // fresh state, same as losing the CAS outright.
+                    Ok(None)
+                }
+                Err(StoreError::Io(follow_up) | StoreError::Ambiguous(follow_up)) => {
+                    Err(CommitError::Io(format!(
+                        "pointer write was ambiguous ({msg}) and the follow-up \
+                         read to resolve it also failed: {follow_up}"
+                    )))
+                }
+                Err(StoreError::PreconditionFailed) => {
+                    unreachable!("ConditionalStore::get never returns PreconditionFailed")
                 }
             }
         }
@@ -206,6 +284,10 @@ pub enum CommitError {
     /// keeps looping, because a permanent outage is not a race that
     /// eventually resolves.
     Io(String),
+    /// `commit_deletion_vector`'s `segment_path` named no segment in the
+    /// current snapshot (`spec/deletion.md` §4) — a caller error, never a
+    /// race outcome the retry loop should absorb.
+    SegmentNotFound(String),
 }
 
 impl CommitError {
@@ -267,6 +349,9 @@ pub struct SegmentRef {
     pub row_id_count: u64,
     pub byte_length: u64,
     pub checksum: u64,
+    /// Absent iff no row in this segment has ever been deleted (`spec/
+    /// deletion.md` §3, RFC 0012).
+    pub deletion_vector: Option<DeletionVectorRef>,
 }
 
 /// The immutable, versioned body of a proposed or committed snapshot.
@@ -293,6 +378,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }],
         };
 
@@ -313,6 +399,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -333,6 +420,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -344,6 +432,7 @@ mod tests {
                 row_id_count: 3,
                 byte_length: 200,
                 checksum: 0xf00d,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -379,6 +468,7 @@ mod tests {
                         row_id_count: 5,
                         byte_length: 500,
                         checksum: 0xbad,
+                        deletion_vector: None,
                     }]
                 })
                 .unwrap();
@@ -389,6 +479,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -412,6 +503,153 @@ mod tests {
         );
     }
 
+    fn commit_one_segment(store: &InMemoryStore, path: &str, row_id_count: u64) -> SegmentRef {
+        let path = path.to_string();
+        let committed = commit(store, |next_row_id| {
+            vec![SegmentRef {
+                path: path.clone(),
+                row_id_base: next_row_id,
+                row_id_count,
+                byte_length: 100,
+                checksum: 0xf00d,
+                deletion_vector: None,
+            }]
+        })
+        .unwrap();
+        committed.segments.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn commit_deletion_vector_updates_an_existing_segments_reference() {
+        let store = InMemoryStore::new();
+        let seg = commit_one_segment(&store, "segments/a.bin", 200);
+
+        let committed = commit_deletion_vector(&store, &seg.path, |current| {
+            assert_eq!(current.path, seg.path);
+            assert!(
+                current.deletion_vector.is_none(),
+                "no deletes yet against this segment"
+            );
+            let mut bitmap = roaring::RoaringBitmap::new();
+            bitmap.insert(2);
+            let bytes =
+                crate::deletion::build_deletion_vector(&bitmap, current.row_id_count).unwrap();
+            let checksum = crate::deletion::checksum(&bytes);
+            store.put_if_absent("deletions/a-0.bin", &bytes).unwrap();
+            crate::deletion::DeletionVectorRef {
+                path: "deletions/a-0.bin".to_string(),
+                byte_length: bytes.len() as u64,
+                checksum,
+            }
+        })
+        .unwrap();
+
+        assert_eq!(committed.version, 1, "seg 0 took version 0");
+        assert_eq!(committed.next_row_id, 200, "unchanged — no new rows");
+        assert_eq!(
+            committed.segments.len(),
+            1,
+            "no segment appended or removed"
+        );
+        let dv_ref = committed.segments[0]
+            .deletion_vector
+            .as_ref()
+            .expect("deletion_vector must now be set");
+        assert_eq!(dv_ref.path, "deletions/a-0.bin");
+
+        let dv = crate::deletion::read(&store, dv_ref).unwrap();
+        assert!(dv.is_deleted(seg.row_id_base + 2, seg.row_id_base));
+        assert!(!dv.is_deleted(seg.row_id_base + 3, seg.row_id_base));
+    }
+
+    #[test]
+    fn commit_deletion_vector_reports_segment_not_found_for_an_unknown_path() {
+        let store = InMemoryStore::new();
+        commit_one_segment(&store, "segments/a.bin", 10);
+
+        let err = commit_deletion_vector(&store, "segments/does-not-exist.bin", |_| {
+            panic!("must not be called: segment_path doesn't exist")
+        })
+        .unwrap_err();
+        assert_eq!(
+            err,
+            CommitError::SegmentNotFound("segments/does-not-exist.bin".to_string())
+        );
+    }
+
+    #[test]
+    fn commit_deletion_vector_recomputes_against_a_concurrent_rivals_write_without_losing_a_tombstone()
+     {
+        // The exact race RFC 0012's own adversarial review named: two
+        // concurrent deletes against the same segment must not let the
+        // loser's write clobber the winner's tombstone. Mirrors
+        // `commit_recomputes_row_id_range_when_a_rival_commits_first`'s own
+        // rival-injection pattern.
+        let store = InMemoryStore::new();
+        let seg = commit_one_segment(&store, "segments/a.bin", 200);
+        let rival_injected = std::cell::Cell::new(false);
+        let rival_bin_counter = std::cell::Cell::new(0u32);
+
+        let write_dv = |store: &InMemoryStore, ordinals: &[u32], suffix: u32| {
+            let mut bitmap = roaring::RoaringBitmap::new();
+            for &o in ordinals {
+                bitmap.insert(o);
+            }
+            let bytes = crate::deletion::build_deletion_vector(&bitmap, 200).unwrap();
+            let checksum = crate::deletion::checksum(&bytes);
+            let path = format!("deletions/a-{suffix}.bin");
+            store.put_if_absent(&path, &bytes).unwrap();
+            crate::deletion::DeletionVectorRef {
+                path,
+                byte_length: bytes.len() as u64,
+                checksum,
+            }
+        };
+
+        let committed = commit_deletion_vector(&store, &seg.path, |current| {
+            if !rival_injected.get() {
+                rival_injected.set(true);
+                // Simulate a second writer's whole commit_deletion_vector
+                // call landing between this attempt's read and its own
+                // pointer CAS — it tombstones ordinal 5.
+                commit_deletion_vector(&store, &seg.path, |rival_current| {
+                    assert!(rival_current.deletion_vector.is_none());
+                    write_dv(&store, &[5], 900)
+                })
+                .unwrap();
+            }
+            // This closure re-runs on retry with the now-current state,
+            // which (after the rival landed) already tombstones 5 — a
+            // correct implementation unions its own new tombstone (7) into
+            // that, not into stale pre-race state.
+            let mut existing = match &current.deletion_vector {
+                Some(dv_ref) => crate::deletion::read(&store, dv_ref)
+                    .unwrap()
+                    .clone_bitmap(),
+                None => roaring::RoaringBitmap::new(),
+            };
+            existing.insert(7);
+            rival_bin_counter.set(rival_bin_counter.get() + 1);
+            write_dv(
+                &store,
+                &existing.iter().collect::<Vec<_>>(),
+                rival_bin_counter.get(),
+            )
+        })
+        .unwrap();
+
+        let dv_ref = committed.segments[0].deletion_vector.as_ref().unwrap();
+        let dv = crate::deletion::read(&store, dv_ref).unwrap();
+        assert!(
+            dv.is_deleted(seg.row_id_base + 5, seg.row_id_base),
+            "the rival's tombstone must survive"
+        );
+        assert!(
+            dv.is_deleted(seg.row_id_base + 7, seg.row_id_base),
+            "this attempt's own tombstone must also be present"
+        );
+    }
+
     #[test]
     fn read_snapshot_returns_none_for_a_table_with_no_commits() {
         let store = InMemoryStore::new();
@@ -429,6 +667,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -439,6 +678,7 @@ mod tests {
                 row_id_count: 3,
                 byte_length: 200,
                 checksum: 0xf00d,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -493,6 +733,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -517,6 +758,7 @@ mod tests {
                             row_id_count: 3,
                             byte_length: 200,
                             checksum: 0xf00d,
+                            deletion_vector: None,
                         }]
                     })
                     .unwrap();
@@ -541,6 +783,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -582,6 +825,7 @@ mod tests {
                 row_id_count,
                 byte_length: 1,
                 checksum: 0,
+                deletion_vector: None,
             }
         }
 
@@ -773,6 +1017,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         });
 
@@ -888,11 +1133,15 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
 
-        assert_eq!(committed.version, 0, "the ambiguous write was the real commit");
+        assert_eq!(
+            committed.version, 0,
+            "the ambiguous write was the real commit"
+        );
         assert_eq!(committed.segments.len(), 1);
         // No duplicate: a second, unnecessary commit built on top of the
         // (actually-successful) first one would show up as version 1 here.
@@ -961,6 +1210,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         })
         .unwrap();
@@ -981,6 +1231,7 @@ mod tests {
                 row_id_count: 2,
                 byte_length: 102,
                 checksum: 0xdead_beef,
+                deletion_vector: None,
             }]
         });
 

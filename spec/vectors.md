@@ -250,8 +250,10 @@ scan already produced; never part of the cold-open wave.
    cluster; a reader MUST deduplicate by row-id, keeping each row-id's
    best (closest) estimated distance across the clusters it appeared in.
 4. Filter the deduplicated candidate set against the segment's deletion
-   vector (invariant 2), discarding tombstoned row-ids, before returning
-   results or reranking.
+   vector, if the segment's `SegmentRef` declares one (`spec/deletion.md`,
+   RFC 0012), discarding tombstoned row-ids, before returning results or
+   reranking. A segment with no `deletion_vector` reference has nothing to
+   filter — this step is then a no-op, not skipped work.
 5. Optionally, fetch the flat-vector blob's rows for the surviving
    candidates and recompute exact distances (a second wave, outside the
    cold-open budget).

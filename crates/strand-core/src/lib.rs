@@ -14,6 +14,7 @@
 
 pub mod batch;
 pub mod container;
+pub mod deletion;
 pub mod manifest;
 #[cfg(feature = "s3")]
 pub mod s3_store;

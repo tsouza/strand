@@ -1408,3 +1408,113 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   construction-time speedup (unregistered, real writer-side optimization
   work), deletion-vector integration, and reranking against the
   flat-vector blob (Design §6 steps 4–5).
+- **Deletion-vector integration implemented — 2026-08-19, same day,
+  prompted by "implement deletion-vector integration next."** Unlike
+  every module built so far this session, this one wasn't scoped to
+  `strand-vector` at all: invariant 2 (`CLAUDE.md` §5) has stated "Deletes
+  are deletion-vector blobs (Roaring)" since RFC 0001, but nothing
+  anywhere in the codebase implemented it — not a blob format, not a
+  manifest slot, not a reader. `spec/vectors.md` §6 step 4 and `spec/
+  row-ids.md` §3 had both been citing a mechanism that didn't exist.
+  **RFC 0012** (`rfcs/0012-deletion-vectors.md`) registers it, and its own
+  central design fact drove everything downstream: a segment is one
+  immutable object (`spec/container.md` §1), so a deletion vector —
+  necessarily revisable, as deletes accumulate — cannot live inside a
+  segment's own container bytes. It has to be its own object, referenced
+  from the manifest, mirroring Iceberg/Delta's own position-delete-file
+  pattern.
+
+  **A new chapter, `spec/deletion.md`,** registers a standalone
+  deletion-vector object (`family_id = 4`, `blob_type_id = 0`): no
+  footer, no hotcache, just a standard 32-bit Roaring bitmap under
+  `SERIAL_COOKIE_NO_RUNCONTAINER`, citing `spec/filter-bitmaps.md` §3's
+  identical MUST rule by reference — that chapter's own §7 had explicitly
+  anticipated this exact follow-on RFC and invited the citation. `spec/
+  manifest.md`'s `SegmentRef` gains an optional `deletion_vector` field
+  (`DeletionVectorRef`: path/byte_length/checksum, shaped like
+  `SegmentRef`'s own).
+
+  **The adversarial review caught a real, self-contradicting Critical
+  bug**: the first draft's `commit_deletion_vector` closure took no
+  parameters (`impl Fn() -> DeletionVectorRef`), yet the same draft's own
+  "how this could be wrong" section required the closure to read current
+  state fresh on every CAS retry to avoid a lost-update race — a
+  signature that cannot do what the RFC's own text said it must.
+  Implementing the RFC exactly as first drafted would have reproduced the
+  race it claimed to prevent. Fixed by widening the signature to
+  `impl Fn(&SegmentRef) -> DeletionVectorRef`, mirroring how `commit`'s
+  own `build_segments` closure receives `next_row_id` fresh each retry —
+  and this fix is verified directly, not just argued: `crates/strand-core/
+  src/manifest.rs`'s `commit_deletion_vector_recomputes_against_a_
+  concurrent_rivals_write_without_losing_a_tombstone` test injects a rival
+  `commit_deletion_vector` call mid-retry (mirroring the existing
+  `commit_recomputes_row_id_range_when_a_rival_commits_first` pattern) and
+  confirms both writers' tombstones survive in the final bitmap. Three
+  further Important gaps were fixed: a false claim that checksum
+  verification-on-read already had precedent (`segment::open` doesn't
+  exist anywhere in the codebase; `deletion::read` is genuinely the first
+  code here to verify a stored checksum, not a precedent-follower); an
+  unnamed error variant for "segment not found" (fixed:
+  `CommitError::SegmentNotFound`); and a real, unreconciled tension
+  between `spec/row-ids.md` §3 ("marks row-IDs, not local ordinals... 
+  survives a merge... without needing a remap") and this RFC's
+  local-ordinal wire encoding — resolved by distinguishing logical row-ID
+  identity (stable) from the per-segment bitmap encoding (rebuilt at
+  merge, not translated), made explicit in `spec/deletion.md` §2 rather
+  than left for a reader to reconcile alone.
+
+  **A genuine, load-bearing formal-verification gap was found by
+  inspection, not assumed away**: `verification/manifest.tla`'s
+  `ProposeSnapshot` action models a segment as `[base: Nat, count: Nat]`
+  and its only transition is `Append` — there is no modeled shape for
+  revising an existing entry's fields in place while leaving the segment
+  count and row-ID allocation untouched. `commit_deletion_vector`'s new
+  commit shape is real, unmodeled territory; RFC 0002's existing Approval
+  does not cover it. Named precisely in RFC 0012's own "how this could be
+  wrong" and in `spec/manifest.md`'s own new paragraph, not silently
+  assumed covered — a real follow-on for a future formal-verification
+  session, not resolved here.
+
+  **Implementation**: `crates/strand-core/src/deletion.rs` (new) —
+  `build_deletion_vector`/`DeletionVector::decode`/`is_deleted`/`read`,
+  reusing `filter_bitmaps.rs`'s own `remove_run_compression`-before-
+  serialize discipline for the identical no-run-container reason. Its own
+  worked-example test serializes `{2, 5, 100}` and checks the *exact*
+  real bytes RFC 0012's own worked example cites (`22` bytes,
+  `3a 30 00 00 01 00 00 00 00 00 02 00 10 00 00 00 02 00 05 00 64 00`) —
+  not just a round-trip check, a byte-exact one. `manifest.rs`'s
+  `commit` was refactored (behavior-preserving; the existing property
+  test `commit_invariants_hold_across_randomized_concurrent_rounds` and
+  all prior hand-picked scenario tests still pass unchanged) to extract
+  the write-snapshot-and-race-the-pointer mechanics into a shared
+  `propose_snapshot` helper, so `commit_deletion_vector` reuses the exact
+  same CAS code path rather than a parallel reimplementation that could
+  drift from it. `crates/strand-vector/src/query.rs` gained
+  `filter_deleted` — a small, separate function, not folded into
+  `scan_selected_clusters`, matching `spec/vectors.md` §6's own step 3/
+  step 4 boundary. `strand-vector` gains no new dependency of its own
+  (no `roaring`, no `twox-hash`): `strand-core::deletion` re-exports
+  `RoaringBitmap` and exposes a `checksum` helper, keeping the general
+  invariant-2 machinery's dependencies out of every family that merely
+  consumes it.
+
+  **A real, full end-to-end test, not a unit test dressed up as one**
+  (`crates/strand-vector/tests/deletion_end_to_end.rs`): a real segment
+  is committed through `strand-core`'s actual manifest CAS protocol
+  (`InMemoryStore`, real `commit`), a real cluster is built and queried —
+  confirming a deliberately-nearest vector wins — then a real deletion
+  vector is committed through `commit_deletion_vector`, the manifest is
+  re-read fresh (as a real reader would, not by reusing in-hand state),
+  and the same query now excludes the deleted row and promotes the
+  runner-up. 14 new tests total (8 in `deletion.rs`, 3 new
+  `commit_deletion_vector` tests in `manifest.rs`, 2 in `query.rs`, 1
+  end-to-end), all passing; workspace total now 191, clippy clean.
+
+  This closes RFC 0010's last remaining Non-goal besides reranking. What
+  remains, named as RFC 0012's own Non-goals: compaction-time physical
+  removal of tombstoned rows and deletion-vector merge semantics (both
+  M3), retention-policy-driven expiry, the orphan-sweep tool's handling
+  of superseded deletion-vector objects, extending `verification/
+  manifest.tla` to model `commit_deletion_vector`'s new transition shape,
+  and reranking against the flat-vector blob (RFC 0010 Design §6 step 5)
+  — the one item left from the original vector-family Non-goals list.

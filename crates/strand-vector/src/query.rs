@@ -34,14 +34,16 @@
 //! the spec's own literal wording ("keeping each row-id's best (closest)
 //! estimated distance across the clusters it appeared in").
 //!
-//! Step 4 (deletion-vector filtering) and step 5 (optional reranking
-//! against the flat-vector blob) are not implemented here: RFC 0010's own
-//! Non-goals named deletion-vector integration as real, separate,
-//! unresolved work (this family has no wired-up connection to invariant
-//! 2's general deletion-vector machinery yet), and reranking is a thin
-//! wrapper over `crate::flat` this crate's own callers can already build
-//! from `flat::FlatVectorsReader` directly once they have a surviving
-//! candidate set.
+//! `filter_deleted` is step 4 (`spec/vectors.md` §6 step 4, RFC 0012,
+//! `spec/deletion.md`): a small, separate function, not folded into
+//! `scan_selected_clusters` — matching the spec's own step 3/step 4
+//! boundary, step 3 stays unaware of deletion vectors entirely, step 4 is
+//! a caller-composed filter over its output, applied only when the
+//! segment's `SegmentRef` declares one. Step 5 (optional reranking
+//! against the flat-vector blob) is not implemented here: a thin wrapper
+//! over `crate::flat` this crate's own callers can already build from
+//! `flat::FlatVectorsReader` directly once they have a surviving candidate
+//! set.
 
 use crate::estimate::{
     DistanceEstimate, QueryFactors, estimate_distance, estimate_distance_boosted,
@@ -205,6 +207,27 @@ pub fn scan_selected_clusters(
 
     best.sort_by(|a, b| a.estimate.estimate.total_cmp(&b.estimate.estimate));
     Ok(best)
+}
+
+/// `spec/vectors.md` §6 step 4: filters `candidates` (`scan_selected_
+/// clusters`'s own output) against the segment's deletion vector, if it
+/// has one. `row_id_base` MUST be the same segment's hotcache-declared
+/// base `deletion_vector` was decoded for (`strand_core::deletion::
+/// DeletionVector::is_deleted`'s own precondition). Order is preserved —
+/// `candidates` is already sorted by estimate (best first); this only
+/// removes entries, it never reorders survivors.
+pub fn filter_deleted(
+    candidates: Vec<Candidate>,
+    row_id_base: u64,
+    deletion_vector: Option<&strand_core::deletion::DeletionVector>,
+) -> Vec<Candidate> {
+    match deletion_vector {
+        None => candidates,
+        Some(dv) => candidates
+            .into_iter()
+            .filter(|c| !dv.is_deleted(c.row_id, row_id_base))
+            .collect(),
+    }
 }
 
 #[cfg(test)]
@@ -412,5 +435,44 @@ mod tests {
         )
         .unwrap();
         assert!(candidates.is_empty());
+    }
+
+    fn candidate(row_id: u64, estimate: f32) -> Candidate {
+        Candidate {
+            row_id,
+            estimate: DistanceEstimate {
+                estimate,
+                lower_bound: estimate,
+                upper_bound: estimate,
+            },
+        }
+    }
+
+    #[test]
+    fn filter_deleted_passes_everything_through_when_no_deletion_vector_is_present() {
+        let candidates = vec![candidate(100, 1.0), candidate(101, 2.0)];
+        let filtered = filter_deleted(candidates.clone(), 100, None);
+        assert_eq!(filtered, candidates);
+    }
+
+    #[test]
+    fn filter_deleted_discards_tombstoned_row_ids_and_keeps_order() {
+        let row_id_base = 1000;
+        let mut bitmap = strand_core::deletion::RoaringBitmap::new();
+        bitmap.insert(1); // local ordinal 1 -> row_id 1001
+        let bytes = strand_core::deletion::build_deletion_vector(&bitmap, 10).unwrap();
+        let dv = strand_core::deletion::DeletionVector::decode(&bytes).unwrap();
+
+        let candidates = vec![
+            candidate(1000, 0.5),
+            candidate(1001, 0.6), // tombstoned
+            candidate(1002, 0.7),
+        ];
+        let filtered = filter_deleted(candidates, row_id_base, Some(&dv));
+        assert_eq!(
+            filtered.iter().map(|c| c.row_id).collect::<Vec<_>>(),
+            vec![1000, 1002],
+            "the tombstoned row-id is removed, survivors keep their order"
+        );
     }
 }

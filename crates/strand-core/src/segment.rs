@@ -133,6 +133,7 @@ pub fn write_segment<S: ConditionalStore>(
         row_id_count: builder.row_id_count,
         byte_length: bytes.len() as u64,
         checksum,
+        deletion_vector: None,
     }
 }
 
@@ -243,8 +244,9 @@ mod tests {
     }
 
     fn decode_hotcache(segment_bytes: &[u8]) -> crate::container::Hotcache {
-        let footer_bytes: [u8; 40] =
-            segment_bytes[segment_bytes.len() - 40..].try_into().unwrap();
+        let footer_bytes: [u8; 40] = segment_bytes[segment_bytes.len() - 40..]
+            .try_into()
+            .unwrap();
         let footer = crate::container::Footer::decode(&footer_bytes).unwrap();
         let start = footer.hotcache_offset as usize;
         let end = start + footer.hotcache_length as usize;

@@ -3435,6 +3435,7 @@ dependencies = [
  "aws-sdk-s3",
  "aws-smithy-types",
  "proptest",
+ "roaring",
  "serde",
  "serde_json",
  "testcontainers-modules",

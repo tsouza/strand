@@ -57,6 +57,7 @@ A `SegmentRef`:
 | row_id_count | u64    | must match the segment's own hotcache       |
 | byte_length  | u64    | the segment object's total size             |
 | checksum     | u64    | xxHash3-64 over the segment's on-disk bytes |
+| deletion_vector | `DeletionVectorRef?` | absent iff no row in this segment has ever been deleted (`spec/deletion.md` §3, RFC 0012) |
 
 Per the Lance model (`docs/lineage.md`), `index_versions` references each
 blob family's index version without embedding that family's internal
@@ -130,6 +131,20 @@ that same path's first attempt on retry, because the first attempt's
 write already landed even though its commit lost the race. Include
 something attempt-unique in any such path, the same way the snapshot
 path's `writer_nonce` does.
+
+**A second commit path, same protocol, different transform.**
+`commit_deletion_vector` (`spec/deletion.md` §4, RFC 0012) uses the
+identical CAS retry loop described above — read current state, propose a
+new snapshot, race the pointer, recompute and retry on loss — but revises
+exactly one existing `SegmentRef`'s `deletion_vector` field instead of
+appending a new segment; `next_row_id` is unchanged. This is a distinct
+function, not a mode of `commit` itself, precisely so `commit`'s own
+row-ID-allocation accounting (`next_row_id + added_row_ids`) never has to
+reason about an update-in-place case. `verification/manifest.tla`'s
+existing model covers only the append shape (`ProposeSnapshot`'s sole
+transition is `Append`); `commit_deletion_vector`'s revise shape is real,
+unmodeled territory, named but not resolved by RFC 0012 (its own "How
+this could be wrong").
 
 ## 3. Reader protocol
 

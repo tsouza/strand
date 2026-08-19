@@ -441,12 +441,31 @@ same class of bug the 1-bit path's own ACPR found — fixed with the same degene
 substitution the 1-bit path already uses. Verified against the real property the
 feature exists for: on a real 50-vector cluster, the boosted estimate's mean-squared
 error against true (unquantized) distance measurably beats the 1-bit-only estimate's,
-confirming the extra bytes buy real accuracy. **Still deliberately out of scope**:
-`faster_quantize_ex`'s construction-time speedup (unregistered, real writer-side
-optimization); deletion-vector filtering and reranking against the flat-vector blob
-(Design §6 steps 4–5). All real, separate, unwritten work.
+confirming the extra bytes buy real accuracy. **Deletion-vector integration is
+implemented too**, via a follow-on RFC 0012 (`rfcs/0012-deletion-vectors.md`) that
+pulled the general invariant-2 mechanism forward from M3: a standalone deletion-vector
+object (`spec/deletion.md`, `family_id = 4`, a bare standard Roaring bitmap, no
+container framing, since segments are immutable and a deletion vector must be
+revisable), a new optional `SegmentRef.deletion_vector` reference, and a second
+manifest commit path (`commit_deletion_vector`) sharing `commit`'s exact CAS mechanics
+via a newly-extracted `propose_snapshot` helper. `query.rs` gained `filter_deleted`,
+implementing `spec/vectors.md` §6 step 4 for real. The adversarial review caught a
+self-contradicting Critical bug in the first draft (a closure signature that could not
+satisfy the RFC's own stated race-safety requirement) and a genuine, unmodeled
+formal-verification gap (`verification/manifest.tla`'s `ProposeSnapshot` only ever
+appends a segment; it has no shape for revising one in place) — both fixed or named
+precisely rather than glossed. `tests/deletion_end_to_end.rs` proves the whole chain: a
+real segment committed through the real manifest CAS protocol, a real deletion vector
+committed against it, and a real vector-family query excluding the tombstoned row and
+promoting the runner-up. **Still deliberately out of scope**: `faster_quantize_ex`'s
+construction-time speedup (unregistered, real writer-side optimization); reranking
+against the flat-vector blob (Design §6 step 5); and, named in RFC 0012's own
+Non-goals, compaction-time physical removal, deletion-vector merge semantics, and
+extending the TLA+ model to cover the new commit shape — all pulled forward to M3.
 
-**M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
+**M3 — Hybrid + deletes + merge.** The deletion-vector *mechanism* now exists (pulled
+forward via RFC 0012, above); M3's own scope narrows to what that RFC named as
+Non-goals: compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
 rebuild for graph blobs, rebalance for centroids), respecting `CLAUDE.md` §6's deletion-safety
 rule, with merge cost benchmarked per strategy; the orphan-sweep tool; end-to-end
