@@ -13,13 +13,13 @@
 // limitations under the License.
 
 //! The first real end-to-end test in this project: real document text in,
-//! through the analyzer, into real term-dictionary/term-info/postings
-//! blobs, assembled into a real segment, written and committed through
-//! `strand-core`'s actual store and manifest layers, read back cold (a
-//! footer and hotcache decode, per invariant 3), and resolved into real
-//! query results — including a BM25-ranked search. Every prior test in
-//! this repository checked one blob type in isolation; this is the first
-//! proof the pieces actually compose.
+//! through the analyzer, into real term-dictionary/term-info/postings/
+//! positions blobs, assembled into a real segment, written and committed
+//! through `strand-core`'s actual store and manifest layers, read back
+//! cold (a footer and hotcache decode, per invariant 3), and resolved into
+//! real query results — a BM25-ranked search, and a real phrase query.
+//! Every prior test in this repository checked one blob type in isolation;
+//! this is the first proof the pieces actually compose.
 
 use strand_core::container::{Footer, Hotcache};
 use strand_core::manifest::{commit, read_snapshot};
@@ -74,7 +74,7 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
     let hotcache = open_segment_bytes(&segment_bytes);
     assert_eq!(hotcache.row_id_count, 3);
 
-    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all three blobs present");
+    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
 
     // "dog" appears in docs 0 and 2; "cat" in docs 1 and 2; "park" in 0 and 2.
     let dog_matches = reader.lookup("dog").expect("dog is a real term");
@@ -104,4 +104,23 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
     );
 
     assert!(reader.search_bm25("giraffe", &field.doc_lengths, &profile).is_none());
+
+    // Real phrase query (RFC 0008, `spec/positions.md` §6). Doc 2, "the dog
+    // and the cat play in the park", tokenizes (after stopword removal) to
+    // dog(0), cat(1), play(2), park(3) — "dog cat" is a real adjacent
+    // phrase there, and nowhere else ("dog" and "cat" never appear adjacent
+    // in doc 0 or doc 1, since doc 0 has no "cat" at all).
+    assert_eq!(reader.phrase_query(&["dog", "cat"]), vec![2]);
+
+    // "dog" and "park" co-occur in both doc 0 ("dog runs park", positions
+    // 0 and 2 — not adjacent) and doc 2 (positions 0 and 3 — not adjacent
+    // either): a real negative case that plain co-occurrence (what
+    // `lookup` alone can check) would wrongly call a match, but a true
+    // phrase query correctly rejects.
+    assert!(
+        reader.phrase_query(&["dog", "park"]).is_empty(),
+        "dog and park never appear adjacent in any document"
+    );
+
+    assert!(reader.phrase_query(&["dog", "giraffe"]).is_empty(), "a real miss must yield no matches");
 }
