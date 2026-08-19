@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod convert;
-mod inspect;
-
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use strand_tools::{convert, inspect};
 
 #[derive(Parser)]
 #[command(name = "strand-tools")]

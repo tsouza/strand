@@ -138,7 +138,14 @@ segment on disk. Deliberately narrow, named scope, not silently assumed
 general: only a single-segment, deletion-free tantivy index is accepted
 (multi-segment merge and deletion-vector support are real, separate,
 unattempted follow-on work); positions are always imported (a source field
-indexed without them is out of scope for now). R2
+indexed without them is out of scope for now). **Verified at real scale**:
+`bench/src/tantivy_import_scale.rs` builds the same real MS MARCO sample
+two independent ways — native `build_field` and a real tantivy index run
+through the importer — and compares the resulting blobs byte-for-byte;
+both matched exactly at 5,002 and at 50,238 real documents, the larger of
+which is big enough to exercise multi-block postings/positions encoding
+that the original 3-document unit test could not reach (`docs/ledger.md`
+has the full byte counts). R2
 codec bake-off lands here and confirms or swaps the postings default (including
 verifying tantivy's actual current codec, per `docs/data-structures.md`); the R9 layout evaluation and
 license audit MUST complete before the bake-off freezes the default, since a

@@ -448,8 +448,7 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `SegmentBuilder::build` (no manifest/store involvement — a bare segment
   file, matching what a CLI conversion tool needs, not a commit). Verified
   twice: a real Rust unit test (`crates/strand-tools/src/convert.rs`'s own
-  `#[cfg(test)]` module — this crate has no `[lib]` target yet, so an
-  inline unit test, not a `tests/` integration test, matching its existing
+  `#[cfg(test)]` module — an inline unit test, matching its existing
   `inspect` module's own convention) builds a real tantivy index, imports
   it, assembles a real STRAND segment, and runs real term and phrase
   queries against it, including a true positional match and a true
@@ -465,7 +464,47 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   named scope: single-segment, deletion-free tantivy indexes only
   (multi-segment merge and deletion-vector support are real, separate,
   unattempted follow-on work); positions are always imported, a source
-  field indexed without them is out of scope for now.
+  field indexed without them is out of scope for now. Prompted directly by
+  "did you test this?", three real gaps in the above coverage were closed
+  the same session: multi-segment rejection had only ever been observed
+  *accidentally* (the bug above), never deliberately exercised — fixed with
+  `rejects_a_real_multi_segment_index`, which uses `NoMergePolicy` plus two
+  separate commits and asserts `segment_readers().len() == 2` as a
+  precondition, so the test cannot silently stop testing what it claims to;
+  the deletion-rejection path (`HasDeletions`) had no test at all — fixed
+  with `rejects_a_real_segment_with_deletions`, using `delete_term` and
+  asserting `num_deleted_docs() == 1` as a precondition; and `doc_lengths`
+  was computed but never directly asserted — fixed by adding
+  `assert_eq!(field_blobs.doc_lengths, vec![3, 3, 3])` to the existing
+  happy-path test.
+  Prompted directly by "test at real scale with the MS MARCO tantivy
+  index," the 3-document synthetic corpus above is not enough to trust the
+  importer at scale, so `crates/strand-tools` gained a `[lib]` target
+  (`src/lib.rs`, re-exporting `convert` and `inspect`; `main.rs` now
+  consumes them via `use strand_tools::{convert, inspect}` instead of
+  `mod` declarations) specifically so `bench/` could call
+  `import_tantivy_field` as a real function rather than shelling out to the
+  built binary. The new `bench/src/tantivy_import_scale.rs` builds the same
+  real MS MARCO sample two independent ways — natively via
+  `strand_lexical::field::build_field` (the same path
+  `bench/src/field_end_to_end.rs` already validated at scale) and via a
+  real single-threaded tantivy index fed identical tokens through the same
+  `PreTokenizedString` trick `bench/src/tantivy_index.rs` uses, then
+  `strand_tools::convert::import_tantivy_field` on that index — and
+  compares the resulting `FieldBlobs` byte-for-byte, not just
+  query-for-query. Real result: **byte-identical** on both real runs — at
+  5,002 real documents (term_dict 137,086 bytes, term_info 586,180 bytes,
+  postings 370,293 bytes, positions 271,714 bytes, identical on both paths)
+  and at 50,238 real documents (term_dict 604,862 bytes, term_info
+  2,417,940 bytes, postings 3,051,551 bytes, positions 2,147,667 bytes,
+  identical on both paths, including `doc_lengths`). The larger scale
+  specifically exercises multi-block postings/positions encoding — many
+  terms have `doc_freq` and `total_term_freq` above 256 at that size, a
+  path the smaller scale and the original 3-document test could not stress
+  — so two independent construction paths converging on identical bytes at
+  that scale is materially stronger evidence of correctness than the
+  spot-check queries above, though it is still bounded to the same
+  single-segment, deletion-free, positions-always-on scope stated above.
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1

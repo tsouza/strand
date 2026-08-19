@@ -3419,6 +3419,7 @@ dependencies = [
  "serde_json",
  "strand-core",
  "strand-lexical",
+ "strand-tools",
  "sucds",
  "tantivy",
  "tempfile",

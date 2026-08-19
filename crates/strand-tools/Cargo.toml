@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "STRAND CLI: inspect, verify, convert"
 
+[lib]
+name = "strand_tools"
+path = "src/lib.rs"
+
 [[bin]]
 name = "strand-tools"
 path = "src/main.rs"
