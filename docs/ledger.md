@@ -377,15 +377,29 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 - **Postings block size** (conditional): 128 was the default by shared
   lineage, now conditional on R9's granularity outcome — the block-max sibling-blob
   *pattern* stays settled (invariant 4), only the granularity number is open.
-- **Pending figures:** the ~250ms p90 tail figure — re-locate the source sentence or
-  replace with a real-network M0 measured figure (`CLAUDE.md` §7); `bench/` measures
-  a real cold-open p50/p90/p99 against MinIO on localhost (`bench/results/cold-open.json`),
-  which confirms the GET-count half of invariant 3 but not yet the real-network tail
-  latency this figure needs — that still wants MinIO with injected latency, or real S3;
-  the parallel-wave aggregate throughput behind the 100 MB budget rationale — not yet
-  measurable at all until a `tier: cold-fetchable` vector blob exists (M2); tantivy
-  codec-SPI absence (R11(a)); FAISS FastScan external-list feasibility (R11(b)); the
-  Quickwit inheritance hypothesis (R11(c)). The M0 vendoring deliverable is partially
+- **~250ms p90 tail figure — resolved 2026-08-19.** The figure was never traced to
+  an AWS source and is retracted per `CLAUDE.md` §2 rather than kept. A real, current
+  primary source was located instead: the AWS whitepaper "Best Practices Design
+  Patterns: Optimizing Amazon S3 Performance" states applications can achieve
+  "consistent small object latencies... of roughly 100–200 milliseconds"
+  (`references/aws-s3-small-object-latency.md`, vendored 2026-08-19). `CLAUDE.md` §7
+  now cites this figure, honestly labeled — the source does not name a percentile, so
+  it is not claimed as a p90. This resolves the "vendor the source sentence" half of
+  the original pending item only. The "or replace with a measured MinIO/S3 tail
+  figure" half remains a separate, still-open item: `bench/` measures a real
+  cold-open p50/p90/p99 against MinIO on localhost (`bench/results/cold-open.json`),
+  which confirms the GET-count half of invariant 3 but not yet a real-network tail
+  latency of its own — that still wants MinIO with injected latency, or real S3
+  (Docker and `testcontainers-modules`' MinIO feature are present in this
+  environment, so the benchmark is runnable, but injected-latency support does not
+  exist in `bench/src/cold_open.rs` yet and was not added here — a real environment
+  and a scoped session should do that work rather than bolt it on as a side effect of
+  a documentation fix).
+- **Other pending figures:** the parallel-wave aggregate throughput behind the 100 MB
+  budget rationale — not yet measurable at all until a `tier: cold-fetchable` vector
+  blob exists (M2); tantivy codec-SPI absence (R11(a)); FAISS FastScan external-list
+  feasibility (R11(b)); the Quickwit inheritance hypothesis (R11(c)). The M0
+  vendoring deliverable is partially
   done — `references/` holds the R2 and RFC-0002 grounding, all four turbopuffer
   pages (`CLAUDE.md` §7's ~100ms planning figure, the measured p50=874ms/14ms
   cold/cached figures, the published p90s, invariant 9's batched-iterator numbers, and
