@@ -1004,12 +1004,27 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `get_column` helper zero-fills absent batch slots, confirming RFC 0010's
   zero-fill padding-determinism rule matches the reference implementation's
   actual behavior exactly, not a STRAND-invented compatible convention.
-  `spec/vectors.md` §4 now states the complete algorithm normatively. Still
-  open, narrower than before: the `kBatchSize = 32` hardware-vs-algorithm
-  question — the packing algorithm itself shows no register-width
-  assumption (evidence, not proof), but the SIMD `accumulate()` decode
-  kernel (`src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp`) remains
-  unfetched.
+  `spec/vectors.md` §4 now states the complete algorithm normatively.
+  **`kBatchSize = 32` hardware-vs-algorithm question resolved — same
+  day, 2026-08-19.** The SIMD `accumulate()` decode kernels
+  (`src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp` — not
+  `include/rabitqlib/simd/`, which holds only dispatch declarations) are
+  fetched and vendored
+  (`references/rabitq-library-fastscan-accumulate-source.md`). Finding:
+  `accumulate_avx2` and `accumulate_avx512`, selected by one runtime
+  function pointer of a single shared signature, both produce exactly 32
+  result values per call despite AVX512's accumulator being twice AVX2's
+  register width — a register-width-driven batch size would predict
+  AVX512 naturally batching 64 vectors, and it does not. The batch size
+  traces instead to `pack_lut`'s fixed 16-entry table (`2^4`, the sub-code
+  width) doubled by `pack_codes`'s hi/lo nibble packing, a FastScan/PQ
+  lookup-trick shape attributed in the source to Faiss's own FastScan
+  design and rooted in SSSE3's 128-bit `pshufb`, predating AVX2 and AVX512.
+  `kBatchSize = 32` is algorithm-shaped, not hardware-shaped — resolved,
+  not merely evidenced. RFC 0010's "How this could be wrong" and Open
+  questions sections, and this ledger entry, are updated accordingly; no
+  wire format, arithmetic, or shipped code changed as a result (`kBatchSize
+  = 32` in `crates/strand-vector/src/fastscan.rs` was already correct).
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1
