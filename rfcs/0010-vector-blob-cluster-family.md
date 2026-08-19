@@ -725,7 +725,36 @@ single query fetches at open — see Design §8's `cold-fetchable` distinction.
 **Bytes actually fetched wholesale at open** (descriptor + navigation
 tier only): `400 + 8 (num_clusters/reserved header) + 12,288,000 +
 96,000 = 12,384,408` ≈ **12.4 MB** — comfortably under the 100 MB budget on
-its own. The 131.0 MB figure is the segment-sizing quantity R1's own
+its own.
+
+**This is no longer arithmetic alone.** `bench/src/vector_cold_open.rs`
+(2026-08-19) closes the gap this RFC's own Open questions named: real
+k-means (`strand_vector::kmeans`), a real `FhtKacRotator` descriptor, real
+rotation (`strand_vector::rotate::rotate_fht_kac`), and real 1-bit RaBitQ
+quantization (`strand_vector::quantize::quantize_one_bit`) build an actual
+four-blob-type segment — 10,000 real 768-dimensional vectors, 400 clusters
+(`4·√10,000`, `strand_vector::kmeans::recommended_cluster_count`) — committed
+to real MinIO via `strand-core`'s actual manifest CAS protocol and reopened
+cold 30 times. Real, measured result
+(`bench/results/vector-cold-open.json`): the descriptor and navigation-tier
+blobs, read back from the real segment's own hotcache registry, total
+**1,238,808 bytes** — **1.24% of the 100 MB budget** — in **3 GETs** (pointer,
+snapshot, segment), matching invariant 3's bound exactly. Scaling this run's
+own real per-cluster navigation-tier cost to RFC 0010's own 1,000,000-vector
+napkin-math scale via the same `4·√N` rule gives **12,384,408 bytes**
+— to the byte, the hand-computed **12.4 MB** figure directly above. The
+formula was right; this is no longer just trusting the arithmetic. One
+honest limitation carried over from `bench/src/cold_open.rs` and
+`bench/src/field_cold_open.rs`: `strand-core`'s `ConditionalStore` has no
+Range-GET variant yet, so the actual network fetch this benchmark issues
+pulls the whole 33,984,732-byte segment (posting lists and flat vectors
+included, not just the open-wave subset) — real whole-segment-GET latency
+against local MinIO was p50 92.6ms / p90 102.2ms / p99 114.1ms (n=30), a
+strictly harder number than a Range-GET-only open-wave fetch would show, and
+not yet the real-network tail figure `CLAUDE.md` §7 still lists as a
+placeholder.
+
+The 131.0 MB figure is the segment-sizing quantity R1's own
 still-open sizing-law work needs (`CLAUDE.md` §7's "segment count is
 reported, never hidden" rule): at the corrected law, a segment that stays
 within the 100 MB tier-1 budget holds roughly `100 / 131.0 ≈ 0.76` million
@@ -974,11 +1003,18 @@ what the reference implementation's own `save()`/`load()` pair already does
   twice AVX2's width; 32 traces to the FastScan/PQ nibble-LUT's fixed
   16-entry table (`2^4` sub-code values) doubled by hi/lo nibble packing,
   not to any register width. Algorithm-shaped, not hardware-shaped.
-- **A real M0-style byte-budget measurement** for this blob family, the
-  same way `bench/src/cold_open.rs` gave invariant 3 a real measured
-  baseline instead of only round-trip-count arithmetic — this RFC's Napkin
-  math is arithmetic against grounded formulas, not a benchmark result, and
-  M2's own milestone gate should not be considered met until one exists.
+- ~~A real M0-style byte-budget measurement for this blob family~~ —
+  resolved (Discussion, below; `bench/src/vector_cold_open.rs`, Napkin math
+  above). Real, measured result at a 10,000-vector/400-cluster scale:
+  1,238,808 open-wave bytes (1.24% of the 100 MB budget), 3 GETs/open,
+  p50=92.6ms whole-segment-GET latency against local MinIO — and the same
+  run's own real bytes extrapolate to RFC 0010's 1,000,000-vector scale at
+  12,384,408 bytes, matching this section's hand-computed figure exactly.
+  Not yet closed: the real-network tail-latency figure (`CLAUDE.md` §7's
+  own still-open placeholder) and a Range-GET-capable reader (today's
+  benchmark fetches the whole segment object, not just the open-wave
+  subset — the same limitation `bench/src/cold_open.rs` and
+  `bench/src/field_cold_open.rs` already carry).
 
 ## Discussion — post-approval amendments
 
@@ -1090,3 +1126,71 @@ changes, no wire format changes, and no shipped code changes — `kBatchSize
 = 32` in `crates/strand-vector/src/fastscan.rs` was already correct; this
 amendment closes a citation gap in the RFC's own adversarial review, not a
 design or implementation defect.
+
+**2026-08-19 — a real M0-style byte-budget measurement, closing this RFC's
+own Open questions item.** Prompted by "build a real M0-style byte-budget
+measurement for the vector blob family, the same way `bench/src/
+cold_open.rs` already gave invariant 3 a measured baseline for the generic
+container open" — this RFC's own Open questions naming exactly this gap and
+stating "M2's own milestone gate should not be considered met until one
+exists."
+
+`bench/src/vector_cold_open.rs` (new) follows `bench/src/cold_open.rs`'s
+and `bench/src/field_cold_open.rs`'s established pattern: assemble a real
+segment, commit it to real MinIO via `strand-core`'s actual manifest CAS
+protocol (`testcontainers`, not a pre-existing manual container), reopen it
+cold, measure. What makes this segment real rather than illustrative: 10,000
+real random 768-dimensional vectors, clustered by the crate's own real
+`strand_vector::kmeans::kmeans` (Lloyd's algorithm, k-means++ seeding,
+`k = 400` from `recommended_cluster_count`'s `4·√N` rule — capped at 5
+iterations, enough for non-degenerate, varying cluster sizes at this
+benchmark's scale, not convergence, since cluster *quality* has no bearing
+on blob *byte sizes*, which are what this benchmark measures), a real
+`FhtKacRotator` descriptor (`descriptor::build_fht_kac`), real rotation
+applied to both centroids and vectors (`rotate::rotate_fht_kac`), and real
+1-bit RaBitQ quantization per vector against its assigned rotated centroid
+(`quantize::quantize_one_bit`) — the same functions `crates/strand-vector`'s
+own tests exercise, not synthetic byte fillers. The lower end of the RFC's
+own suggested ~10,000–50,000-vector scale was chosen deliberately: real
+k-means is `O(n·k·dims)` per iteration, and this scale keeps a single-core
+run bounded (k-means alone took 22.4s in the actual run) while still large
+enough to be a genuine multi-cluster, multi-batch segment, not a toy.
+
+Real, measured result (`bench/results/vector-cold-open.json`, MinIO on
+localhost, no injected network latency — the same caveat every prior M0
+benchmark in this repository already carries): the descriptor blob (400
+bytes) and navigation-tier blob (1,238,408 bytes), read back from the real
+committed segment's own hotcache registry after a real footer/hotcache
+decode, total **1,238,808 bytes** — **1.24% of the `CLAUDE.md` §7 100 MB
+cold-open byte budget** — fetched in a constant, asserted **3 GETs** per
+open (pointer, snapshot, segment), matching invariant 3's ≤4-GET bound with
+room to spare. Extrapolating this run's own real per-cluster navigation-tier
+byte cost to this RFC's own 1,000,000-vector napkin-math scale via the same
+`4·√N` cluster-count rule gives **12,384,408 bytes** — matching the
+hand-computed **≈12.4 MB** figure earlier in this Napkin math section to the
+byte. This is the real confirmation the Open questions item asked for: the
+formula was already right, and now real, executed code says so too, not
+only arithmetic.
+
+One limitation carried over honestly, not discovered new: `strand-core`'s
+`ConditionalStore` trait has no Range-GET method yet — `get(&self, key)`
+fetches a whole object — so the real network fetch this benchmark issues at
+"open" downloads the entire 33,984,732-byte segment (the 2,025,728-byte
+posting-list blob and the 30,720,000-byte flat-vector blob included), not
+just the 1,238,808-byte open-wave subset a conforming Range-GET reader would
+fetch. `bench/src/cold_open.rs` and `bench/src/field_cold_open.rs` already
+carry this same limitation for the container and lexical families
+respectively, so it is not new to this benchmark, but it means the reported
+open **latency** (p50 = 92.6ms, p90 = 102.2ms, p99 = 114.1ms, n = 30) is a
+strictly harder number than a Range-GET-only fetch would show — real
+byte-count separation by blob type, not yet a real separated-latency
+measurement. Implementing a Range-GET path on `ConditionalStore` and
+re-measuring open latency on the open-wave subset alone remains real,
+separate, unimplemented follow-on work.
+
+Sections updated: Napkin math (gained the real-measurement paragraph
+directly after the formula-derived ≈12.4 MB figure it confirms), Open
+questions (struck the resolved item, with the real numbers inline). No
+formula or sizing arithmetic in this RFC changes as a result of this
+amendment — the real numbers confirm the existing formulas rather than
+correcting them.

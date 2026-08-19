@@ -47,10 +47,15 @@ path = "src/field_cold_open.rs"
 name = "tantivy-import-scale"
 path = "src/tantivy_import_scale.rs"
 
+[[bin]]
+name = "vector-cold-open"
+path = "src/vector_cold_open.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }
 strand-tools = { path = "../crates/strand-tools" }
+strand-vector = { path = "../crates/strand-vector" }
 aws-config = "1.10.1"
 aws-sdk-s3 = "1.142.0"
 bitpacking = "0.9.3"

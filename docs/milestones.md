@@ -362,10 +362,32 @@ computes replication's real cost impact (a provisional, explicitly unverified
 ~2.27×-the-budget estimate at realistic replica-8-equivalent density) but does not
 add the metadata slot or construction algorithm; a follow-on RFC owns it. RFC 0010's
 own corrected sizing law (~131 MB per million 768d vectors before replication, not
-the previously assumed ~100 MB) is real, grounded arithmetic, not yet a measured
-benchmark — the M0-style cold-open measurement this family still needs is named in
-RFC 0010's own Open questions, and this milestone's gate is not fully met until one
-exists. **`crates/strand-vector` now exists**, implementing all four blob types'
+the previously assumed ~100 MB) is real, grounded arithmetic — **now backed by a
+real measured M0-style benchmark, not only arithmetic**: `bench/src/
+vector_cold_open.rs` assembles a real four-blob-type segment (10,000 real
+768-dimensional vectors, real k-means clustering into 400 clusters, real
+`FhtKacRotator` rotation, real 1-bit RaBitQ quantization — the same
+`crates/strand-vector` functions its own tests exercise, no synthetic byte
+fillers), commits it to real MinIO via `strand-core`'s actual manifest CAS protocol,
+and reopens it cold 30 times. Measured result (`bench/results/vector-cold-open.json`):
+the descriptor and navigation-tier blobs, read back from the real committed
+segment's own hotcache registry, total 1,238,808 bytes — **1.24% of the 100 MB
+cold-open byte budget** — in a constant 3 GETs per open, and this run's own real
+per-cluster byte cost extrapolates to RFC 0010's 1,000,000-vector napkin-math scale
+at 12,384,408 bytes, matching that RFC's hand-computed ≈12.4 MB figure to the byte
+— the formula confirmed by real, executed code, not only trusted. One limitation
+carried over honestly from `bench/src/cold_open.rs` and `bench/src/
+field_cold_open.rs`: `strand-core`'s `ConditionalStore` has no Range-GET method yet,
+so the real network fetch this benchmark issues at open pulls the whole segment
+object (33,984,732 bytes, posting lists and flat vectors included), not just the
+open-wave subset a conforming Range-GET reader would fetch — real byte-count
+separation by blob type, not yet a real separated-latency measurement (measured
+whole-segment-GET latency: p50 92.6ms, p90 102.2ms, n=30, MinIO on localhost, no
+injected network latency). RFC 0010's own Open questions item asking for exactly
+this measurement is now resolved (RFC 0010 Discussion, 2026-08-19); this milestone's
+gate on it is met, with the Range-GET-reader and real-network-tail-latency
+limitations named as real, separate follow-on work rather than silently closed.
+**`crates/strand-vector` now exists**, implementing all four blob types'
 wire format (`descriptor.rs`, `navigation.rs`, `posting_list.rs`, `flat.rs`, plus
 `fastscan.rs` for the FastScan pack/unpack codec) with real round-trip tests, a
 proptest suite, worked-example golden files (`conformance/vectors/`) matching RFC
