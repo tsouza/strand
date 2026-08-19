@@ -14,8 +14,10 @@
 - **Spec chapters produced:** `spec/analyzer-descriptors.md`
 - **Invariants exercised:** 6 (`CLAUDE.md` §5), which invariant 5 depends on;
   resolves the per-document-length dependency RFC 0003's Non-goals section named as
-  open, for Lucene parity specifically — the tantivy half of `docs/ledger.md` R4
-  remains open (see Non-goals below).
+  open, for Lucene parity specifically. The tantivy half of `docs/ledger.md` R4,
+  left open by this RFC (see Non-goals below), was resolved by a later session —
+  2026-08-19, `references/tantivy-fieldnorm-overlap-accounting.md` — not by this RFC
+  itself; see the addendum at the end of Non-goals.
 
 ## Summary
 
@@ -72,6 +74,20 @@ source before M4's tantivy-fork parity work can rely on this chapter being compl
 for that engine; `docs/ledger.md` R4 is updated to reflect this narrower scope
 (Lucene resolved, tantivy still owed) rather than left implying the whole item is
 closed.
+
+**Addendum, 2026-08-19 (tantivy half resolved, M1-5):** a later session vendored
+tantivy's real indexing-path source (tag `0.26.1`,
+`references/tantivy-fieldnorm-overlap-accounting.md`) and found tantivy has **no
+`discountOverlaps`-equivalent mechanism at all** — its field-length count
+(`IndexingPosition::num_tokens`) increments unconditionally per token, with no
+concept of position overlap ever discounting the count. Mapped onto this RFC's own
+§6 vocabulary, tantivy's native behavior is equivalent to
+`counts_overlaps_in_length = true`, the opposite of what `lucene-parity` scoring
+requires — meaning a STRAND-compatible tantivy fork cannot use tantivy's stock
+fieldnorm computation unmodified if it claims `lucene-parity` for documents whose
+analysis chain can produce same-position tokens. `docs/ledger.md` R4 is updated to
+record both halves resolved; this paragraph is left in place, unedited above, as the
+honest record of what this RFC itself did and did not ground.
 
 **A catalog of every possible UAX #29 deviation** is not enumerated. The descriptor
 carries a `deviations` list (§2 below) as an open-ended, self-describing mechanism;
