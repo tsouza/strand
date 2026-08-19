@@ -87,11 +87,12 @@ fn main() {
     let field = build_field(&doc_refs);
     let build_elapsed = build_start.elapsed();
     eprintln!(
-        "build_field: {:.2}s — term_dict {} bytes, term_info {} bytes, postings {} bytes",
+        "build_field: {:.2}s — term_dict {} bytes, term_info {} bytes, postings {} bytes, positions {} bytes",
         build_elapsed.as_secs_f64(),
         field.term_dict.len(),
         field.term_info.len(),
-        field.postings.len()
+        field.postings.len(),
+        field.positions.len()
     );
 
     let mut builder = SegmentBuilder::new(doc_refs.len() as u64);
@@ -119,7 +120,7 @@ fn main() {
     let (segment_bytes, _) =
         ConditionalStore::get(&store, &segment_ref.path).expect("get succeeds").expect("segment exists");
     let hotcache = open_segment_bytes(&segment_bytes);
-    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all three blobs present");
+    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
     let open_elapsed = open_start.elapsed();
     eprintln!("cold open (pointer -> snapshot -> segment -> hotcache -> FieldReader): {:.2}ms", open_elapsed.as_secs_f64() * 1000.0);
 
@@ -149,6 +150,36 @@ fn main() {
             }
             None => eprintln!("  query {raw_term:>8?} (-> {term:?}): no matches"),
         }
+    }
+
+    // Real phrase queries: sample real adjacent stemmed-token pairs from
+    // the loaded documents themselves (same approach
+    // bench/src/tantivy_index.rs uses for its own phrase-query benchmark),
+    // so every query is guaranteed to have at least one real match.
+    let mut phrase_pairs: Vec<(String, String)> = Vec::new();
+    for text in &docs {
+        if phrase_pairs.len() >= 500 {
+            break;
+        }
+        let tokens = strand_lexical::analyzer::analyze_lucene_en_word_only(text);
+        if tokens.len() >= 2 {
+            phrase_pairs.push((tokens[0].clone(), tokens[1].clone()));
+        }
+    }
+    let mut phrase_latencies_us = Vec::with_capacity(phrase_pairs.len());
+    let mut phrase_matches_total = 0usize;
+    for (a, b) in &phrase_pairs {
+        let query_start = Instant::now();
+        let matches = reader.phrase_query(&[a.as_str(), b.as_str()]);
+        phrase_latencies_us.push(query_start.elapsed().as_secs_f64() * 1e6);
+        phrase_matches_total += matches.len();
+    }
+    if !phrase_latencies_us.is_empty() {
+        let mean = phrase_latencies_us.iter().sum::<f64>() / phrase_latencies_us.len() as f64;
+        eprintln!(
+            "phrase queries: {} queries, {phrase_matches_total} total matches, mean {mean:.1}us",
+            phrase_latencies_us.len()
+        );
     }
 
     let vocabulary_size = field.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN;

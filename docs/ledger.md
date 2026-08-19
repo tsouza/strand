@@ -503,6 +503,41 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   is a mildly encouraging signal, not a result. Adding real top-K
   short-circuiting to the query path is a real, separate follow-on, not
   done here.
+  **Re-run with positions now implemented and wired into `field.rs`
+  (2026-08-19), reversing the earlier "STRAND's total is smaller" reading —
+  that reading was correctly caveated as unfair at the time (STRAND had no
+  positions yet), and this is the honest completion of that caveat, not a
+  contradiction.** With both sides now carrying real positions data: at
+  10,003 docs, STRAND's total segment (2,408,400 bytes: term_dict 213,641 +
+  term_info 890,008 + postings 684,248 + positions 620,503) is `22.5%`
+  *larger* than tantivy's real total (1,965,977 bytes); at 100,476 docs,
+  `9.0%` larger (15,389,516 vs. 14,119,646 bytes). Postings alone still
+  ties/beats tantivy (unchanged: `1.5%`/`6.2%` smaller) — that finding
+  holds. The new gap is `positions` itself: STRAND's positions blob is
+  `33.2%` larger than tantivy's real `.pos` at 10K, `16.8%` larger at 100K
+  (`bench/src/field_end_to_end.rs`'s own real numbers, run on the identical
+  stride-sampled corpus `bench/src/tantivy_index.rs` used). This is not a
+  surprise RFC 0008 failed to predict — its own Napkin math already named
+  per-term fixed overhead as expensive (`total_term_freq`: 4 bytes,
+  `postings_block_pos_prefix`: at least 4 bytes, `pos_widths`: at least 1
+  byte — a 9-byte-minimum floor per term regardless of how few positions it
+  actually has, `spec/positions.md` §4's own stated minimum), and under
+  Zipf's law most terms are exactly this low-frequency case. Combined with
+  `TermInfo`'s already-named 12-byte-per-term overhead (no longer unused
+  dead weight now that positions is real, but `TermInfo`'s 28-byte flat
+  record is still less compact than tantivy's FST-based term dictionary at
+  these vocabulary sizes — `46–48%` larger, unchanged from the earlier
+  finding), **the honest conclusion is: STRAND currently outperforms
+  tantivy specifically on postings-list compression, and currently loses on
+  total index size once positions and term metadata are counted.** The
+  "outperform" claim this project can currently stand behind is narrower
+  than "STRAND's format is more compact" — it is "STRAND's registered
+  postings codec (RFC 0007) matches or beats a real, battle-tested engine's
+  own codec." Shrinking the per-term fixed overhead in positions/term-info
+  is real, identified, un-started follow-on work, not attempted in this
+  session — see the earlier TermInfo discussion this same investigation
+  already had with the user (a shorter per-field term-info record variant,
+  gated on an RFC since it touches RFC 0005's shipped byte layout).
 - **Batch-shaped reader trait — resolved 2026-08-19.** `crates/strand-core/src/
   batch.rs` now defines `BatchReader` (`next_batch(&mut self, out: &mut Vec<Item>)
   -> usize`, invariant 9's frozen shape), and `PostingsReader::batches()`

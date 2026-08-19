@@ -182,9 +182,15 @@ lookup resolution for every document; and property-based tests
 lists with postings-block and position-block boundaries stressed
 independently (they're different counts), checking targeted lookups
 against the original input directly, not against this blob's own decode
-path. Not yet wired into `crates/strand-lexical/src/field.rs`'s
-segment-lexical integration layer — phrase queries through the real
-end-to-end path are a real, separate follow-on.
+path. **Now wired into `crates/strand-lexical/src/field.rs`**: `build_field`
+tracks each token's within-document position and builds the positions blob
+alongside the other three; `FieldReader::phrase_query` resolves real
+adjacent-position phrase matches (correctness-first — full decode and
+intersection, not yet the block-targeted skip `PositionsReader::
+positions_for_doc` makes possible). The end-to-end test now proves a real
+positive phrase match and a real negative one (two terms that co-occur in
+a document but are never adjacent), confirming this is true positional
+matching, not co-occurrence.
 
 **The MS MARCO-vs-tantivy benchmark this entry named as still owed has now
 run, and it found and corrected a real overestimate.** `bench/src/
