@@ -414,18 +414,34 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   **DaMoN '24's GPU warp caveat is real, not fatal, and separately doesn't move
   STRAND's own decision because STRAND targets CPU, not GPU.** Reading past the
   one-sentence caveat already vendored (full PDF fetched live this session,
-  `ir.cwi.nl/pub/34260/34260.pdf`): the paper's own fix is *mini-vectors* —
-  splitting the 1024-value FastLanes vector into smaller sub-vectors (they measure
-  256-wide) so each GPU thread holds fewer registers per column (32 → 8 at
-  256-wide, a measured 4× register-pressure reduction, §5.1 "FLS-GPU-opt"). This
-  is a real, implemented, *measured* mitigation, not a dead end: end-to-end SSB
-  queries with FLS-GPU-opt beat naive FLS-GPU, and on the Tesla T4 specifically
-  also beat the prior state of the art (Tile-Based decompression) on the queries
-  benchmarked — though on the V100 GPU, Tile-Based still wins on 2 of the 4
-  benchmarked query families even after the mini-vector optimization, which the
-  paper's own introduction names as unresolved ("a future work question is how to
-  further reduce this granularity with minimal impact on efficiency"). Two things
-  matter for STRAND specifically. **First**, this DaMoN paper evaluates FastLanes'
+  `ir.cwi.nl/pub/34260/34260.pdf`, excerpts now vendored verbatim in
+  `references/r9-fastlanes-core-alp-damon-license.md`): the paper's own fix is
+  *mini-vectors* — splitting the 1024-value FastLanes vector into smaller
+  sub-vectors (they measure 256-wide) so each GPU thread holds fewer registers per
+  column (32 → 8 at 256-wide, a measured 4× register-pressure reduction, §5.1
+  "FLS-GPU-opt," quoted verbatim in the reference file). This is a real,
+  implemented, *measured* mitigation, not a dead end, but its win is narrower and
+  more hardware-specific than a first read suggests, and the two hardware targets
+  diverge: on the Tesla T4, "FLS-GPU performs significantly better than Tile-Based
+  for all queries" — the un-optimized kernel already wins outright, before
+  mini-vectors are even applied. On the V100, the *un-optimized* `FLS-GPU` loses to
+  Tile-Based specifically "on Q3.1 and Q4.1" (two of the four benchmarked SSB
+  queries, Q1.1/Q2.1/Q3.1/Q4.1) — and after applying the mini-vector mitigation at
+  the smaller 256×4 configuration V100's tighter register budget forces, the
+  paper's own textual conclusion is that "register pressure remained problematic
+  for the occupancy — only little performance improvement is observed." The paper
+  does not state a clean post-optimization win/loss count by query family in
+  prose — only a bar chart (Figure 6) that pdftotext cannot reliably quantify —
+  so this entry cites the paper's own textual conclusion rather than a number read
+  off that chart (an earlier draft of this entry claimed "Tile-Based still wins on
+  2 of the 4 benchmarked query families even after the mini-vector optimization,"
+  conflating the un-optimized `FLS-GPU`'s stated 2-of-4 loss with the optimized
+  `FLS-GPU-opt` case; corrected here rather than left to stand, per `CLAUDE.md` §2).
+  The paper's own framing of what remains unresolved, from its introduction: "we
+  mitigate this here using mini-vectors — a future work question is how to further
+  reduce this granularity with minimal impact on efficiency."
+
+  Two things matter for STRAND specifically. **First**, this DaMoN paper evaluates FastLanes'
   *core* integer encodings (bit-packing, DELTA, RLE, DICT — SSB benchmark columns
   such as `lo_orderdate`) on GPU; ALP has no role in this paper at all, so it does
   not reopen the postings question the ALP finding above just closed — it is a
