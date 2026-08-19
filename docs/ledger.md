@@ -415,8 +415,8 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   practice of the STRAND fork pinning its own explicit commit rather than assuming
   crates.io and tantivy's git trunk behave identically; (d) the fork reader-module
   list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier
-  graph host choice. Adapter milestones remain conditional on R11 (b) and (e),
-  still open.
+  graph host choice. Adapter milestones remain conditional on R11 (b), (d), and
+  (e), still open.
 
   **R11(a) finding (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`,
   fetched against tantivy tag `0.26.1` and Lucene tag `releases/lucene/10.5.1`,
