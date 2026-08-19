@@ -44,14 +44,23 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   graph-blob half untouched by RFC 0010. RFC 0010's own napkin math already moves
   this forward with real numbers, not just leaves it open: real tier-1 cost is
   ~131 MB per million 768d vectors before replication (corrected from the
-  previously stated ~100 MB, `docs/data-structures.md`), and a provisional,
-  explicitly-unverified replica-8-equivalent estimate of ~227 MB (~2.27× the
-  budget) — over half the margin to the kill criterion below, not close to
-  tripping it, but real headroom consumed. Kill criterion, falsifiable: if tier-1
+  previously stated ~100 MB, `docs/data-structures.md`), and a replica-8-equivalent
+  estimate of ~227 MB (~2.27× the budget) — over half the margin to the kill
+  criterion below, not close to tripping it, but real headroom consumed. This
+  estimate's 1.73× replication ratio (13.0 GB vs 7.5 GB at replica 8 vs 2) is now
+  a real, body-sourced figure (2026-08-19): SPANN's own paper
+  (`arxiv.org/abs/2111.08566`) was fetched in full and confirmed to contain no
+  GIST1M dataset and no index-size figure at any replica count; the real figure
+  lives in the companion cloud-native benchmark paper (Li et al.,
+  `arxiv.org/abs/2511.14748`, Table 4, §5.3), also fetched in full and quoted
+  verbatim (`references/spann-body-figures.md`). The ratio itself is unchanged by
+  this fetch — only its citation and confidence label are — and a real gap
+  remains: neither paper reports a replica=1 index size, so the ~227 MB figure is
+  still an extrapolation across the unmeasured 1→2 step, stated as a conservative
+  lower bound, not a measurement. Kill criterion, falsifiable: if tier-1
   exceeds `CLAUDE.md` §7's provisional 100 MB cold-open byte budget — or its
   measured M0 replacement — by more than ~4× at target segment scale, cold vector
-  search is narrower and the mission sentence changes again. Still open: a real
-  fetch of SPANN's body figures to replace the provisional replication estimate; a
+  search is narrower and the mission sentence changes again. Still open: a
   real M0-style measured byte-open benchmark for this blob family (RFC 0010's own
   math is arithmetic, not a benchmark); the graph-blob ordering algorithm
   (Starling's block shuffling is the literature; pick with evidence), entirely

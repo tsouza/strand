@@ -353,8 +353,12 @@ Approval — is now resolved (RFC 0010 Discussion, `spec/vectors.md` §4),
 clearing the way to actually start `crates/strand-vector`. **Not yet met by
 RFC 0010 alone**: the
 replication knob this milestone names as a deliverable — RFC 0010's own napkin math
-computes replication's real cost impact (a provisional, explicitly unverified
-~2.27×-the-budget estimate at realistic replica-8-equivalent density) but does not
+computes replication's real cost impact (a ~2.27×-the-budget estimate at realistic
+replica-8-equivalent density, resting on a real body-sourced 1.73× ratio as of
+2026-08-19 — SPANN's own paper has no GIST1M index-size figures at all; the real
+13.0 GB/7.5 GB numbers live in the companion cloud-native benchmark paper's Table 4,
+`references/spann-body-figures.md` — though still extrapolated from a replica-2
+baseline since neither paper measures replica-1) but does not
 add the metadata slot or construction algorithm; a follow-on RFC owns it. RFC 0010's
 own corrected sizing law (~131 MB per million 768d vectors before replication, not
 the previously assumed ~100 MB) is real, grounded arithmetic, not yet a measured
