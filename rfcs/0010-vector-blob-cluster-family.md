@@ -802,30 +802,39 @@ implementation's own FastScan batch size,
 `references/rabitq-library-ivf-and-batch-layout-source.md`, `fastscan.hpp`)
 as a **wire-format** constant, not merely an implementation
 detail — every reader that ever decodes this blob family must agree on 32,
-forever, regardless of what SIMD width its own hardware favors. This RFC
-did not independently audit *why* the reference library chose 32
-specifically (vs. 16 or 64) — whether it is a property of the FastScan
-LUT algorithm itself (a data-parallelism convenience that works identically
-regardless of the reading hardware's register width, which invariant 10
-explicitly permits — a *compute-native decompressed layout* may still
-exploit whatever SIMD width is available at decode time, invariant 10's own
-distinction) or a residual assumption tied to a specific vendor's register
-width baked in at the wire-byte level (which invariant 10 exists to
-prevent). This RFC states the residual risk honestly rather than asserting
-it away: adopting an external codec's own batch constant as this format's
-own wire bytes is exactly the kind of decision the Optane grave warns
-about. The Discussion amendment (below) strengthens, but does not fully
-close, the algorithm-shaped case: `pack_codes`'s own logic (vendored in
-full, `references/rabitq-library-fastscan-pack-codes-source.md`) packs
-strictly in terms of nibbles and a fixed 16-entry permutation, with no
-explicit register-width constant anywhere in the packing code itself —
-`kBatchSize = 32` falls out of "process 32 vectors' worth of nibbles two
-at a time via a 16-entry LUT shuffle," a property of the algorithm's own
-data-parallelism shape, not an adopted SIMD register width. What remains
-genuinely unfetched is `src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp`
-(the `accumulate()` decode kernel's actual SIMD implementation) — until
-that is read directly, this RFC's confidence that 32 carries no residual
-hardware provenance is well-evidenced, not fully proven (Open questions).
+forever, regardless of what SIMD width its own hardware favors. This
+question is now **resolved, not merely well-evidenced**: a second
+Discussion amendment (below) fetched the actual SIMD `accumulate()`
+decode kernels — `src/simd/fastscan_avx2.cpp` and
+`src/simd/fastscan_avx512.cpp`, vendored in full in
+`references/rabitq-library-fastscan-accumulate-source.md` — the file this
+RFC's own Open questions had named as the one thing that would settle it.
+Both kernels share one identical function signature, are selected by a
+single runtime function pointer (`src/simd/dispatch.cpp`'s
+`kAccumulateFn`), and — despite AVX512's accumulator being twice AVX2's
+width (512 bits vs. 256 bits) — both produce **exactly 32 result values
+per call, never 64**. If 32 were a register-width artifact, the wider
+AVX512 kernel would naturally batch 64 vectors; instead its extra width is
+spent processing more of the packed `dim`-columns per loop iteration, with
+an extra horizontal-combine step folding the wider accumulators back down
+to the same 32-lane result. The batch size traces instead to the
+FastScan/PQ nibble-lookup trick's own fixed 16-entry table (`pack_lut`
+builds one 16-entry LUT per 4-bit sub-code — `2^4 = 16` — a property of
+the sub-code width, not of any vendor's ISA) doubled by `pack_codes`'s
+hi/lo nibble packing: 16 × 2 = 32. That LUT technique is attributed in the
+source itself to Faiss's FastScan design, which in turn is built on
+SSSE3's 128-bit `pshufb` instruction (16-byte, 16-entry lookups) —
+predating AVX2 and AVX512 by roughly a decade — and both `_mm256_
+shuffle_epi8` and `_mm512_shuffle_epi8` still operate within 128-bit lanes
+regardless of the surrounding register's total width, a documented
+property of the x86 instruction set, not a choice this library made.
+`kBatchSize = 32` is algorithm-shaped: it is the LUT width's own fixed
+data-parallelism shape, adopted unchanged into this format's wire bytes,
+and carries no residual dependency on any specific vendor's register
+width. Adopting an external codec's own batch constant as this format's
+own wire bytes remains, in general, exactly the kind of decision the
+Optane grave warns about — the finding here is that in this specific case
+the audit came back clean, not that the category of risk was never real.
 
 **Second, and the more consequential risk: R1's own kill criterion.** This
 RFC's corrected sizing law (Napkin math) runs ~31% over the provisional
@@ -957,13 +966,14 @@ what the reference implementation's own `save()`/`load()` pair already does
 - **The graph-blob family (warm tier)** — R1's second half, the node-order
   permutation algorithm question, entirely untouched by this RFC.
 - ~~The intra-batch bit/lane order~~ — resolved (Discussion, below; `spec/
-  vectors.md` §4). Still open: **FastScan `kBatchSize = 32`'s hardware-vs-
-  algorithm provenance** (How this could be wrong) — this session fetched
-  `fastscan.hpp` in full (finding `pack_codes` itself, resolving the item
-  above) but not `src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp`, the
-  actual SIMD `accumulate()` implementation whose register-width choices
-  would settle whether 32 is genuinely algorithm-shaped or has residual
-  hardware provenance.
+  vectors.md` §4).
+- ~~FastScan `kBatchSize = 32`'s hardware-vs-algorithm provenance~~ —
+  resolved (Discussion, below; `references/rabitq-library-fastscan-
+  accumulate-source.md`). Both `accumulate_avx2` and `accumulate_avx512`
+  produce exactly 32 results per call despite AVX512's register being
+  twice AVX2's width; 32 traces to the FastScan/PQ nibble-LUT's fixed
+  16-entry table (`2^4` sub-code values) doubled by hi/lo nibble packing,
+  not to any register width. Algorithm-shaped, not hardware-shaped.
 - **A real M0-style byte-budget measurement** for this blob family, the
   same way `bench/src/cold_open.rs` gave invariant 3 a real measured
   baseline instead of only round-trip-count arithmetic — this RFC's Napkin
@@ -1036,3 +1046,47 @@ question), and `spec/vectors.md` §4 (gained the complete normative
 algorithm). No arithmetic in this RFC changes as a result of this
 amendment — this closes a specification-completeness gap, not a sizing or
 round-trip correction.
+
+**2026-08-19 — FastScan `kBatchSize = 32` hardware-vs-algorithm provenance
+resolved.** The immediate next step the prior amendment's own "What
+remains genuinely unfetched" sentence named: `src/simd/fastscan_avx2.cpp`
+and `src/simd/fastscan_avx512.cpp`, the actual SIMD `accumulate()` decode
+kernels, fetched live and vendored in full
+(`references/rabitq-library-fastscan-accumulate-source.md`). The
+declarations live at `include/rabitqlib/simd/fastscan_dispatch.hpp`
+(header only, both ISA variants declared with one shared signature); the
+definitions live under `src/simd/`, not `include/rabitqlib/simd/` as the
+prior Open-questions note assumed — confirmed by listing both directories
+live before fetching rather than guessing the path.
+
+The finding: `accumulate_avx2` and `accumulate_avx512` are selected by a
+single runtime function pointer of one fixed type
+(`fastscan::kAccumulateFn`, `src/simd/dispatch.cpp`) and, despite
+AVX512's accumulator being twice AVX2's register width (512 bits vs.
+256 bits), both produce **exactly 32 result values per call** — AVX2 via
+two 16-wide stores, AVX512 via one 32-wide store, never 64 either way. A
+register-width-driven batch size would predict AVX512 naturally batching
+64 vectors; it does not. AVX512's extra width instead processes more of
+the packed `dim`-columns per loop iteration, with an added
+horizontal-combine step folding the wider partial sums back down to the
+same 32-lane result. Tracing further: `fastscan::pack_lut` builds one
+16-entry lookup table per 4-bit sub-code (`2^4 = 16`, fixed by the
+sub-code width, not by any ISA), and `pack_codes` (already vendored)
+doubles that via hi/lo nibble packing — 16 × 2 = 32. Both `_mm256_
+shuffle_epi8` and `_mm512_shuffle_epi8` operate within 128-bit lanes
+regardless of total register width, a documented x86 property inherited
+from SSSE3's `pshufb`-based FastScan/PQ lookup trick (the source's own
+attribution to Faiss's FastScan design) that predates both AVX2 and
+AVX512. `kBatchSize = 32` is algorithm-shaped, not hardware-shaped: it is
+adopted unchanged into this format's wire bytes with no residual
+dependency on any specific vendor's register width, closing the risk
+invariant 10 exists to prevent for this specific constant.
+
+Sections updated: "How this could be wrong" (the `kBatchSize`
+hardware-provenance paragraph now states the resolution and its evidence
+rather than a residual, well-evidenced-but-unproven risk) and Open
+questions (the item struck as resolved). No arithmetic in this RFC
+changes, no wire format changes, and no shipped code changes — `kBatchSize
+= 32` in `crates/strand-vector/src/fastscan.rs` was already correct; this
+amendment closes a citation gap in the RFC's own adversarial review, not a
+design or implementation defect.
