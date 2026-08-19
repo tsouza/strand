@@ -103,9 +103,26 @@ a segment declaring `true` while claiming `lucene-parity` scoring is non-conform
 `script` names one Script value (e.g. `"Han"`, `"Thai"`, `"Lao"`, `"Hiragana"`,
 `"Katakana"`, `"Hangul"`), not the umbrella term "CJK" — content mixing scripts
 needs per-script handling. MUST be non-null when the field's content uses a
-dictionary-segmented script (CJK, Thai, Lao). This chapter does not yet pin a
-default dictionary (RFC 0004 Non-goals);
-a conforming segment states one explicitly regardless.
+dictionary-segmented script (CJK, Thai, Lao). A conforming segment states an
+identity and version explicitly regardless of which dictionary it uses; nothing in
+this chapter restricts the value to STRAND's own recommended default.
+
+STRAND's recommended default, for an implementation with no other requirement, is
+ICU4X's `icu_segmenter` crate, constructed via `WordSegmenter::
+try_new_dictionary()` — not `try_new_auto()`, which substitutes an LSTM model for
+Thai and Lao rather than dictionary lookup and would silently misrepresent this
+field. This covers Han, Hiragana/Katakana, Thai, and Lao from one Unicode-3.0-
+licensed, pure-Rust dependency with no native build dependency (RFC 0004 Discussion
+— post-approval amendments, `references/icu4x-icu-segmenter-crate.md`). `identity`
+names the segmentation family (e.g. `"icu4x-dictionary"`) and `version` names the
+`icu`/`icu_segmenter` crate's semver (e.g. `"icu_segmenter 2.3.0"`) — independent
+of this descriptor's own `icu_version` field (§1), since ICU4X versions separately
+from classic ICU4C and the two MUST NOT be assumed to correspond. This default is a
+format-level recommendation only: neither `crates/strand-lexical/src/analyzer.rs`
+implements it yet nor does `conformance/analyzers/` carry a dictionary-segmented
+vector (RFC 0004 Non-goals) — both remain open M1 execution work, and the exact
+byte-level pinning of `version` (crate semver alone, or also a compiled-data
+content hash per invariant 11) is left to that implementation session.
 
 ## 6. Placement constraint
 

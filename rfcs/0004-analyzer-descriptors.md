@@ -50,13 +50,16 @@ to reproduce, or it is not conforming, full stop.
 
 ## Non-goals
 
-**Choosing a specific CJK/Thai/Lao segmentation dictionary** is not resolved here.
-Invariant 6 requires the descriptor carry a dictionary identity and version for
-dictionary-segmented scripts; this RFC pins the *schema slot* those fields occupy,
-not which dictionary STRAND ships as a default (MeCab, Jieba, ICU's own dictionary-
-based break iterator, and others are all live candidates, none audited in this
-pass). A conforming segment MUST populate the field if its content uses a
-dictionary-segmented script; this RFC does not yet say with what.
+**Choosing a specific CJK/Thai/Lao segmentation dictionary** was not resolved by
+this RFC at Approval. Invariant 6 requires the descriptor carry a dictionary
+identity and version for dictionary-segmented scripts; this RFC pins the *schema
+slot* those fields occupy (Design §5), not which dictionary STRAND ships as a
+default. The default is now resolved — Discussion — post-approval amendments,
+below — but resolving *which identity a conforming default names* is still not the
+same as *implementing* it: `crates/strand-lexical/src/analyzer.rs` populates
+`segmentation_dictionary` for no script yet, and no dictionary-segmented
+conformance vector exists in `conformance/analyzers/`. Both remain real,
+un-started M1 execution work.
 
 **tantivy's own doc-length accounting** is not grounded here, though `docs/ledger.md`
 R4 lists "precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
@@ -331,9 +334,12 @@ here: don't invent a closed registry where an open, checkable identifier suffice
 
 ## Open questions / follow-on RFCs
 
-- Which CJK/Thai/Lao segmentation dictionary STRAND adopts as a default (Non-goals,
-  above) is unresolved and needs its own grounding pass before M1's analyzer work is
-  complete — it gates real conformance for those scripts, not an edge case.
+- ~~Which CJK/Thai/Lao segmentation dictionary STRAND adopts as a default~~ —
+  resolved below (Discussion — post-approval amendments). Populating
+  `segmentation_dictionary` in the reference implementation (`crates/
+  strand-lexical/src/analyzer.rs`) and adding a real dictionary-segmented
+  conformance vector to `conformance/analyzers/` remain genuine, separate M1
+  execution work this amendment does not do.
 - The stemmer version-pinning mechanism (How this could be wrong, above) should be
   tightened to a commit hash before implementation, not left at this RFC's own
   date-based placeholder.
@@ -341,3 +347,137 @@ here: don't invent a closed registry where an open, checkable identifier suffice
   in shape to RFC 0003's own deferred placement question — the two descriptors
   (scoring-profile, analyzer) may end up sharing one carrying mechanism once R2
   designs it; this RFC does not assume they will.
+- A real segmentation-accuracy bake-off (the ICU4X dictionary path vs. Lindera+
+  IPADIC for Japanese, vs. Jieba for Chinese, vs. PyThaiNLP for Thai), the same
+  discipline R2 applied to postings codecs, has not been run — the recommendation
+  below is grounded in license and dependency-shape terms, not measured accuracy
+  (Discussion, below).
+- The exact byte-level pinning mechanism for `segmentation_dictionary.version` (a
+  crate semver string, a compiled-data content hash, or both) is not decided here
+  — Discussion, below, states the requirement and leaves the mechanism to the
+  implementation session, the same way this RFC's own "How this could be wrong"
+  already left the stemmer's commit-hash pinning to a future session.
+
+## Discussion — post-approval amendments
+
+**2026-08-19 — CJK/Thai/Lao default `segmentation_dictionary` resolved.** Prompted
+by `docs/roadmap.md` M1-1, sourced directly from this RFC's own Non-goals and Open
+questions sections: the schema slot for `segmentation_dictionary` (Design §5) was
+pinned at Approval, but which dictionary STRAND recommends as its default was left
+unresolved, "gates real conformance for those scripts, not an edge case."
+
+Five live candidates were fetched and license-audited in this session, none taken
+from memory (`CLAUDE.md` §3): MeCab, the classic C++ Japanese tokenizer; Lindera, a
+pure-Rust MeCab-shaped reimplementation; Jieba/`jieba-rs`, Chinese-specific;
+ICU4C's classic dictionary-based break iterator, reachable from Rust via the
+`rust_icu` binding; and ICU4X's `icu_segmenter` crate. Thai-specific PyThaiNLP was
+also checked and set aside for lack of a Rust path (`references/
+pythainlp-license-and-rust-gap.md`).
+
+| Candidate | Code license | Rust path | Dictionary license | Script coverage |
+| --- | --- | --- | --- | --- |
+| MeCab | GPL/LGPL/BSD, recipient's choice (`references/mecab-triple-license.md`) | none native; C++ FFI only | IPADIC: NAIST + ICOT Free Software, permissive | Japanese only |
+| Lindera | MIT (`references/lindera-rust-morphological-analyzer.md`) | native, pure Rust, actively maintained (v5.3.0, published 2026-08-16) | IPADIC (permissive) for Japanese; **CC-CEDICT for Chinese is CC BY-SA 4.0**, share-alike (`references/cc-cedict-and-lindera-cc-cedict-license.md`) | Japanese clean; Chinese license-blocked; no Thai/Lao |
+| Jieba / `jieba-rs` | MIT (`references/jieba-and-jieba-rs-license.md`) | native, pure Rust, actively maintained | bundled `dict.txt`, MIT | Chinese only |
+| ICU4C classic break iterator (`rust_icu`) | Apache-2.0 binding; ICU4C data Unicode-3.0 + BSD-style notices (`references/rust-icu-icu4c-binding-crate.md`) | FFI to a native, system-linked C library | `cjdict.txt` (Libtabe BSD + IPADIC/ICOT) for Han/Kana, `laodict.txt` (BSD-2-clause) for Lao, Thai covered by the primary Unicode-3.0 grant directly | Chinese, Japanese, Thai, Lao, Khmer, Burmese — automatic dictionary lookup, no LSTM fork |
+| ICU4X `icu_segmenter` | Unicode-3.0 (`references/icu4x-icu-segmenter-crate.md`) | native, pure Rust, no C dependency, actively maintained (v2.3.0, published 2026-08-13) | same upstream word lists as ICU4C (`references/icu-license-word-break-dictionaries.md`), Unicode-3.0 | Chinese, Japanese, Thai, Lao, Khmer, Myanmar via explicit `try_new_dictionary()`; `try_new_auto()` instead prefers LSTM for Thai/Lao/Khmer/Myanmar |
+
+**Recommendation: ICU4X's `icu_segmenter` crate, called via `WordSegmenter::
+try_new_dictionary()`, is STRAND's default `segmentation_dictionary` family for
+CJK, Thai, and Lao.** Three reasons, in order of weight:
+
+1. **It is the only candidate that is simultaneously license-clean, covers all
+   three required script families from one dependency, and needs no native C
+   binding.** Lindera is the closest runner-up but its Chinese dictionary
+   (CC-CEDICT) carries a share-alike condition this project's Apache-2.0 policy
+   cannot absorb (`references/cc-cedict-and-lindera-cc-cedict-license.md`), and it
+   has no Thai or Lao coverage at all. Jieba is Chinese-only. MeCab's own triple
+   license includes a usable BSD option, but only for Japanese, and only via a
+   native C++ dependency Lindera already makes unnecessary. ICU4C via `rust_icu`
+   covers the same scripts as ICU4X with the same underlying dictionary licenses,
+   but requires linking a system ICU4C build — a real byte-determinism
+   (invariant 11) and dependency-shape (`CLAUDE.md` §8) cost the pure-Rust ICU4X
+   path avoids.
+2. **Its dictionary data is license-clean straight through**, confirmed by
+   directly fetching ICU's own third-party LICENSE notices rather than trusting a
+   summary: `cjdict.txt` combines Libtabe (BSD-style) and IPADIC (NAIST/ICOT,
+   permissive, no share-alike); `laodict.txt` is BSD-2-clause; Thai's dictionary
+   data carries no separate third-party notice at all and is covered by ICU's own
+   primary Unicode License V3 grant (`references/
+   icu-license-word-break-dictionaries.md`). None of the three carries a copyleft
+   or share-alike condition, unlike CC-CEDICT.
+3. **A version-pinning identifier is available without inventing one.** The
+   descriptor's own `identity`/`version` fields (Design §5) can name the `icu`
+   crate's semver (e.g. `"icu_segmenter 2.3.0"`, the version confirmed live on
+   crates.io at time of writing) the same way `stopword_list_id` and
+   `stemmer.version` already use an opaque, sufficiently-specific string rather
+   than a closed registry (Alternatives considered, above) — no new versioning
+   mechanism is invented for this field either.
+
+**Unicode-3.0 is determined Apache-2.0-compatible here, for the first time in this
+project.** Every other license this project has accepted so far is MIT (tantivy,
+FAISS, `cwida/FastLanes`, Lindera, Jieba) or Apache-2.0 itself. Unicode License V3
+is a different family: permissive, non-copyleft, OSI-approved, with copyright- and
+permission-notice preservation as its only condition — the same shape of grant MIT
+makes, just from a different steward. This determination is made on that basis, not
+on precedent alone, and is recorded here so a future session does not have to
+re-derive it.
+
+**How this could be wrong.**
+
+*Accuracy is unverified, and the recommendation is not accuracy-driven.* This
+choice was made on license and dependency-shape grounds, not a measured
+segmentation-quality bake-off — no comparison was run between ICU4X's dictionary
+output and Lindera+IPADIC for Japanese, or Jieba for Chinese, or PyThaiNLP for
+Thai, all of which have reputations (unverified in this pass) for higher accuracy
+than ICU's general-purpose word lists on their respective scripts. `CLAUDE.md` §7's
+own napkin-math discipline exists to keep sizing claims honest; the same honesty
+applies here: this is a defensible default, not a benchmarked winner, and a real
+bake-off — the same discipline R2 applied to postings codecs
+(`docs/ledger.md` R2) — is named as still-open work above rather than skipped
+silently.
+
+*The `try_new_dictionary()` vs. `try_new_auto()` selection trap is real and
+structurally familiar.* ICU4X's own default-shaped constructor, `new_auto()`,
+silently substitutes an LSTM model for Thai, Lao, Khmer, and Myanmar rather than
+using the dictionary path (`references/icu4x-icu-segmenter-crate.md`). A future
+implementation session that reaches for the naturally-named "automatic" constructor
+would produce output that does not match what a `segmentation_dictionary` field
+claims, without any error — an undeclared-processing-step failure mode this RFC's
+own Design section already caught once, in the same document, for case folding
+("An earlier draft... applied lowercasing anyway," How this could be wrong, above).
+This is also this RFC's nearest grave, restated for this specific decision rather
+than a new one invented for it: `docs/lineage.md` names CIFF's "no analyzer
+metadata" as the gap this whole RFC exists to close, and the risk named there
+("a descriptor schema loose enough to be satisfied trivially... would be 'analyzer
+metadata' in name only") is exactly what silently picking `new_auto()` over
+`new_dictionary()` would produce — a descriptor that looks precise but describes a
+different algorithm than the one that actually ran. The mitigation is the same as
+the original risk's: name the exact constructor normatively in the implementation
+task this amendment defers, not just the crate.
+
+*The descriptor's existing `icu_version`/`cldr_version` fields do not automatically
+cover this dependency's version.* The worked example's `icu_version: "78.3"` names
+a classic ICU4C release. ICU4X versions independently (`icu` crate `2.3.0` at time
+of writing) and this session did not find a stated CLDR-version correspondence for
+that release on its own documentation page. Adopting ICU4X does not let
+`segmentation_dictionary.version` piggyback on the descriptor's existing
+`icu_version` field for free, the way this amendment's Design-coherence framing
+might suggest at a glance — they are two different projects' version numbers that
+happen to share a name. `segmentation_dictionary.version` MUST therefore carry its
+own value (the `icu`/`icu_segmenter` crate semver, per the recommendation above),
+independent of whatever `icu_version` the rest of the descriptor names; a future
+implementation session should also decide whether to additionally pin a content
+hash of the compiled dictionary data, matching invariant 11's general preference
+for checksums over a bare version string alone (Open questions, above) — this RFC
+amendment states the requirement, not the mechanism.
+
+Sections updated: Non-goals (states the default is resolved, implementation is
+not), Design §5 (unchanged — the schema slot already accommodates any identity
+string), Open questions (struck the resolved item, added the bake-off and
+byte-pinning follow-ons this amendment's own adversarial pass surfaced), and this
+Discussion section. `spec/analyzer-descriptors.md` §5 is updated in the same
+session to name the default. `docs/ledger.md` and `docs/roadmap.md` M1-1 are
+updated to reflect a resolved format-design decision with implementation still
+open, not a fully closed item. No wire format changes: `segmentation_dictionary`'s
+shape (`{script, identity, version}`) is unchanged from Approval.
