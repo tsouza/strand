@@ -1237,3 +1237,63 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   and `verification/README.md`'s state-count baseline. The TLAPS phase can now
   build on a grammar that matches the real code's outcome sets on every writer
   action, not just the pointer CAS.
+- **`MatrixRotator`'s matrix generation implemented — 2026-08-19, same day,
+  prompted by "implement MatrixRotator's matrix generation next."**
+  `crates/strand-vector/src/orthogonal.rs`'s `generate_matrix_rotation`
+  closes the last item `rotate.rs`'s own entry above named as remaining:
+  `rotate_matrix` already applied a caller-supplied matrix, but nothing in
+  this crate produced one. The reference implementation's algorithm
+  (already vendored at `references/rabitq-library-rotator-source.md` during
+  RFC 0010 drafting, so no new fetch was needed) is: sample a random
+  Gaussian `padded_dims × padded_dims` matrix, QR-decompose it, transpose
+  `Q`, keep the first `dims` rows — "the random matrix only need the first
+  dim rows, since we just pad zeros for the vector to be rotated to padded
+  dimension." `sample_standard_normal` draws via Box-Muller (no new
+  dependency for one call site); `householder_qr` is a from-scratch
+  Householder QR implementation (Golub & Van Loan's numerically-stable sign
+  convention: `alpha = -x[0].signum() * ||x||`), computed internally in f64
+  and truncated to f32 only for the final wire-format payload.
+
+  **A genuinely different grounding situation from every other
+  numerically-precise module this session, reasoned through explicitly
+  rather than defaulted into.** `quantize.rs`, `rotate.rs`, and
+  `estimate.rs` all had one correct output to match, verified by
+  cross-checking against a compiled reimplementation of the reference's
+  exact algorithm. QR decomposition has no such single correct output: it
+  is not unique — two correct implementations routinely disagree on the
+  sign of individual columns — so matching Eigen's `HouseholderQR` output
+  bit-for-bit isn't even the right correctness criterion, and would in fact
+  be a *fourth* independent implementation's opinion, no more authoritative
+  than this crate's own. `descriptor.rs`'s design already anticipated this:
+  any `MatrixRotator` implementation need only produce *a* valid orthogonal
+  matrix, serialized verbatim once realized, not any *particular* one. What
+  was owed instead: verifying the three properties that *define* a valid
+  QR decomposition, directly — `Q` orthogonal (`QᵀQ = I`), `R` upper
+  triangular, `QR` reconstructs the input — checked at sizes `[1, 2, 3, 5,
+  8, 32, 64]` in the default suite and, separately, at `n = 768` (realistic
+  embedding scale) in a test marked `#[ignore]` with a documented rationale
+  (O(n³) is ~40s in debug mode, ~3s release) and run explicitly for this
+  work — a stronger, more directly relevant check here than bit-matching
+  any single other implementation would have been.
+
+  A new `tests/matrix_rotator_pipeline.rs` is the `MatrixRotator`
+  counterpart to `full_pipeline.rs`: a *freshly generated* (not
+  caller-supplied) matrix carried through `descriptor::
+  build_matrix_generated` (new convenience wrapper, matching
+  `build_fht_kac`'s pattern) → descriptor serialization → parse-back →
+  `rotate_matrix` (with an L2-norm-preservation check, the same property
+  `rotate.rs`'s own tests already verify for `FhtKacRotator`) →
+  `quantize_one_bit` over 30 real vectors → `build_posting_lists` →
+  `PostingListReader::read_cluster`, confirming bit-exact round-trip of
+  every code, factor, and row-id. 8 new tests (`orthogonal.rs`'s 5
+  non-ignored plus 1 ignored, `descriptor.rs`'s
+  `matrix_generated_produces_a_real_orthogonal_matrix`, and this pipeline
+  test), all passing; workspace total now 169, clippy clean, plus the
+  ignored `n = 768` test independently confirmed passing in release mode
+  (3.41s).
+
+  This closes every item RFC 0010's Non-goals list named as belonging to
+  `MatrixRotator` specifically. What remains from the original list: the
+  multi-bit Extended-RaBitQ path, deletion-vector integration, and
+  reranking against the flat-vector blob (Design §6 steps 4–5) — unchanged
+  from the prior entry, narrower by exactly this one item.

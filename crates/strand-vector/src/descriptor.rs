@@ -45,10 +45,11 @@ impl DistanceMetric {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RotatorType {
-    /// Registered, non-default (`spec/vectors.md` §2.1) — this crate does
-    /// not generate the realized orthogonal matrix (QR decomposition of a
-    /// random Gaussian matrix is construction-tooling work, out of scope);
-    /// callers supply pre-computed rotation bytes via [`build_matrix`].
+    /// Registered, non-default (`spec/vectors.md` §2.1). `crate::
+    /// orthogonal::generate_matrix_rotation` generates the realized
+    /// orthogonal matrix (random Gaussian sampling plus Householder QR);
+    /// [`build_matrix_generated`] wraps generation and serialization in
+    /// one call, or [`build_matrix`] accepts an already-computed matrix.
     Matrix = 0,
     /// The registered default (`spec/vectors.md` §2.1).
     FhtKac = 1,
@@ -150,9 +151,10 @@ pub fn build_fht_kac_with_payload(
 }
 
 /// Builds a quantization descriptor blob with `MatrixRotator` (registered,
-/// non-default, `spec/vectors.md` §2.1). `rotation_payload` MUST be the
-/// realized `dims × padded_dims` row-major f32 orthogonal matrix, already
-/// computed by the caller — this crate does not generate it.
+/// non-default, `spec/vectors.md` §2.1) from a caller-supplied, already
+/// realized `dims × padded_dims` row-major f32 orthogonal matrix — for a
+/// writer that generated (or loaded, at merge time) the matrix itself.
+/// See [`build_matrix_generated`] to generate a fresh one in the same call.
 ///
 /// # Panics
 ///
@@ -169,6 +171,32 @@ pub fn build_matrix(
         distance_metric,
         RotatorType::Matrix,
         rotation_payload,
+    )
+}
+
+/// Builds a `MatrixRotator` descriptor blob with a **freshly generated**
+/// rotation matrix (`crate::orthogonal::generate_matrix_rotation` —
+/// random Gaussian sampling plus Householder QR orthogonalization,
+/// matching the reference implementation's own algorithm), serialized in
+/// one call — the `MatrixRotator` counterpart to [`build_fht_kac`].
+pub fn build_matrix_generated(
+    dims: u32,
+    distance_metric: DistanceMetric,
+    rng: &mut impl rand::Rng,
+) -> Vec<u8> {
+    let padded_dims = padded_dims_for(dims);
+    let matrix =
+        crate::orthogonal::generate_matrix_rotation(dims as usize, padded_dims as usize, rng);
+    let mut payload_bytes = Vec::with_capacity(matrix.len() * 4);
+    for v in &matrix {
+        payload_bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    encode(
+        dims,
+        padded_dims,
+        distance_metric,
+        RotatorType::Matrix,
+        &payload_bytes,
     )
 }
 
@@ -280,6 +308,48 @@ mod tests {
         assert_eq!(reader.rotator_type(), RotatorType::Matrix);
         assert_eq!(reader.distance_metric(), DistanceMetric::Cosine);
         assert_eq!(reader.rotation_payload(), &payload[..]);
+    }
+
+    #[test]
+    fn matrix_generated_produces_a_real_orthogonal_matrix() {
+        let dims = 5u32;
+        let padded_dims = padded_dims_for(dims);
+        let mut rng = StdRng::seed_from_u64(9);
+        let bytes = build_matrix_generated(dims, DistanceMetric::L2, &mut rng);
+
+        let reader = DescriptorReader::new(&bytes).expect("valid descriptor");
+        assert_eq!(reader.rotator_type(), RotatorType::Matrix);
+        assert_eq!(reader.dims(), dims);
+        assert_eq!(reader.padded_dims(), padded_dims);
+        let payload = reader.rotation_payload();
+        assert_eq!(payload.len(), (dims * padded_dims * 4) as usize);
+
+        // Real orthonormality check, not just a length check: every row
+        // is unit norm and mutually orthogonal (crate::orthogonal's own
+        // deeper QR-property tests cover the decomposition itself; this
+        // confirms the bytes round-tripped through serialization still
+        // carry that property).
+        let rows: Vec<Vec<f32>> = (0..dims as usize)
+            .map(|r| {
+                (0..padded_dims as usize)
+                    .map(|c| {
+                        let off = (r * padded_dims as usize + c) * 4;
+                        f32::from_le_bytes(payload[off..off + 4].try_into().unwrap())
+                    })
+                    .collect()
+            })
+            .collect();
+        for (i, row_i) in rows.iter().enumerate() {
+            let norm_sqr: f32 = row_i.iter().map(|v| v * v).sum();
+            assert!(
+                (norm_sqr - 1.0).abs() < 1e-3,
+                "row {i} not unit norm: {norm_sqr}"
+            );
+            for row_j in &rows[i + 1..] {
+                let dot: f32 = row_i.iter().zip(row_j).map(|(&a, &b)| a * b).sum();
+                assert!(dot.abs() < 1e-3, "rows not orthogonal: dot={dot}");
+            }
+        }
     }
 
     #[test]

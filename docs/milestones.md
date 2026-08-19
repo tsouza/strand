@@ -412,10 +412,19 @@ by row-id under closure replication per the spec's own literal wording. Verified
 against the real property the feature exists for: across four real queries on a real
 400-vector index, once the true nearest neighbor was found at some `nprobe` it was
 never lost at a larger one — recall monotonically non-decreasing in `nprobe`, not
-merely "the code runs." **Still deliberately out of scope**: `MatrixRotator`'s
-realized-matrix *generation* (its *application* is implemented); the multi-bit
-Extended-RaBitQ path; deletion-vector filtering and reranking against the flat-vector
-blob (Design §6 steps 4–5). All real, separate, unwritten work.
+merely "the code runs." **`MatrixRotator`'s matrix *generation* is implemented too**
+(`orthogonal.rs`): random Gaussian sampling plus a from-scratch Householder QR
+decomposition, matching the reference implementation's own algorithm. QR
+decomposition is not unique — unlike every other numerically-precise module this
+session, there is no single correct output to byte-match — so this module is verified
+against the three properties that define a valid QR decomposition directly (`Q`
+orthogonal, `R` upper triangular, `QR` reconstructs the input), at sizes up to a real
+768-dimension embedding scale. `tests/matrix_rotator_pipeline.rs` carries a freshly
+generated (not caller-supplied) matrix through descriptor serialization, rotation
+application, quantization, and the posting-list wire format, bit-exact. **Still
+deliberately out of scope**: the multi-bit Extended-RaBitQ path; deletion-vector
+filtering and reranking against the flat-vector blob (Design §6 steps 4–5). All real,
+separate, unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
