@@ -207,7 +207,8 @@ turns out to be a real undercount gets corrected here and in
   glossed as an unremarkable deferral: this RFC's own Napkin math section
   computes replication as the single largest cost lever in the whole sizing
   picture (≈2.3× the cold-open budget at a realistic replica-8-equivalent
-  density, on an unverified estimate — Napkin math), which makes deferring
+  density, grounded against real SPANN/Li et al. body figures rather than an
+  unverified estimate (Discussion, below) — Napkin math), which makes deferring
   the knob that would make that cost visible and tunable the most
   consequential Non-goal in this RFC, not the least. M2's own milestone gate
   is therefore not fully met by this RFC alone (Open questions, below); a
@@ -841,8 +842,9 @@ hardware provenance is well-evidenced, not fully proven (Open questions).
 
 **Second, and the more consequential risk: R1's own kill criterion.** This
 RFC's corrected sizing law (Napkin math) runs ~31% over the provisional
-100 MB budget before replication, and, on a provisional and explicitly
-unverified estimate, roughly ~2.27× over at a realistic
+100 MB budget before replication, and, now grounded against real SPANN/Li
+et al. body figures rather than an unverified estimate (Discussion,
+below), roughly ~2.27× over at a realistic
 replica-8-equivalent density — over half the margin to the 4× threshold
 that would falsify the mission claim, not a wide one, and real headroom
 consumed that the previously stated (uncorrected) sizing law didn't show
