@@ -18,12 +18,12 @@ segment doc-ID with a 64-bit row-ID.
 hotcache — a footer-first byte-range map that opens a split on S3 in tens of
 milliseconds. We make the hotcache a specified, engine-neutral structure. (Quickwit
 relicensed from AGPLv3 to Apache-2.0 under Datadog, 2025-01-23 — confirmed byte-level
-and commit-level, not just from the announcement, `references/
-r11c-quickwit-relicense-and-hotcache-source.md`; its split format remains the closest
-lexical relative, and R11(c) confirms it is built as an ordinary consumer of tantivy's
-public `Directory` trait, the same extension point, not a patch to tantivy internals —
-though its own split/hotcache wire bytes are Quickwit's own format, not something a
-STRAND adapter can reuse directly.)
+and commit-level, not just from the announcement,
+`references/r11c-quickwit-relicense-and-hotcache-source.md`; its split format remains
+the closest lexical relative, and R11(c) confirms it is built as an ordinary consumer
+of tantivy's public `Directory` trait, the same extension point, not a patch to
+tantivy internals — though its own split/hotcache wire bytes are Quickwit's own
+format, not something a STRAND adapter can reuse directly.)
 
 **From PISA**: block-max (WAND) metadata decoupled from postings compression — computed
 once, valid under any codec. Adopted as a spec invariant.

@@ -2,12 +2,13 @@
 
 Vendored findings for `docs/ledger.md`'s R11(c): "Quickwit split/hotcache internals
 post-relicense, testing the inherits-from-the-fork hypothesis." Everything below is
-fetched directly from `github.com/quickwit-oss/quickwit` and `github.com/quickwit-oss/
-tantivy` (raw file content and the GitHub REST API for commit metadata), and from
-Quickwit's own acquisition blog post, on 2026-08-19. No claim here is taken from
-memory or from this project's own prior, unverified note in `docs/lineage.md` ("Quickwit
-is now Apache-2.0 under Datadog") — that note is independently confirmed below, byte-level
-for the license and source-level for the hotcache/split code.
+fetched directly from `github.com/quickwit-oss/quickwit` and
+`github.com/quickwit-oss/tantivy` (raw file content and the GitHub REST API for
+commit metadata), and from Quickwit's own acquisition blog post, on 2026-08-19. No
+claim here is taken from memory or from this project's own prior, unverified note in
+`docs/lineage.md` ("Quickwit is now Apache-2.0 under Datadog") — that note is
+independently confirmed below, byte-level for the license and source-level for the
+hotcache/split code.
 
 ## Part 1 — License status
 
@@ -20,11 +21,19 @@ Fetched from `https://raw.githubusercontent.com/quickwit-oss/quickwit/main/LICEN
     Version 2.0, January 2004
     http://www.apache.org/licenses/
 
-The file is the standard Apache-2.0 license text in full (verified by fetch; not
-reproduced here beyond the header, per this project's own citation discipline for
-long license texts — see `references/tantivy-LICENSE.txt`, `references/faiss-LICENSE.txt`
-for the same pattern). **Every source file checked in Part 2 below also carries a
-per-file Apache-2.0 header**, e.g. `quickwit-directories/src/hot_directory.rs`:
+The file is the standard Apache-2.0 license text in full (verified by fetch). This is
+a deliberately different citation choice than `references/tantivy-LICENSE.txt` and
+`references/faiss-LICENSE.txt`: those vendor their source's license **in full**
+(tantivy and FAISS are both MIT — short, fixed boilerplate whose complete text fits a
+handful of lines), which is this project's actual pattern for a dependency it is
+license-auditing. Apache-2.0's full text is long, externally standardized boilerplate
+whose wording carries no project-specific information beyond the fact of adoption, so
+this entry quotes the header plus the canonical fetch URL and fetch date as the
+verification record rather than reproducing roughly 200 lines of stock legal text; the
+obligation to retain the full LICENSE verbatim applies if and when STRAND actually
+vendors or redistributes Quickwit code, which R11(c) does not do. **Every source file
+checked in Part 2 below also carries a per-file Apache-2.0 header**, e.g.
+`quickwit-directories/src/hot_directory.rs`:
 
     // Copyright 2021-Present Datadog, Inc.
     //
@@ -40,9 +49,9 @@ per-file Apache-2.0 header**, e.g. `quickwit-directories/src/hot_directory.rs`:
 
 ### The relicense event itself (commit-level, not just current-state)
 
-GitHub API history of the `LICENSE` path (`api.github.com/repos/quickwit-oss/quickwit/
-commits?path=LICENSE`) shows exactly one relicensing commit, with a same-day follow-up
-fix:
+GitHub API history of the `LICENSE` path
+(`api.github.com/repos/quickwit-oss/quickwit/commits?path=LICENSE`) shows exactly one
+relicensing commit, with a same-day follow-up fix:
 
 | commit (short) | date (UTC) | message |
 | --- | --- | --- |
@@ -80,8 +89,9 @@ own blog post (`quickwit.io/blog/quickwit-joins-datadog`, fetched 2026-08-19) st
 > "we will soon release a new version of Quickwit under the Apache License 2.0."
 
 The announcement is dated around 2025-01-09 (per the corroborating Hacker News
-discussion thread and Datadog's own mirrored post, `datadoghq.com/blog/datadog-acquires-
-quickwit/`); the actual code relicense landed two weeks later, 2025-01-23, in commit
+discussion thread and Datadog's own mirrored post,
+`datadoghq.com/blog/datadog-acquires-quickwit/`); the actual code relicense landed two
+weeks later, 2025-01-23, in commit
 `3bb2781604` above — a real, verifiable case of "announced" preceding "committed," not
 a discrepancy.
 
@@ -107,8 +117,8 @@ is no copyleft obstacle to studying, adapting patterns from, or even directly re
 > `description = "Custom \`tantivy::Directory\` implementations for Quickwit"`
 
 `src/lib.rs`'s own doc comment states the whole crate's design in one paragraph
-(fetched 2026-08-19, `raw.githubusercontent.com/quickwit-oss/quickwit/main/quickwit/
-quickwit-directories/src/lib.rs`):
+(fetched 2026-08-19,
+`raw.githubusercontent.com/quickwit-oss/quickwit/main/quickwit/quickwit-directories/src/lib.rs`):
 
 > "This crate contains all of the building pieces that make quickwit's IO possible.
 >
