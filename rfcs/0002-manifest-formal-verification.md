@@ -21,9 +21,11 @@
   model, TLAPS proof, DST harness, dual-tracing cross-validation) over a cheaper
   phased alternative. Implementation (the actual `.tla` spec, the TLAPS proof, and
   the DST harness) may now begin against this RFC.
-- **Milestone:** None directly. Cross-cutting verification infrastructure for the
-  manifest CAS protocol RFC 0001 §3 already specifies and `crates/strand-core/src/
-  manifest.rs` already implements; does not gate any of M1–M5.
+- **Milestone:** Originally none directly (cross-cutting verification infrastructure,
+  gating nothing in M1–M5) — **amended, `docs/milestones.md`'s M3 entry, "Discussion
+  — post-approval amendments" below**: the remaining two artifacts (TLAPS proof, DST
+  harness) now gate M3's compaction work specifically, since compaction needs its
+  own new manifest commit shape and this RFC's own model already covers two others.
 - **Invariants exercised:** none changed. This RFC proposes no change to `CLAUDE.md`'s
   invariants, RFC 0001's protocol, or any wire format — it proposes a method for
   gaining confidence that the existing, already-approved protocol and its existing,
@@ -577,3 +579,39 @@ verification that matters here, not a new mutation test. TLC's state count moved
 561 distinct states (1487 generated) to **591 distinct states (1793 generated)**,
 depth unchanged at 14, all seven invariants still holding; `verification/README.md`
 carries the new baseline. Landed 2026-08-18, task: "Start with the TLA+ gap."
+
+**RFC 0012's own review found a second, separate model correspondence gap**
+(`ProposeSnapshot`'s only transition is `Append`, with no shape for revising an
+existing entry in place — `commit_deletion_vector`'s real behavior). Closed the same
+day, prompted by the user's own recommendation to sequence the model extension
+before either remaining artifact: a new `ProposeDeletionVectorCommit(w)` action, a
+new `DeleteWriter` CONSTANT (mirroring `DistinguishedWriter`'s established pattern),
+and two new invariants (`SegmentCountNeverDecreases`,
+`DeletionVectorCommitsOnlyReviseOneEntry`), both confirmed load-bearing by real
+mutation tests. TLC's state count moved from 591 (1793 generated, depth 14) to
+**5,943 distinct states (22,286 generated), depth 18**, all nine invariants holding.
+Full account: RFC 0012's own Discussion section
+(`rfcs/0012-deletion-vectors.md`); `verification/README.md` carries the new
+baseline.
+
+**Milestone reassignment**, prompted directly by the user asking where this work
+sits on the M0–M5 roadmap and then asking for it to be placed there properly, not
+left as ungated cross-cutting work indefinitely. The original "does not gate any of
+M1–M5" was correct when written — the model covered exactly one commit shape
+(`commit`'s append), and nothing downstream depended on proving it further. That
+stopped being true once a second commit shape (`commit_deletion_vector`'s
+revise-in-place) existed, and will stop being true again, more consequentially,
+when compaction adds a **third** (merge multiple source segments into one, under
+the same pointer CAS) — M3's own named deliverable. Reasoning for gating M3's
+compaction work specifically, rather than continuing to treat verification as
+perpetually optional: piling a third unverified commit shape onto a protocol with
+zero mechanized proof and zero cross-validation against the real Rust code is
+exactly the kind of accumulating, unexamined risk this project's own "verification
+rigor sequencing" discipline exists to catch before it compounds, not after value
+has already been built on top of it. `docs/milestones.md`'s M3 entry now states
+this gate explicitly: a TLAPS proof of the model as it stands (covering `commit`
+and `commit_deletion_vector`) and the DST cross-validation harness (Workflow II
+first, per §2's own approved sequencing) both land before compaction's own
+commit-path design work starts, so that work extends a model already proven to
+correspond to the real code rather than stacking a third hopeful, unverified
+extension on top. Neither artifact is built yet. Landed 2026-08-19.

@@ -20,8 +20,14 @@
 (* rfcs/0002-manifest-formal-verification.md). Scope: the CURRENT         *)
 (* protocol surface only -- no table metadata, retention, compaction, or  *)
 (* orphan sweep (all M3, not yet implemented; RFC 0002 Non-goals).        *)
+(*                                                                         *)
+(* Extended for RFC 0012 (rfcs/0012-deletion-vectors.md,                  *)
+(* spec/deletion.md SS4): commit_deletion_vector's revise-in-place commit *)
+(* shape -- ProposeSnapshot's Append-only transition was the one gap RFC  *)
+(* 0012's own adversarial review found unmodeled (docs/ledger.md). See    *)
+(* ProposeDeletionVectorCommit below.                                     *)
 
-EXTENDS Naturals, Sequences
+EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS
     Writers,             \* finite, nonempty set of writer ids
@@ -33,6 +39,13 @@ CONSTANTS
     \* bound, only on its being finite.
     ReaderRetryLimit,
     DistinguishedWriter, \* one member of Writers; see RowIdCounts below
+    \* One member of Writers whose commits always take the
+    \* commit_deletion_vector shape (ProposeDeletionVectorCommit) instead of
+    \* the append shape (ProposeSnapshot) -- the same established pattern
+    \* DistinguishedWriter already uses for varying one writer's shape
+    \* without a combinatorial per-writer CONSTANTS explosion. Every other
+    \* writer, including DistinguishedWriter itself, keeps the append shape.
+    DeleteWriter,
     NoProposalVal,       \* sentinel model value, see note below
     NoResultVal,         \* sentinel model value, see note below
     NoCommitsYetVal      \* sentinel model value, see note below
@@ -54,7 +67,16 @@ VARIABLES
 \* undetectable -- confirmed by the second adversarial review (see above).
 RowIdCounts == [w \in Writers |-> IF w = DistinguishedWriter THEN 1 ELSE 2]
 
-SegmentRec == [base: Nat, count: Nat]
+\* delVer is a bare generation counter standing in for a segment's
+\* DeletionVectorRef (spec/deletion.md SS3): 0 means no deletion vector
+\* committed yet; incrementing it models commit_deletion_vector's
+\* "supersede, don't accumulate" write (spec/deletion.md SS4). The model has
+\* no reason to represent actual Roaring-bitmap content -- none of this
+\* protocol's safety properties depend on WHICH rows are tombstoned, only on
+\* whether a revise-in-place commit can safely interleave, through the
+\* shared pointer CAS, with the append-shaped commits every other writer
+\* still performs.
+SegmentRec == [base: Nat, count: Nat, delVer: Nat]
 
 SnapshotRec == [version: Nat, nextRowId: Nat, segments: Seq(SegmentRec)]
 
@@ -134,16 +156,48 @@ ReadCurrent(w) ==
 \* is that single collapsed failure outcome, not two separate ones.
 ProposeSnapshot(w) ==
     /\ wPc[w] = "Propose"
+    /\ w # DeleteWriter
     /\ LET base == wLocal[w].baseVersion
            nid == wLocal[w].nextRowId
            priorSegs == IF base = 0 THEN <<>> ELSE snapshots[base].segments
-           newSeg == [base |-> nid, count |-> RowIdCounts[w]]
+           newSeg == [base |-> nid, count |-> RowIdCounts[w], delVer |-> 0]
            proposed == [version |-> base, nextRowId |-> nid + RowIdCounts[w], segments |-> Append(priorSegs, newSeg)]
        IN \/ /\ wLocal' = [wLocal EXCEPT ![w].proposed = proposed]
              /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
              /\ UNCHANGED <<snapshots, rPc, rLocal>>
           \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
              /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+
+\* commit_deletion_vector's revise-in-place commit shape (RFC 0012,
+\* spec/deletion.md SS4): unlike ProposeSnapshot, this NEVER appends a new
+\* segment -- it revises one EXISTING segment's deletion-vector reference
+\* (here: increments its delVer, SegmentRec's note above), leaving segment
+\* count and nextRowId untouched. DeleteWriter always targets the first
+\* segment (index 1) of whatever it currently sees; which segment is
+\* targeted is irrelevant to the properties this model checks (see
+\* DeletionVectorCommitsOnlyReviseOneEntry below) -- what matters is that
+\* exactly one entry changes and nothing else does.
+\*
+\* Requires a segment to exist (Len(priorSegs) >= 1): if this writer's
+\* snapshot read finds no segments yet, the action is simply not enabled --
+\* the model's stand-in for the real commit_deletion_vector's
+\* CommitError::SegmentNotFound, a caller error the retry loop does not
+\* absorb (spec/deletion.md SS4), not a race outcome to model as a
+\* transition.
+ProposeDeletionVectorCommit(w) ==
+    /\ wPc[w] = "Propose"
+    /\ w = DeleteWriter
+    /\ LET base == wLocal[w].baseVersion
+           nid == wLocal[w].nextRowId
+           priorSegs == IF base = 0 THEN <<>> ELSE snapshots[base].segments
+       IN /\ Len(priorSegs) >= 1
+          /\ LET revisedSegs == [priorSegs EXCEPT ![1].delVer = @ + 1]
+                 proposed == [version |-> base, nextRowId |-> nid, segments |-> revisedSegs]
+             IN \/ /\ wLocal' = [wLocal EXCEPT ![w].proposed = proposed]
+                   /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
+                   /\ UNCHANGED <<snapshots, rPc, rLocal>>
+                \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+                   /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
 
 \* RFC 0002 SS4: outcome in {Success, PreconditionFailed, DefiniteFailure, Ambiguous}.
 \* A stale CAS token always fails, never ambiguously succeeds -- RFC 0002 SS3's
@@ -259,7 +313,8 @@ ReadSnapshotObject(r) ==
           /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
 
 Next ==
-    \/ \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
+    \/ \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ ProposeDeletionVectorCommit(w)
+                          \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
     \/ \E r \in Readers : ReadPointer(r) \/ ReadSnapshotObject(r)
 
 \* Not referenced by manifest.cfg, which drives INIT/NEXT directly -- and so
@@ -334,6 +389,38 @@ SumCounts(segs) == IF segs = <<>> THEN 0 ELSE segs[1].count + SumCounts(Tail(seg
 NextRowIdMatchesSegments ==
     snapshots = <<>> \/
     snapshots[Len(snapshots)].nextRowId = SumCounts(snapshots[Len(snapshots)].segments)
+
+\* RFC 0012 (spec/deletion.md SS4): a commit_deletion_vector commit revises
+\* an existing segment in place -- it must never remove a segment, and (by
+\* construction, since ProposeDeletionVectorCommit never calls Append) it
+\* never adds one either, but this invariant checks the removal half
+\* directly rather than trusting the construction: segment count is
+\* monotonic non-decreasing across the whole committed history, exactly the
+\* same style of cross-snapshot ordering check MonotonicNextRowId already
+\* is for row-ID allocation. Before this action existed, every commit grew
+\* the segment count by exactly 1, so this held trivially; now that
+\* revise-in-place commits exist (which must leave the count unchanged),
+\* it is a real, load-bearing check, not a restatement of the old one.
+SegmentCountNeverDecreases ==
+    \A i, j \in 1..Len(snapshots) : i < j => Len(snapshots[i].segments) <= Len(snapshots[j].segments)
+
+\* commit_deletion_vector's core promise, checked directly rather than only
+\* trusted by construction: between two consecutive committed snapshots
+\* whose segment COUNT is unchanged -- which, given SegmentCountNeverDecreases
+\* and that ProposeSnapshot always grows the count by exactly one segment,
+\* can only be a ProposeDeletionVectorCommit commit -- every segment's base
+\* and count fields are unchanged (nothing was resized or reassigned), and
+\* at most one segment's delVer differs (exactly one entry was revised, not
+\* zero and not several). This is the model-level encoding of "revise
+\* exactly one entry, nothing else" (spec/deletion.md SS4,
+\* "Superseding, not accumulating").
+DeletionVectorCommitsOnlyReviseOneEntry ==
+    \A i \in 1..Len(snapshots) - 1 :
+        LET segsA == snapshots[i].segments
+            segsB == snapshots[i + 1].segments
+        IN Len(segsA) = Len(segsB) =>
+            /\ \A k \in 1..Len(segsA) : segsA[k].base = segsB[k].base /\ segsA[k].count = segsB[k].count
+            /\ Cardinality({k \in 1..Len(segsA) : segsA[k].delVer # segsB[k].delVer}) <= 1
 
 \* A reader that finishes with an actual result never reports a snapshot
 \* that isn't really in the committed history -- ties the reader model to

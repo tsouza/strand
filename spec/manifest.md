@@ -140,11 +140,11 @@ exactly one existing `SegmentRef`'s `deletion_vector` field instead of
 appending a new segment; `next_row_id` is unchanged. This is a distinct
 function, not a mode of `commit` itself, precisely so `commit`'s own
 row-ID-allocation accounting (`next_row_id + added_row_ids`) never has to
-reason about an update-in-place case. `verification/manifest.tla`'s
-existing model covers only the append shape (`ProposeSnapshot`'s sole
-transition is `Append`); `commit_deletion_vector`'s revise shape is real,
-unmodeled territory, named but not resolved by RFC 0012 (its own "How
-this could be wrong").
+reason about an update-in-place case. `verification/manifest.tla` now
+models this revise shape too (`ProposeDeletionVectorCommit`, RFC 0012
+Discussion — post-approval amendments), TLC-checked alongside the
+original append shape; a TLAPS proof and a DST cross-validation harness
+covering it remain open (RFC 0002's own remaining scope).
 
 ## 3. Reader protocol
 

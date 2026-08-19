@@ -467,11 +467,17 @@ adversarially reviewed when RFC 0010 was approved; this was wiring, not new desi
 40-vector cluster (the regime where 1-bit RaBitQ's lossiness can plausibly misorder
 close candidates) is scanned and reranked, and the reranked order matches an
 independently computed brute-force ordering exactly, row-id for row-id, not just
-plausibly. **Still deliberately out of scope**: `faster_quantize_ex`'s
-construction-time speedup (unregistered, real writer-side optimization); and, named in
-RFC 0012's own Non-goals, compaction-time physical removal, deletion-vector merge
-semantics, and extending the TLA+ model to cover the new commit shape — all pulled
-forward to M3.
+plausibly. **`verification/manifest.tla` is extended too**, closing the TLA+ model
+correspondence gap RFC 0012's own review found: a new `ProposeDeletionVectorCommit`
+action (guarded by a new `DeleteWriter` constant, the same pattern `DistinguishedWriter`
+already established) models `commit_deletion_vector`'s revise-in-place commit shape,
+and two new invariants (`SegmentCountNeverDecreases`,
+`DeletionVectorCommitsOnlyReviseOneEntry`) are both confirmed load-bearing by real
+mutation tests, not merely holding by construction. TLC re-verified clean at 5,943
+states (up from 591), all nine invariants holding. **Still deliberately out of
+scope**: `faster_quantize_ex`'s construction-time speedup (unregistered, real
+writer-side optimization); and, named in RFC 0012's own Non-goals, compaction-time
+physical removal and deletion-vector merge semantics — pulled forward to M3.
 
 **M3 — Hybrid + deletes + merge.** The deletion-vector *mechanism* now exists (pulled
 forward via RFC 0012, above); M3's own scope narrows to what that RFC named as
@@ -484,6 +490,28 @@ benchmark**: the same corpus at 1, 16, and ~128 segments, cold and warm, so
 segment-count amplification is a measured curve feeding R10. Deliverable: **a
 benchmark report measured against published figures, with the caching-fleet
 asymmetry stated.**
+
+**Manifest formal verification gates M3's own compaction work, on the roadmap for
+the first time (RFC 0002 Discussion — post-approval amendments, below).**
+RFC 0002 originally assigned itself no milestone ("cross-cutting... does not gate
+any of M1–M5"), correct at the time since nothing beyond `commit`/`commit_deletion_
+vector` existed to verify. Compaction is the reason that stops being true: it needs
+its own new manifest commit shape (replacing a set of source segments with one
+merged segment, atomically, under the same pointer CAS) — a **third** distinct
+transition alongside `ProposeSnapshot`'s append and `ProposeDeletionVectorCommit`'s
+revise-in-place. Piling a third unverified commit shape onto a protocol that still
+has zero mechanized proof and zero cross-validation against the real Rust code is
+exactly the kind of accumulating, unexamined risk this project's own verification
+rigor discipline exists to catch before it compounds, not after. M3's compaction
+work is therefore gated on: (1) a TLAPS mechanized proof of the TLA+ model as it
+stands today (`commit` + `commit_deletion_vector`, RFC 0002's own remaining
+artifact), and (2) the DST (Deterministic Simulation Testing) cross-validation
+harness — Workflow II first per RFC 0002's own approved sequencing (TLC-generated
+action sequences from the model, replayed against the real Rust code) — landing
+*before* compaction's own commit-path design work starts, so compaction extends a
+model already proven to correspond to the real code, not one more hopeful extension
+stacked on an never-cross-validated base. Neither artifact is built yet
+(`verification/README.md`).
 
 **M4 — Interchange + independence.** CIFF importer (lossless where CIFF permits);
 conformance manifest frozen at spec v0.1. **Second-reader parity must be real

@@ -1570,3 +1570,65 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   project-wide: everything RFC 0012 itself named as open (compaction,
   deletion-vector merge semantics, retention/orphan-sweep, the TLA+
   model gap) — all M3 scope, unchanged by this entry.
+- **`verification/manifest.tla` extended to cover `commit_deletion_vector`
+  — 2026-08-19, same day, prompted by "work in autobot" following the
+  user's own recommended sequencing (close the model gap before starting
+  either the DST harness or a TLAPS proof, since sinking effort into
+  either against a model already known to be incomplete means redoing
+  that work once the model catches up).** Closes the exact gap RFC 0012's
+  own adversarial review found and named: `ProposeSnapshot`'s only
+  transition is `Append`, with no shape for revising an existing entry in
+  place.
+
+  `SegmentRec` gained a `delVer: Nat` field — a bare generation counter
+  standing in for a segment's `DeletionVectorRef`; the model has no reason
+  to represent actual Roaring-bitmap content, only whether a revise-in-
+  place commit can safely interleave with append-shaped commits through
+  the shared pointer CAS. A new action, `ProposeDeletionVectorCommit(w)`,
+  guarded by a new CONSTANT `DeleteWriter` (the same established pattern
+  `DistinguishedWriter` already uses for varying one writer's shape
+  without a combinatorial `CONSTANTS` explosion), revises the first
+  segment's `delVer` in place, touching nothing else. `TryAdvancePointer`/
+  `ResolveAmbiguity` needed no changes at all — they already operate
+  generically on `wLocal[w].proposed`, regardless of which action produced
+  it, confirming the real code's own "second commit path, same CAS
+  mechanics" design (`spec/manifest.md`) holds at the model level too.
+
+  **A real config mistake caught before it shipped, not after**: the
+  first version pinned `DeleteWriter` to `w2` in the existing 2-writer
+  config, which silently *removed* coverage rather than only adding it —
+  with `w2` restricted to the revise shape, only `w1` remained
+  append-capable, eliminating the append-vs-append racing this model
+  existed to check in the first place. Fixed by adding a third writer
+  (`w3 = DeleteWriter`) so the original 2-append-writer scenario is
+  preserved exactly, with the new revise-shaped writer layered on top of
+  it, not swapped in for part of it.
+
+  **Two new invariants, both confirmed load-bearing by mutation test, not
+  assumed to hold merely by construction** — this file's own established
+  discipline, applied here exactly as it was for every invariant before
+  it: `SegmentCountNeverDecreases` (segment count is monotonic
+  non-decreasing across committed history) and
+  `DeletionVectorCommitsOnlyReviseOneEntry` (between two consecutive
+  snapshots with unchanged segment count, every segment's `base`/`count`
+  must be identical and at most one segment's `delVer` may differ). Three
+  mutation tests were actually run, not merely reasoned about: a mutation
+  bumping a revised segment's `count` alongside its `delVer` was caught by
+  the pre-existing `NextRowIdMatchesSegments` (a real, if incidental,
+  catch); a mutation revising *every* segment's `delVer` at once passed
+  every pre-existing invariant clean and was caught by
+  `DeletionVectorCommitsOnlyReviseOneEntry` alone, confirming it adds real,
+  independent coverage; a surgical mutation that drops a segment while
+  folding its row count into a survivor (keeping
+  `NextRowIdMatchesSegments` satisfied) passed every pre-existing
+  invariant clean and was caught by `SegmentCountNeverDecreases` alone,
+  confirming the same for it.
+
+  TLC re-verified clean: **5,943 distinct states (22,286 generated), depth
+  18** (up from 591/1,793, depth 14), all nine invariants holding.
+  `verification/README.md`, `spec/manifest.md`, and RFC 0012's own
+  Discussion section all carry the new baseline and the closed gap.
+
+  What RFC 0002's own remaining scope still owes, unchanged by this entry:
+  a TLAPS mechanized proof and a DST cross-validation harness, both
+  against this now-extended model, neither started.

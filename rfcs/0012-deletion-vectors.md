@@ -450,9 +450,12 @@ segment), not merely trust the loop shape.
 - **The orphan-sweep tool's handling of superseded deletion-vector
   objects.** Falls out of the existing orphan rule (Design §2) but the
   sweep tool itself remains M3, unbuilt.
-- **Extending `verification/manifest.tla` to model `commit_deletion_
-  vector`'s new transition shape.** Named precisely in How this could be
-  wrong, above, as real and unresolved, not attempted here.
+- ~~Extending `verification/manifest.tla` to model `commit_deletion_
+  vector`'s new transition shape~~ — done, see Discussion below.
+- **A TLAPS mechanized proof and a DST cross-validation harness covering
+  the extended model** (RFC 0002's own remaining two artifacts). The TLA+
+  model itself is extended and TLC-checked (Discussion, below); the proof
+  and the trace-replay harness are real, separate, unstarted work.
 - **Per-family deletion-vector caching or batching** (e.g. amortizing the
   extra GET across multiple queries against the same snapshot). A real,
   separate performance question once a real caller exists to measure it
@@ -463,3 +466,77 @@ segment), not merely trust the loop shape.
   space needs a fresh deletion vector built from the union of surviving,
   non-tombstoned rows) — named here so M3's own RFC does not need to
   rediscover that this question exists, not answered here.
+
+## Discussion — post-approval amendments
+
+Per `CLAUDE.md` §3, a design problem revealed after approval is recorded here
+rather than folded silently into the model. This RFC's own "How this could be
+wrong" named a genuine, unmodeled gap in `verification/manifest.tla`:
+`ProposeSnapshot`'s only transition is `Append`, with no shape for revising an
+existing entry in place, the exact thing `commit_deletion_vector` needs. Closed
+here, the same session, prompted by the user's own recommendation to sequence
+this before the DST harness or a TLAPS proof — sinking effort into either
+against a model already known to be incomplete would mean redoing that work
+once the model caught up.
+
+**`SegmentRec` gained a `delVer: Nat` field** — a bare generation counter
+standing in for a segment's `DeletionVectorRef` (`spec/deletion.md` §3): `0`
+means no deletion vector committed yet, incrementing it models
+`commit_deletion_vector`'s "supersede, don't accumulate" write (`spec/
+deletion.md` §4). The model has no reason to represent actual Roaring-bitmap
+content — none of this protocol's safety properties depend on *which* rows are
+tombstoned, only on whether a revise-in-place commit can safely interleave,
+through the shared pointer CAS, with the append-shaped commits every other
+writer still performs.
+
+**A new action, `ProposeDeletionVectorCommit(w)`**, guarded by a new CONSTANT
+`DeleteWriter` (one member of `Writers`, the same established pattern
+`DistinguishedWriter` already uses for varying one writer's shape without a
+combinatorial per-writer `CONSTANTS` explosion): it revises the first segment's
+`delVer` in place, leaving `nextRowId` and every segment's `base`/`count`
+untouched, and appends nothing. `ProposeSnapshot` itself gained one line — `w #
+DeleteWriter` — so the two shapes are mutually exclusive per writer, matching
+the real code's two distinct top-level functions (`commit` vs.
+`commit_deletion_vector`) sharing one CAS mechanic
+(`propose_snapshot`/`TryAdvancePointer`/`ResolveAmbiguity`, all left completely
+unchanged — they already operate generically on `wLocal[w].proposed`,
+regardless of which action produced it).
+
+**A real config mistake caught before it shipped, not after**: the first
+version of this change pinned `DeleteWriter` to `w2` in the existing 2-writer
+config (`Writers = {w1, w2}`), which silently *removed* coverage rather than
+only adding it — with `w2` restricted to the revise shape, only `w1` remained
+append-capable, eliminating the append-vs-append racing
+(`commit_recomputes_row_id_range_when_a_rival_commits_first`'s own scenario
+class) this model existed to check in the first place. Fixed by adding a third
+writer (`Writers = {w1, w2, w3}`, `DeleteWriter = w3`) so the original
+2-append-writer scenario is preserved exactly, with the new revise-shaped
+writer layered on top of it, not swapped in for part of it.
+
+**Two new invariants, both confirmed load-bearing by mutation test, not
+assumed to hold merely by construction** — the same discipline every other
+invariant in this file follows:
+
+- `SegmentCountNeverDecreases`: segment count is monotonic non-decreasing
+  across committed history. Before this action existed, every commit grew the
+  count by exactly one segment, so this held trivially; a mutation that
+  silently drops a segment while independently keeping `next_row_id`'s
+  arithmetic consistent (folding the dropped segment's row count into a
+  survivor, so the pre-existing `NextRowIdMatchesSegments` invariant stays
+  satisfied) is caught by this invariant and *no other* — confirmed by
+  running that exact mutation through TLC and observing the counterexample.
+- `DeletionVectorCommitsOnlyReviseOneEntry`: between two consecutive
+  snapshots whose segment count is unchanged (which, given the invariant
+  above and that `ProposeSnapshot` always grows the count by exactly one, can
+  only be a revise-shaped commit), every segment's `base`/`count` must be
+  identical and at most one segment's `delVer` may differ. A mutation that
+  revises *every* segment's `delVer` at once (instead of just the targeted
+  one) passes every pre-existing invariant, including `NextRowIdMatchesSegments`,
+  clean — and is caught by this invariant alone, confirmed the same way.
+
+TLC re-verified clean: **5,943 distinct states (22,286 generated), depth 18**
+(up from 591/1,793, depth 14), all nine invariants — the original seven plus
+these two — holding. `verification/README.md` carries the new baseline. What
+RFC 0002's own remaining scope still owes: a TLAPS proof and a DST
+cross-validation harness, both against this now-extended model, neither
+started here (Non-goals, above).
