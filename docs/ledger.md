@@ -76,7 +76,22 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   against MinIO on localhost with no injected network latency); the graph-blob
   ordering algorithm (Starling's block shuffling is the literature; pick with
   evidence), entirely
-  untouched by RFC 0010, which is 1-bit cluster-family only.
+  untouched by RFC 0010, which is 1-bit cluster-family only. **Note redirected
+  from R9's ALP/GPU sub-item (2026-08-19, `docs/roadmap.md` X-6):** ALP
+  (Afroozeh, Kuffó, Boncz, SIGMOD '24, `references/r9-fastlanes-core-alp-damon-
+  license.md`) — the FastLanes-family lossless *floating-point* compression
+  codec — has no relevance to postings (R9's original framing) but is a
+  plausible future candidate specifically for this blob family's flat-vector
+  storage: invariant 7's raw full-precision vectors (float32, `spec/vectors.md`
+  §3) are exactly the kind of floating-point data ALP targets, unlike the
+  cluster blob's RaBitQ-quantized codes, which are bit-packed integers ALP does
+  not apply to either. One real tension worth naming rather than glossing over:
+  the flat-vector blob is currently `storage-class: raw-mappable`
+  (`spec/vectors.md` §3), chosen precisely for direct mmap without
+  decompression (invariant 10) — adopting ALP there would mean reclassifying it
+  `chunk-compressed` and paying a decompression step before rerank, a real
+  design trade this note does not evaluate. This is a pointer for future
+  scoping only: no RFC, no measurement, no adoption decision made here.
 - **M1-2 (`docs/roadmap.md`) — FST term-dictionary size at realistic vocabulary
   scale, measured 2026-08-19, not guessed.** RFC 0005's own Open questions item.
   `bench/src/term_dict_size.rs` built the real, production `build_term_dictionary`
@@ -419,18 +434,132 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   non-AVX2 hardware remains completely unmeasured; this is a first, honest data
   point on two axes now (raw decode speed and, for FastPFOR, the decode-speed-vs-
   compression tradeoff, now on both synthetic and real data), one CPU generation,
-  one machine, not the full R9 answer. The granularity question (1024-native vs. nested 8×128, preserving
-  invariant 4) and the flat-float-vector/GPU-decode assessment (ALP) below remain
-  fully open regardless of this measurement — the DaMoN '24 GPU paper's own "1024
-  values too large for a single GPU warp" caveat is a real constraint on that
-  assessment, not a clean win (`references/r9-fastlanes-core-alp-damon-license.md`).
-  The license half of this gate is separately resolved: `cwida/FastLanes` is
-  confirmed MIT (`references/r9-fastlanes-core-alp-damon-license.md`),
-  Apache-2.0-compatible. Decode-speed and compression measurements now exist on
-  both synthetic and real MS MARCO data (above), on shared hardware, one CPU
-  generation — the granularity question, the ALP/GPU application-fit assessment,
-  and ARM/non-AVX2 hardware all remain open, and the real-corpus measurement above
-  is a ~5.9% sample, not the full corpus.
+  one machine, not the full R9 answer. The license half of this gate is separately
+  resolved: `cwida/FastLanes` is confirmed MIT (`references/r9-fastlanes-core-alp-
+  damon-license.md`), Apache-2.0-compatible.
+
+  **Granularity and ALP/GPU application-fit — resolved/refined 2026-08-19
+  (`docs/roadmap.md` X-6; `references/r9-fastlanes-core-alp-damon-license.md` plus
+  a live refetch of the ALP and DaMoN '24 papers this session, not the earlier
+  vendored excerpt alone).** Two of R9's three named-open sub-items are settled
+  below; ARM/non-AVX2 hardware measurement is untouched by this pass and remains
+  completely open, exactly as stated above — no ARM hardware is available in this
+  environment, and Docker's arm64 emulation was confirmed non-functional here
+  ("exec format error," binfmt_misc not registered), so it was not attempted.
+
+  **ALP does not apply to postings/positions at all — this is a redirect, not a
+  postings answer.** ALP (`ir.cwi.nl/pub/33334/33334.pdf`, SIGMOD '24, refetched
+  live) is a floating-point-specific codec: its mechanism is factor/exponent
+  encoding of "decimal-like doubles" plus exception patching for outliers, and its
+  entire evaluation is floating-point columnar/scientific/time-series data — zero
+  mention anywhere of inverted-index postings, doc-ID compression, or any integer
+  workload. STRAND's postings/positions blob stores integers exclusively (doc-ID
+  delta-gaps, term frequencies, `spec/postings.md` §2), so treating ALP's own
+  evaluation as evidence for a postings-granularity decision would have been
+  exactly the class of error `CLAUDE.md` §3 exists to prevent: a float-compression
+  technique's published numbers, forced onto an integer question they never
+  measured. ALP's one genuine relevance in this project is the flat vector blob's
+  raw float32 storage, not postings — redirected to a new note under R1 above
+  rather than answered here, since forcing it into R9 would misfile the finding.
+  **This closes R9's ALP sub-item for postings: not applicable, no further
+  postings-side work needed.**
+
+  **DaMoN '24's GPU warp caveat is real, not fatal, and separately doesn't move
+  STRAND's own decision because STRAND targets CPU, not GPU.** Reading past the
+  one-sentence caveat already vendored (full PDF fetched live this session,
+  `ir.cwi.nl/pub/34260/34260.pdf`, excerpts now vendored verbatim in
+  `references/r9-fastlanes-core-alp-damon-license.md`): the paper's own fix is
+  *mini-vectors* — splitting the 1024-value FastLanes vector into smaller
+  sub-vectors (they measure 256-wide) so each GPU thread holds fewer registers per
+  column (32 → 8 at 256-wide, a measured 4× register-pressure reduction, §5.1
+  "FLS-GPU-opt," quoted verbatim in the reference file). This is a real,
+  implemented, *measured* mitigation, not a dead end, but its win is narrower and
+  more hardware-specific than a first read suggests, and the two hardware targets
+  diverge: on the Tesla T4, "FLS-GPU performs significantly better than Tile-Based
+  for all queries" — the un-optimized kernel already wins outright, before
+  mini-vectors are even applied. On the V100, the *un-optimized* `FLS-GPU` loses to
+  Tile-Based specifically "on Q3.1 and Q4.1" (two of the four benchmarked SSB
+  queries, Q1.1/Q2.1/Q3.1/Q4.1) — and after applying the mini-vector mitigation at
+  the smaller 256×4 configuration V100's tighter register budget forces, the
+  paper's own textual conclusion is that "register pressure remained problematic
+  for the occupancy — only little performance improvement is observed." The paper
+  does not state a clean post-optimization win/loss count by query family in
+  prose — only a bar chart (Figure 6) that pdftotext cannot reliably quantify —
+  so this entry cites the paper's own textual conclusion rather than a number read
+  off that chart (an earlier draft of this entry claimed "Tile-Based still wins on
+  2 of the 4 benchmarked query families even after the mini-vector optimization,"
+  conflating the un-optimized `FLS-GPU`'s stated 2-of-4 loss with the optimized
+  `FLS-GPU-opt` case; corrected here rather than left to stand, per `CLAUDE.md` §2).
+  The paper's own framing of what remains unresolved, from its introduction: "we
+  mitigate this here using mini-vectors — a future work question is how to further
+  reduce this granularity with minimal impact on efficiency."
+
+  Two things matter for STRAND specifically. **First**, this DaMoN paper evaluates FastLanes'
+  *core* integer encodings (bit-packing, DELTA, RLE, DICT — SSB benchmark columns
+  such as `lo_orderdate`) on GPU; ALP has no role in this paper at all, so it does
+  not reopen the postings question the ALP finding above just closed — it is a
+  separate, integer-relevant result that happens to live in the same reference
+  file. **Second, and decisive for scope:** invariant 9 commits STRAND's kernels
+  to stable-Rust CPU SIMD (`wide`/`pulp` with runtime dispatch), and no milestone,
+  RFC, or roadmap item proposes a GPU decode path for v0.1. The mini-vector/warp
+  constraint is real and instructive — independent confirmation that FastLanes'
+  native 1024 width is a tuned choice for one hardware target's lane occupancy,
+  not a universal optimum, since this same paper had to shrink it for a different
+  target — but it answers a question STRAND isn't asking yet. **This closes the
+  GPU-decode sub-question as informational: no v0.1 code or spec consequence.**
+
+  **Granularity — refined with a grounded recommendation, not left as a bare open
+  question.** R9's original framing ("1024-native... vs. a nested 8×128 scheme")
+  already carried a stale figure this pass corrects: RFC 0007 (Approved)
+  registers `BitPacker8x` at **256**-value blocks as the shipped default, not 128
+  (`spec/postings.md` §3; `docs/roadmap.md` X-6's own correction) — so the real
+  nested alternative to weigh is 1024-native vs. a scheme preserving today's 256,
+  not 128. More important than the arithmetic fix: **a "nested" scheme that keeps
+  fine-grained block-max pruning while decoding at FastLanes' native 1024 width is
+  not free, and the DaMoN paper's own mini-vector experience shows why.**
+  FastLanes' interleaved bit-packing distributes consecutive logical values
+  round-robin across lanes spanning the *whole* vector configured at encode time
+  (`references/r9-fastlanes-core-alp-damon-license.md`, the Unified Transposed
+  Layout) — there is no free "encode at 1024, decode only 256 of it when a
+  block-max skip lands mid-block": a genuinely independent 256-wide (or
+  narrower) decode unit has to be *built* at that width at encode time, which is
+  exactly what `BitPacker8x` at 256 already does, and exactly what DaMoN's own
+  mini-vectors do on the GPU side for an unrelated reason (register pressure, not
+  pruning granularity). So the real choice is not "1024-wide with nested
+  fine-grained stats" — that combination isn't on offer — it is a straight
+  tradeoff between two actual block widths. **(a) 1024-native:** matches
+  FastLanes' own measured operating point, but coarsens the doc-ordinal skip
+  bound (and any future WAND-style tf/doc-length bound, RFC 0007 Non-goals) by 4×
+  versus today — one `block_max` entry now covers 1024 postings instead of 256 —
+  meaning a skip hit decodes up to 4× more postings before reaching the target, a
+  real partial reversal of the ~7× skip-cost win RFC 0007's own R2 measurement
+  already banked. **(b) Keep 256** (or narrower): preserves today's pruning
+  precision, but then FastLanes was never actually adopted at the width its own
+  paper stakes its auto-vectorizing-portability claim on ("storing data in
+  1024-value vectors... decompressed completely independently" is the paper's own
+  stated contribution) — whether a 256-wide FastLanes vector still auto-vectorizes
+  as well across ISAs is genuinely unmeasured, not assumed here. **Either way,
+  invariant 4's raw-statistics principle holds regardless of block width**:
+  `block_max` (today, max doc-ordinal; a future RFC's WAND-style bound) is a raw
+  per-block statistic whether the block is 256 or 1024 wide, so this is purely a
+  decode-efficiency/pruning-precision tradeoff, not an invariant-4 compliance
+  question.
+
+  **Recommendation:** keep the current 256-value block-max granularity. Do not
+  adopt 1024-native granularity now, and do not build a "nested" scheme — the
+  mechanism argument above shows there is no free version of it, and building one
+  speculatively would spend implementation effort supporting a codec (FastLanes)
+  this project's own R9 measurement already rejected as the default on the only
+  hardware tested (74–77% of `BitPacker8x`'s throughput, RFC 0007). Granularity is
+  downstream of, and gated by, the codec-adoption question, not independent of
+  it: **only if a future RFC actually adopts FastLanes (or another 1024-native
+  codec) as the default postings codec** does the 1024-vs-256 tradeoff above
+  become live, and that RFC must make the explicit choice named here — coarsen
+  pruning to 1024, or shrink the vector to 256 and re-verify the portability claim
+  at that narrower width — rather than assume a nested scheme sidesteps it. This
+  closes the granularity sub-item as **refined with a recommendation**: no code or
+  spec change follows from it today, since 256 is already the shipped default
+  (`spec/postings.md` §3) this recommendation confirms rather than changes.
 - **R10** — cross-segment scale: should the manifest carry optional per-segment
   summary metadata (term-statistics sketches, centroid summaries, min/max-style
   pruning stats) so a reader can prune segments before opening them, and what does

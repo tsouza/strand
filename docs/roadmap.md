@@ -537,9 +537,26 @@ Non-goals and Open questions still leave genuinely open:
   `spec/postings.md` §3, `crates/strand-lexical/src/postings.rs`'s
   `BLOCK_LEN`), not the stale "128" figure `docs/ledger.md`'s own R9
   entry previously carried from before RFC 0007's approval — fixed there
-  directly alongside this revision. Status: open, low priority (256
-  remains the working default regardless of R9's outcome). Depends on:
-  nothing.
+  directly alongside this revision. **Granularity and ALP/GPU
+  application-fit resolved 2026-08-19** (`docs/ledger.md` R9, live refetch
+  of the ALP and DaMoN '24 papers): ALP is a floating-point-only codec
+  with no applicability to postings' integer d-gaps/term-frequencies —
+  finding redirected to a new note under R1 (flat vector blob, the actual
+  floating-point storage in this project) rather than forced onto R9.
+  DaMoN '24's GPU warp-granularity caveat is real but non-fatal (the
+  paper's own mini-vector mitigation resolves it, measured) and is
+  informational only for STRAND, which targets CPU SIMD (invariant 9), not
+  GPU decode, in v0.1. The granularity question itself is refined to a
+  grounded recommendation: keep 256 now; 1024-native (or any scheme
+  approximating it) is gated on FastLanes actually being adopted as the
+  default postings codec, which R9's own measurement does not currently
+  support (FastLanes underperforms `BitPacker8x` on the only hardware
+  tested). No spec or code change follows — 256 was already the default.
+  **Status: ALP/GPU and granularity sub-items closed; ARM/non-AVX2
+  hardware measurement remains open and out of scope (no ARM hardware or
+  working emulation in this environment)**, low priority regardless (256
+  remains the working default regardless of that outcome too). Depends
+  on: nothing.
 - **X-7** — R5, GCS/Azure conditional-write header semantics — both
   halves: the exact header semantics themselves, **and the external-
   catalog fallback protocol** for stores without native conditional

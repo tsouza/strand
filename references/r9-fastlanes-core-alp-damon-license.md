@@ -78,6 +78,31 @@ due to register pressure," mitigated with "mini-vectors" — a caveat on the
 1024-value granularity's portability to GPU decode paths specifically, not just a
 clean win.
 
+**§5.1 "FLS-GPU-opt" — the mini-vector mitigation, quoted, not paraphrased.**
+Re-fetched in full (2026-08-19) to ground the specific register-pressure and
+occupancy claims used elsewhere in this project:
+
+> "Processing mini-vectors. To release pressure of registers and shared memory we
+> partition a vector of 1024 values into mini-vectors of 256 values. This means that
+> each thread in a warp now processes 8 values at-a-time, thus using 8 32-bit
+> registers per column, a 4x reduction of register pressure."
+
+Un-optimized `FLS-GPU` vs. Tile-Based, stated plainly in §5 (not read off a chart):
+"on T4, FLS-GPU performs significantly better than Tile-Based for all queries. On
+V100, however, Tile-Based outperforms FLS-GPU on Q3.1 and Q4.1" — two of the four
+benchmarked SSB queries (Q1.1, Q2.1, Q3.1, Q4.1), but this is the **pre-mini-vector**
+comparison, not the optimized `FLS-GPU-opt` one.
+
+For `FLS-GPU-opt` specifically on V100, the paper's own textual conclusion, not a
+number read off Figure 6's bar chart (this project does not have a reliable
+per-query win/loss count for the optimized kernel from the paper's prose alone, and
+does not claim one): after trying a smaller 256×4 mini-vector configuration on V100
+(the 128×8 configuration T4 uses successfully wasn't achievable there), "register
+pressure remained problematic for the occupancy — only little performance
+improvement is observed." The paper frames V100's register budget (32 32-bit
+registers/thread, half of what a mini-vector-friendly configuration wants) as the
+root cause, distinct from T4's more favorable case.
+
 ## License audit: `cwida/FastLanes` — resolved, MIT
 
 **Source:** GitHub's license API, `gh api repos/cwida/FastLanes/license`, 2026-08-18.
