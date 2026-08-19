@@ -26,7 +26,7 @@ use strand_core::manifest::{commit, read_snapshot};
 use strand_core::scoring::Bm25Profile;
 use strand_core::segment::{write_segment, SegmentBuilder};
 use strand_core::store::{ConditionalStore, InMemoryStore};
-use strand_lexical::field::{build_field, FieldReader};
+use strand_lexical::field::{build_field, build_field_without_positions, FieldReader};
 
 const DOCS: [&str; 3] = [
     "the dog runs in the park",
@@ -123,4 +123,55 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
     );
 
     assert!(reader.phrase_query(&["dog", "giraffe"]).is_empty(), "a real miss must yield no matches");
+}
+
+#[test]
+fn a_field_that_opts_out_of_positions_builds_a_smaller_segment_and_still_answers_term_queries() {
+    let with_positions = build_field(&DOCS);
+    let without_positions = build_field_without_positions(&DOCS);
+
+    // RFC 0009 Design §2: the short term-info record is real bytes smaller
+    // than the 28-byte one, and the whole positions blob is gone.
+    assert!(without_positions.term_info.len() < with_positions.term_info.len());
+    assert!(without_positions.positions.is_empty());
+
+    let mut builder = SegmentBuilder::new(DOCS.len() as u64);
+    let blob_specs = without_positions.to_blob_specs();
+    assert_eq!(blob_specs.len(), 3, "no positions blob when a field opts out");
+    for blob in blob_specs {
+        builder.add_blob(blob);
+    }
+
+    let store = InMemoryStore::new();
+    commit(&store, |row_id_base| {
+        vec![write_segment(&store, "segments/field-no-positions.bin", &builder, row_id_base)]
+    })
+    .expect("commit succeeds against an empty table");
+
+    let read_back = read_snapshot(&store).expect("read succeeds").expect("a snapshot exists");
+    let segment_ref = &read_back.segments[0];
+    let (segment_bytes, _) =
+        ConditionalStore::get(&store, &segment_ref.path).expect("get succeeds").expect("segment exists");
+    let hotcache = open_segment_bytes(&segment_bytes);
+
+    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)
+        .expect("term-dictionary, short term-info, and postings are present");
+
+    // Term queries and BM25 search still work exactly as with the
+    // full-featured field — opting out of positions costs nothing here.
+    let dog_matches = reader.lookup("dog").expect("dog is a real term");
+    let mut dog_docs: Vec<u32> = dog_matches.iter().map(|&(doc, _)| doc).collect();
+    dog_docs.sort_unstable();
+    assert_eq!(dog_docs, vec![0, 2]);
+
+    let profile = Bm25Profile::default();
+    let ranked = reader
+        .search_bm25("park", &without_positions.doc_lengths, &profile)
+        .expect("park is a real term");
+    assert_eq!(ranked.len(), 2);
+
+    // Phrase queries correctly report no matches (not an error, not a
+    // panic) since this field has no positions blob at all.
+    assert!(reader.phrase_query(&["dog", "cat"]).is_empty());
+    assert!(reader.lookup_with_positions("dog").is_none());
 }

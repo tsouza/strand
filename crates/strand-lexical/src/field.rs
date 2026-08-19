@@ -23,16 +23,17 @@
 //! resolving a query end to end.
 //!
 //! Scope, deliberately narrow: one field, one segment, no compaction, no
-//! merge. Positions are built unconditionally here (every field gets phrase
-//! support, matching tantivy's own default for a `TEXT` field) — RFC 0008
-//! §10 recommends positions be opt-in per field for segments that don't
-//! need phrase queries, and this module could grow a flag for that; it
-//! isn't done here because the immediate goal is capability parity, not
-//! byte-budget tuning. Filter bitmaps (RFC 0006) are a separate field kind,
+//! merge. `build_field` builds every field with positions by default
+//! (matching tantivy's own default for a `TEXT` field);
+//! `build_field_without_positions` opts a field out entirely, using RFC
+//! 0009's short, positions-free term-info record (`blob_type_id = 4`)
+//! instead of paying `TermInfo`'s 12-byte-per-term dead weight for a
+//! feature that field will never use (`rfcs/0009-per-term-overhead-
+//! reduction.md`). Filter bitmaps (RFC 0006) are a separate field kind,
 //! not included. Multi-field blob addressing is unsolved project-wide (RFC
-//! 0008's own Non-goals) — this module assumes exactly one `family_id = 1`
-//! blob of each `blob_type_id` per segment, which is true for a
-//! single-field index and stays a stated boundary, not a silent
+//! 0008's/RFC 0009's own Non-goals) — this module assumes exactly one
+//! `family_id = 1` blob of each `blob_type_id` per segment, which is true
+//! for a single-field index and stays a stated boundary, not a silent
 //! assumption, until that question is resolved.
 //!
 //! Document length (`dl`) and the collection average (`avdl`) that
@@ -51,7 +52,8 @@ use strand_core::segment::BlobSpec;
 use crate::positions::{self, PositionsReader};
 use crate::postings::{self, PostingsReader};
 use crate::term_dictionary::{
-    self, TermDictionary, TermDictionaryError, TermInfo, TermInfoStore, TermInfoStoreError,
+    self, ShortTermInfoStore, TermDictionary, TermDictionaryError, TermInfo, TermInfoStore,
+    TermInfoStoreError,
 };
 
 /// `family_id` all four blobs this module builds share (`spec/
@@ -64,19 +66,25 @@ const BLOB_TYPE_TERM_DICTIONARY: u16 = 0;
 const BLOB_TYPE_TERM_INFO: u16 = 1;
 const BLOB_TYPE_POSTINGS: u16 = 2;
 const BLOB_TYPE_POSITIONS: u16 = 3;
+const BLOB_TYPE_TERM_INFO_SHORT: u16 = 4;
 
 /// A writer-chosen byte alignment for these raw-mappable blobs
 /// (`spec/container.md` §5 leaves the exact value to the writer, not the
 /// spec) — 8, matching RFC 0001's own worked example.
 const BLOB_ALIGNMENT: u16 = 8;
 
-/// The four built blobs for one field, plus what a caller needs to place
-/// them in a segment and, later, score matches.
+/// The built blobs for one field, plus what a caller needs to place them in
+/// a segment and, later, score matches. `positions` is empty and
+/// `has_positions` is `false` when built via `build_field_without_positions`
+/// (RFC 0009 Design §2) — `to_blob_specs` reads `has_positions` to decide
+/// which term-info record shape and whether to emit a positions blob at
+/// all; nothing else in this struct's shape changes.
 pub struct FieldBlobs {
     pub term_dict: Vec<u8>,
     pub term_info: Vec<u8>,
     pub postings: Vec<u8>,
     pub positions: Vec<u8>,
+    has_positions: bool,
     /// One entry per document, in the same order as `docs` was given to
     /// `build_field` — that order is this field's row-ID/doc-ordinal space.
     pub doc_lengths: Vec<u32>,
@@ -90,11 +98,27 @@ pub struct FieldBlobs {
 /// index within each document (`0`-based) becomes that token's within-
 /// document position for the positions blob (`spec/positions.md` §2).
 pub fn build_field(docs: &[&str]) -> FieldBlobs {
+    build_field_impl(docs, true)
+}
+
+/// `build_field`, but this field never carries positions (RFC 0009 Design
+/// §2): no phrase queries will ever be possible against it, and in
+/// exchange it pays none of `TermInfo`'s 12-byte-per-term dead weight for
+/// `positions_offset`/`positions_length` fields it will never populate.
+/// The returned `FieldBlobs.positions` is empty and `to_blob_specs`
+/// already omits it from the segment.
+pub fn build_field_without_positions(docs: &[&str]) -> FieldBlobs {
+    build_field_impl(docs, false)
+}
+
+fn build_field_impl(docs: &[&str], with_positions: bool) -> FieldBlobs {
     // BTreeMap<Vec<u8>, _> iterates in unsigned byte order (invariant 11) —
     // exactly the order build_term_dictionary requires, with no separate
     // sort step. Each posting carries its within-document positions
     // alongside its term frequency, so postings and positions are built
-    // from the same source data rather than two separate passes.
+    // from the same source data rather than two separate passes (even when
+    // `with_positions` is false, tracking positions here is free — they're
+    // simply never encoded into a positions blob below).
     let mut per_term: BTreeMap<Vec<u8>, Vec<(u32, Vec<u32>)>> = BTreeMap::new();
     let mut doc_lengths = Vec::with_capacity(docs.len());
 
@@ -123,36 +147,58 @@ pub fn build_field(docs: &[&str]) -> FieldBlobs {
     for (term, term_postings) in per_term {
         let ordinals: Vec<u32> = term_postings.iter().map(|&(o, _)| o).collect();
         let term_freqs: Vec<u32> = term_postings.iter().map(|(_, p)| p.len() as u32).collect();
-        let doc_positions: Vec<Vec<u32>> = term_postings.iter().map(|(_, p)| p.clone()).collect();
 
         let posting_bytes = postings::build_postings(&ordinals, &term_freqs);
-        let position_bytes = positions::build_positions(&doc_positions);
+
+        let (positions_offset, positions_length) = if with_positions {
+            let doc_positions: Vec<Vec<u32>> = term_postings.iter().map(|(_, p)| p.clone()).collect();
+            let position_bytes = positions::build_positions(&doc_positions);
+            let offset = positions_bytes.len() as u64;
+            let length = position_bytes.len() as u32;
+            positions_bytes.extend_from_slice(&position_bytes);
+            (offset, length)
+        } else {
+            (0, 0)
+        };
 
         let info = TermInfo {
             doc_freq: ordinals.len() as u32,
             postings_offset: postings_bytes.len() as u64,
             postings_length: posting_bytes.len() as u32,
-            positions_offset: positions_bytes.len() as u64,
-            positions_length: position_bytes.len() as u32,
+            positions_offset,
+            positions_length,
         };
         postings_bytes.extend_from_slice(&posting_bytes);
-        positions_bytes.extend_from_slice(&position_bytes);
         terms_with_info.push((term, info));
     }
 
     let refs: Vec<(&[u8], TermInfo)> =
         terms_with_info.iter().map(|(term, info)| (term.as_slice(), *info)).collect();
-    let (term_dict, term_info) =
-        term_dictionary::build_term_dictionary(&refs).expect("terms are sorted by construction");
+    let (term_dict, term_info) = if with_positions {
+        term_dictionary::build_term_dictionary(&refs).expect("terms are sorted by construction")
+    } else {
+        term_dictionary::build_term_dictionary_short(&refs).expect("terms are sorted by construction")
+    };
 
-    FieldBlobs { term_dict, term_info, postings: postings_bytes, positions: positions_bytes, doc_lengths }
+    FieldBlobs {
+        term_dict,
+        term_info,
+        postings: postings_bytes,
+        positions: positions_bytes,
+        has_positions: with_positions,
+        doc_lengths,
+    }
 }
 
 impl FieldBlobs {
-    /// Wraps the four built blobs as `strand_core::segment::BlobSpec`s,
-    /// ready for `SegmentBuilder::add_blob` — the registered classification
-    /// each spec chapter already pins (`storage-class: raw-mappable`,
-    /// `tier: cold-fetchable`).
+    /// Wraps the built blobs as `strand_core::segment::BlobSpec`s, ready
+    /// for `SegmentBuilder::add_blob` — the registered classification each
+    /// spec chapter already pins (`storage-class: raw-mappable`,
+    /// `tier: cold-fetchable`). Four blobs (term-dictionary, the 28-byte
+    /// term-info record, postings, positions) when this field carries
+    /// positions; three (term-dictionary, the 16-byte short term-info
+    /// record, postings — no positions blob at all) when it doesn't
+    /// (`build_field_without_positions`, RFC 0009 Design §2).
     pub fn to_blob_specs(&self) -> Vec<BlobSpec> {
         let spec = |blob_type_id: u16, data: Vec<u8>| BlobSpec {
             family_id: LEXICAL_FAMILY,
@@ -164,12 +210,17 @@ impl FieldBlobs {
             chunk_codec_level: 0,
             data,
         };
-        vec![
+        let mut specs = vec![
             spec(BLOB_TYPE_TERM_DICTIONARY, self.term_dict.clone()),
-            spec(BLOB_TYPE_TERM_INFO, self.term_info.clone()),
             spec(BLOB_TYPE_POSTINGS, self.postings.clone()),
-            spec(BLOB_TYPE_POSITIONS, self.positions.clone()),
-        ]
+        ];
+        if self.has_positions {
+            specs.push(spec(BLOB_TYPE_TERM_INFO, self.term_info.clone()));
+            specs.push(spec(BLOB_TYPE_POSITIONS, self.positions.clone()));
+        } else {
+            specs.push(spec(BLOB_TYPE_TERM_INFO_SHORT, self.term_info.clone()));
+        }
+        specs
     }
 }
 
@@ -194,18 +245,41 @@ impl std::fmt::Display for FieldReaderError {
 
 impl std::error::Error for FieldReaderError {}
 
-/// A resident field: the term dictionary, term-info store, postings, and
-/// (when present) positions blobs, located from a segment's already-
-/// decoded blob registry (`spec/container.md` §5) and ready to resolve
-/// real term and phrase queries — the reader half of this module.
+/// Either term-info record shape, resident (`spec/term-dictionary.md` §3,
+/// §3a) — which one a `FieldReader` holds is decided entirely by which
+/// `blob_type_id` was present in the segment's registry (RFC 0009 Design
+/// §2: "the registry entry's own `blob_type_id` is the shape declaration,
+/// not a new flag anywhere else"), never by a separate flag here either.
+enum TermInfoSource<'a> {
+    Full(TermInfoStore<'a>),
+    Short(ShortTermInfoStore<'a>),
+}
+
+impl TermInfoSource<'_> {
+    fn get(&self, ordinal: u64) -> Option<TermInfo> {
+        match self {
+            TermInfoSource::Full(store) => store.get(ordinal),
+            TermInfoSource::Short(store) => store.get(ordinal),
+        }
+    }
+}
+
+/// A resident field: the term dictionary, term-info store (either shape —
+/// see `TermInfoSource`), postings, and (when present) positions blobs,
+/// located from a segment's already-decoded blob registry
+/// (`spec/container.md` §5) and ready to resolve real term and phrase
+/// queries — the reader half of this module.
 pub struct FieldReader<'a> {
     term_dict: TermDictionary<Vec<u8>>,
-    term_info: TermInfoStore<'a>,
+    term_info: TermInfoSource<'a>,
     postings: &'a [u8],
     /// `None` when the segment carries no positions blob for this field —
-    /// a genuinely optional blob (`spec/positions.md` §1), not an error.
-    /// `phrase_query`/`lookup_with_positions` return no matches rather
-    /// than erroring when this is absent.
+    /// a genuinely optional blob (`spec/positions.md` §1), not an error:
+    /// either the field opted out entirely (`build_field_without_positions`,
+    /// always `None` here) or the field supports positions but this
+    /// particular term doesn't have any (`lookup_with_positions` checks
+    /// `positions_length` separately). `phrase_query`/`lookup_with_positions`
+    /// return no matches rather than erroring when this is absent.
     positions: Option<&'a [u8]>,
 }
 
@@ -213,8 +287,13 @@ impl<'a> FieldReader<'a> {
     /// Opens a field's blobs from a resident segment's raw bytes and its
     /// already-decoded `Hotcache`'s blob registry
     /// (`strand_core::container::Hotcache::blobs`) — no further round trip,
-    /// per invariant 3's one-wave rule. The positions blob is optional; its
-    /// absence is not an error.
+    /// per invariant 3's one-wave rule. The term-info blob may be either
+    /// shape (`blob_type_id = 1` or `4`, tried in that order); the
+    /// positions blob is always optional, and additionally never present
+    /// when the short (`4`) term-info shape is in use (RFC 0009 Design
+    /// §2's mutual-exclusivity rule) — this method does not itself verify
+    /// that exclusivity (Non-goals: no mechanism exists yet to check it
+    /// against a real field identity, `spec/term-dictionary.md` §3a).
     pub fn open(segment_bytes: &'a [u8], blobs: &[BlobEntry]) -> Result<Self, FieldReaderError> {
         let find = |blob_type_id: u16| {
             blobs.iter().find(|b| b.family_id == LEXICAL_FAMILY && b.blob_type_id == blob_type_id)
@@ -224,13 +303,23 @@ impl<'a> FieldReader<'a> {
 
         let dict_entry =
             find(BLOB_TYPE_TERM_DICTIONARY).ok_or(FieldReaderError::MissingBlob("term-dictionary"))?;
-        let info_entry = find(BLOB_TYPE_TERM_INFO).ok_or(FieldReaderError::MissingBlob("term-info"))?;
         let postings_entry = find(BLOB_TYPE_POSTINGS).ok_or(FieldReaderError::MissingBlob("postings"))?;
 
         let term_dict = TermDictionary::open(slice_of(dict_entry).to_vec())
             .map_err(FieldReaderError::TermDictionary)?;
-        let term_info =
-            TermInfoStore::new(slice_of(info_entry)).map_err(FieldReaderError::TermInfoStore)?;
+
+        let term_info = if let Some(entry) = find(BLOB_TYPE_TERM_INFO) {
+            TermInfoSource::Full(
+                TermInfoStore::new(slice_of(entry)).map_err(FieldReaderError::TermInfoStore)?,
+            )
+        } else if let Some(entry) = find(BLOB_TYPE_TERM_INFO_SHORT) {
+            TermInfoSource::Short(
+                ShortTermInfoStore::new(slice_of(entry)).map_err(FieldReaderError::TermInfoStore)?,
+            )
+        } else {
+            return Err(FieldReaderError::MissingBlob("term-info"));
+        };
+
         let postings = slice_of(postings_entry);
         let positions = find(BLOB_TYPE_POSITIONS).map(slice_of);
 

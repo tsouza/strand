@@ -280,9 +280,14 @@ Approved and implemented): omitting `postings_block_pos_prefix[0]` (always
 `0` by construction, stored anyway until now) shrinks every term's
 positions blob by 4 bytes unconditionally; a new 16-byte short term-info
 record removes `TermInfo`'s 12-byte-per-term dead weight for fields that
-opt out of positions entirely (registered but not yet exercised — `field.rs`
-still builds every field with positions). Re-running the same real MS
-MARCO comparison confirmed the first fix's predicted numbers exactly:
+opt out of positions entirely — now wired into `field.rs`
+(`build_field_without_positions`) too, with its own predicted payoff
+confirmed exactly the same way: `term_info` shrank from `890,008` to
+`508,576` bytes at 10,003 documents (`381,432` bytes saved, exactly RFC
+0009's own prediction) and from `3,804,472` to `2,173,984` at 100,476
+(`1,630,488` bytes saved), with the whole positions blob unwritten on top
+of that. Re-running the same real MS MARCO comparison confirmed the first
+fix's predicted numbers exactly:
 positions shrank from `620,503` to `493,359` bytes at 10,003 documents and
 from `4,678,608` to `4,135,112` at 100,476, narrowing the positions-blob
 gap against tantivy's real `.pos` from `33.2%` to `5.9%`, and from `16.8%`

@@ -5,8 +5,9 @@
   "term_info_bytes": 890008,
   "postings_bytes": 684248,
   "positions_bytes": 493359,
+  "term_info_bytes_without_positions": 508576,
   "segment_bytes": 2281459,
-  "build_field_seconds": 0.64280919,
-  "commit_seconds": 0.002391405,
-  "cold_open_ms": 0.921145
+  "build_field_seconds": 0.714355511,
+  "commit_seconds": 0.002672181,
+  "cold_open_ms": 0.98347
 }

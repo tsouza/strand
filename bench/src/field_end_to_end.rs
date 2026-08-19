@@ -27,7 +27,7 @@ use strand_core::manifest::{commit, read_snapshot};
 use strand_core::scoring::Bm25Profile;
 use strand_core::segment::{write_segment, SegmentBuilder};
 use strand_core::store::{ConditionalStore, InMemoryStore};
-use strand_lexical::field::{build_field, FieldReader};
+use strand_lexical::field::{build_field, build_field_without_positions, FieldReader};
 
 #[derive(Deserialize)]
 struct CorpusLine {
@@ -42,6 +42,9 @@ struct FieldEndToEndResult {
     term_info_bytes: usize,
     postings_bytes: usize,
     positions_bytes: usize,
+    /// `TermInfo`'s short, positions-free record (RFC 0009 Design §2),
+    /// same real vocabulary — no positions blob at all in that case.
+    term_info_bytes_without_positions: usize,
     segment_bytes: u64,
     build_field_seconds: f64,
     commit_seconds: f64,
@@ -106,6 +109,20 @@ fn main() {
         field.term_dict.len(),
         field.term_info.len(),
         field.postings.len(),
+        field.positions.len()
+    );
+
+    // RFC 0009 Design §2's short term-info record, on the same real
+    // corpus — a real, committed number for the fix's payoff, previously
+    // unexercised (docs/ledger.md's RFC 0009 entry).
+    let field_no_positions = build_field_without_positions(&doc_refs);
+    let term_info_savings = field.term_info.len() as i64 - field_no_positions.term_info.len() as i64;
+    eprintln!(
+        "build_field_without_positions: term_info {} bytes (vs. {} bytes with positions, {} bytes saved), \
+         no positions blob at all ({} bytes not written)",
+        field_no_positions.term_info.len(),
+        field.term_info.len(),
+        term_info_savings,
         field.positions.len()
     );
 
@@ -209,6 +226,7 @@ fn main() {
         term_info_bytes: field.term_info.len(),
         postings_bytes: field.postings.len(),
         positions_bytes: field.positions.len(),
+        term_info_bytes_without_positions: field_no_positions.term_info.len(),
         segment_bytes: snapshot.segments[0].byte_length,
         build_field_seconds: build_elapsed.as_secs_f64(),
         commit_seconds: commit_elapsed.as_secs_f64(),

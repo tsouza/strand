@@ -447,12 +447,26 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   at 100,476 — both matching the RFC's predicted figures to the byte
   (`bench/results/field-end-to-end-10003.json`, `-100476.json`,
   regenerated post-implementation, superseding the pre-fix numbers the RFC
-  itself cites as history). Fix 2 remains unexercised by
-  `crates/strand-lexical/src/field.rs` (still builds every field with
-  positions unconditionally, per its own doc comment) — the format
-  capability is real and tested in isolation, but no committed comparison
-  number reflects it yet, exactly as RFC 0009 itself said would be true at
-  approval time.
+  itself cites as history). **Fix 2 is now wired into `field.rs` too
+  (2026-08-19) — `build_field_without_positions` builds the short,
+  positions-free term-info record for good, and its predicted payoff is
+  now confirmed exactly, the same way Fix 1's was**: re-running the same
+  real MS MARCO samples, `term_info` shrank from `890,008` to `508,576`
+  bytes at 10,003 documents (`381,432` bytes saved — exactly RFC 0009's
+  own predicted `31,786 * 12`) and from `3,804,472` to `2,173,984` at
+  100,476 (`1,630,488` bytes saved — exactly `135,874 * 12`), with the
+  entire positions blob (`493,359`/`4,135,112` bytes respectively) not
+  written at all (`bench/results/field-end-to-end-10003.json`,
+  `-100476.json`, both regenerated again). `FieldReader::open` now tries
+  `blob_type_id = 1` then falls back to `blob_type_id = 4` (a new
+  `TermInfoSource` enum internal to `field.rs`), and
+  `crates/strand-lexical/tests/field_end_to_end.rs` gained a real
+  end-to-end test proving the opt-out path builds a smaller segment, still
+  answers term and BM25 queries correctly, and correctly reports empty (not
+  an error) for phrase queries against a field with no positions blob at
+  all. `field.rs`'s own multi-field-addressing caveat (RFC 0008's/RFC
+  0009's Non-goals) is unchanged: nothing here solves which registry entry
+  belongs to which field, only which shape a given entry uses once found.
 - **RFC 0008 (positions) implemented — resolved 2026-08-19.**
   `crates/strand-lexical/src/positions.rs` builds and reads the positions
   blob exactly as `spec/positions.md` specifies: `build_positions` takes a
