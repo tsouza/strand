@@ -611,6 +611,66 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   consumes these factors (FastScan's `accumulate()` plus the formula built
   on top of it), `MatrixRotator`'s matrix generation, k-means clustering,
   and multi-bit Extended-RaBitQ (all unchanged Non-goals from RFC 0010).
+- **Rotation application implemented — 2026-08-19, same day, prompted by
+  "implement rotation application next."** `crates/strand-vector/src/
+  rotate.rs`'s `rotate_fht_kac` and `rotate_matrix` close the precondition
+  every earlier module in this crate stated but didn't implement:
+  `quantize_one_bit`'s "already rotated" requirement. `rotate_fht_kac` (the
+  registered default) is a genuinely complex piece — the reference
+  implementation's `FhtKacRotator::rotate()`, a 4-stage pipeline of sign
+  flips, a Fast Walsh-Hadamard Transform, and (in the general case) a
+  Kac's-walk mixing butterfly — grounded by fetching the actual `rotate()`
+  method plus its three primitives (`fht_avx.hpp`'s `helper_float_1`/
+  `helper_float_2`, confirmed to be the standard, textbook in-place FWHT
+  butterfly network, generalized to any power-of-two size per invariant 9
+  rather than replicating the library's later hand-vectorized AVX
+  variants; and `flip_sign`/`kacs_walk`, whose only available source is
+  AVX2 intrinsics — no portable scalar fallback ships in the library — so
+  their scalar semantics were read out of the vector code rather than
+  transcribed from an existing scalar reference, including confirming
+  `flip_sign`'s bit order is LSB-first, the *opposite* convention from
+  `quantize.rs`'s `pack_binary`). All vendored at
+  `references/rabitq-library-rotation-application-source.md`.
+
+  **Verified beyond transcription, again**: a standalone C++
+  reimplementation of the full two-branch pipeline was compiled and run
+  against three cases — a general-branch case (`dim=100, padded_dim=128`),
+  the degenerate branch where `padded_dim` is itself a power of two
+  (`dim=padded_dim=64`), and the realistic embedding case (`dim=padded_dim
+  =768` — not a power of two, so this is actually the general branch for
+  most real embedding widths, not the simple one). The `dim=768` case
+  surfaced a real, independent mathematical check no value-matching alone
+  provides: a true rotation preserves L2 norm, and the compiled reference's
+  own input/output sums of squares matched to four decimal places
+  (`1549.8966` vs `1549.8970`) — real, measured evidence the transcription
+  is a genuine orthogonal transform, not just "produces the same numbers
+  as another buggy implementation." A `proptest` property test then
+  confirmed norm preservation across hundreds of random inputs spanning
+  both branches, not just the three hand-picked cases. A real transcription
+  bug was caught and fixed during this work, before it reached a commit: a
+  test helper's flip-byte generator used the wrong multiplier for one of
+  three cases (copy-paste from an adjacent test), which would have silently
+  validated the Rust output against the wrong C++ reference values —
+  caught by checking the helper's formula against each test's own printed
+  C++ generator line, not merely re-running the test.
+
+  A new `tests/full_pipeline.rs` connects every piece this crate has
+  grounded so far — descriptor, rotation, quantization, and the
+  posting-list wire format — into one real chain: raw, unrotated vectors
+  in, real posting-list blob bytes out, read back bit-exact, plus a
+  sanity check that rotation approximately preserves residual distance
+  between a vector and its centroid (the property RaBitQ's whole
+  quantization scheme depends on). 7 new tests, all passing; workspace
+  total now 141, clippy clean.
+
+  Deliberately unimplemented, named rather than glossed: the query-side
+  distance estimator (FastScan's `accumulate()` plus the formula built on
+  top of it), `MatrixRotator`'s realized-matrix *generation* (QR
+  decomposition — `rotate_matrix`'s own *application* of an
+  already-supplied matrix is implemented and tested), k-means clustering,
+  and multi-bit Extended-RaBitQ remain real, separate, unwritten work —
+  the same Non-goals RFC 0010 named at Approval, now narrower by exactly
+  one item.
 - **`quantize.rs` adversarially reviewed and fixed — 2026-08-19, same day,
   prompted by "does it needs and ACPR?" then "go."** Not the RFC-style
   ACPR gate (this module transcribes an external, already-published

@@ -371,15 +371,22 @@ now implemented too** (`quantize.rs`'s `quantize_one_bit`) — the sign-based bi
 code and the `f_add`/`f_rescale`/`f_error` factor formulas, grounded against the
 reference implementation's actual source and cross-checked against an
 independently compiled and executed C++ reimplementation, with an end-to-end test
-quantizing real vectors straight into a real posting-list blob. **Still
-deliberately out of scope, matching RFC 0010's own Design §4**: rotation
-*application* itself (as opposed to the rotation payload's storage format, already
-handled) — `quantize_one_bit` assumes its inputs are already rotated;
-`MatrixRotator`'s realized-matrix generation (QR decomposition); the query-side
-distance estimator that consumes these factors against a query vector (FastScan's
-`accumulate()` plus the formula built on top of it); real k-means clustering; and
-the actual `nprobe` query-resolution/scan/rerank pipeline. All real, separate,
-unwritten work.
+quantizing real vectors straight into a real posting-list blob. **Rotation
+*application* is now implemented too** (`rotate.rs`'s `rotate_fht_kac` and
+`rotate_matrix`) — the full `FhtKacRotator::rotate()` pipeline (sign flips, a
+generalized Fast Walsh-Hadamard Transform, Kac's-walk mixing) grounded against the
+reference source and independently cross-checked against a compiled C++
+reimplementation, plus a `proptest` confirming the mathematical property a rotation
+must have (L2-norm preservation) across hundreds of random inputs. A new
+`tests/full_pipeline.rs` chains descriptor, rotation, quantization, and the
+posting-list wire format together end to end for the first time: raw, unrotated
+vectors in, real blob bytes out, read back bit-exact. **Still deliberately out of
+scope, matching RFC 0010's own Design §4**: `MatrixRotator`'s realized-matrix
+*generation* (QR decomposition — its *application*, given an already-supplied
+matrix, is implemented); the query-side distance estimator that consumes these
+factors against a query vector (FastScan's `accumulate()` plus the formula built on
+top of it); real k-means clustering; and the actual `nprobe` query-resolution/scan/
+rerank pipeline. All real, separate, unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,

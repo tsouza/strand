@@ -23,3 +23,4 @@ pub mod flat;
 pub mod navigation;
 pub mod posting_list;
 pub mod quantize;
+pub mod rotate;
