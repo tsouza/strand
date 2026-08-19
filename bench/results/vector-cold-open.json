@@ -1,0 +1,29 @@
+{
+  "name": "vector-cold-open",
+  "date": "2026-08-19T19:04:10Z",
+  "commit": "89c7d692712e825a5389619e440bf95e7002ae1f",
+  "result": {
+    "iterations": 30,
+    "num_vectors": 10000,
+    "dims": 768,
+    "padded_dims": 768,
+    "num_clusters": 400,
+    "bit_width": 1,
+    "kmeans_max_iters": 5,
+    "descriptor_bytes": 400,
+    "navigation_tier_bytes": 1238408,
+    "open_wave_bytes": 1238808,
+    "posting_list_bytes_for_reference": 2025728,
+    "flat_vector_bytes_for_reference": 30720000,
+    "segment_total_bytes": 33984732,
+    "cold_open_byte_budget": 100000000,
+    "open_wave_pct_of_budget": 1.238808,
+    "extrapolated_open_wave_bytes_at_1m_vectors": 12384408.0,
+    "get_count_per_open": 3,
+    "open_latency_ms_p50": 92.628344,
+    "open_latency_ms_p90": 102.247225,
+    "open_latency_ms_p99": 114.062312,
+    "open_latency_ms_min": 60.511687,
+    "open_latency_ms_max": 114.062312
+  }
+}

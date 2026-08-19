@@ -3420,6 +3420,7 @@ dependencies = [
  "strand-core",
  "strand-lexical",
  "strand-tools",
+ "strand-vector",
  "sucds",
  "tantivy",
  "tempfile",
