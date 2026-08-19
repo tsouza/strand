@@ -27,9 +27,11 @@ as an M1 prerequisite, since M1's postings kernels are its first real consumer
 open (pointer → planned query) GET count and latency against MinIO; manifest commit
 contention (two writers racing the pointer); crash tests (writer dies before commit →
 orphans, reader on expired snapshot → 404-refresh path). Two originally-listed items
-are structurally deferred, not missed: parallel-wave aggregate throughput cannot be
-measured until a `tier: cold-fetchable` vector blob exists (M2 — `docs/ledger.md`
-already records this), and the compaction crash test (deleting a file under a retained
+were structurally deferred at M0, not missed: parallel-wave aggregate throughput
+could not be measured until a `tier: cold-fetchable` vector blob existed — M2 shipped
+that blob, and roadmap item X-5 measured it afterward (`bench/src/
+parallel_range_fetch.rs`, real numbers in `CLAUDE.md` §7 and `docs/ledger.md`) — and
+the compaction crash test (deleting a file under a retained
 snapshot must be impossible) requires M3's compaction — the deletion-safety rule is
 normative in `spec/manifest.md` §4 but untestable until the sweep exists. The
 tail-latency deliverable is partially met: local-MinIO p50/p90/p99 exist in

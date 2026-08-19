@@ -22,7 +22,7 @@
 //! complexity trade for now. Revisit if a future async read path needs to
 //! share a runtime instead.
 
-use crate::store::{ConditionalStore, ETag, StoreError};
+use crate::store::{ConditionalStore, ETag, RangeGetStore, StoreError};
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 
@@ -181,6 +181,39 @@ impl ConditionalStore for S3Store {
             result
                 .map(|output| output.e_tag().unwrap_or_default().to_string())
                 .map_err(classify_write_error)
+        })
+    }
+}
+
+impl RangeGetStore for S3Store {
+    fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, StoreError> {
+        assert!(start < end, "empty or inverted range: {start}..{end}");
+        // HTTP `Range` is inclusive on both ends; our own `get_range`
+        // contract is the Rust-style half-open `[start, end)`, so the wire
+        // header's end byte is `end - 1`.
+        let range_header = format!("bytes={start}-{}", end - 1);
+        self.runtime.block_on(async {
+            let result = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .range(range_header)
+                .send()
+                .await;
+            let output = result.map_err(|err| {
+                StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&err)
+                ))
+            })?;
+            let body = output.body.collect().await.map_err(|e| {
+                StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&e)
+                ))
+            })?;
+            Ok(body.into_bytes().to_vec())
         })
     }
 }

@@ -394,10 +394,31 @@ in the ~50–100 MB/s class, so 100 MB on one stream is a second or more — the
 assumes a reader that fetches ranges **in parallel** (which invariant 3's one-wave
 rule makes possible), bringing the tier-1 wave into the low hundreds of milliseconds,
 the same order as one round trip, so the open stays round-trip-bound rather than
-bandwidth-bound. The achieved aggregate throughput of a parallel wave is measured at
-M0, and the budget's expiry condition stands: the R1 RFC MUST confirm or replace this
-figure with numbers measured in the M0 MinIO benchmarks; until then every cold-path
-RFC computes against 100 MB and says so.
+bandwidth-bound. The achieved aggregate throughput of a parallel wave is now measured
+(roadmap item X-5, `bench/src/parallel_range_fetch.rs`, `bench/results/parallel-
+range-fetch.json`): against real MinIO, one sequential stream fetching a real 100 MB
+object measured p50 = 50.6 MB/s — consistent with, though on a different backend
+than, and so not itself confirming, the ~50–100 MB/s single-stream class stated
+above — while the same 100 MB split into N equal byte-range GETs issued concurrently
+(`strand-core`'s new `RangeGetStore` trait, added for this measurement) peaked at
+p50 = 159.7 MB/s at 32-way parallelism, a real 3.15x aggregate-throughput speedup
+over the sequential baseline. That is a real, measured confirmation of the mechanism
+this budget depends on: parallel range fetching materially outperforms one stream
+against a real backend, not just in theory. Two things it does NOT confirm, per §2's
+rule that a contradicted number is stated honestly, not softened: first, the absolute
+"low hundreds of milliseconds" tier-1 latency figure — the best measured wall time for
+the full 100 MB wave was 626ms (32-way p50), high hundreds, not low hundreds, and this
+ran against localhost MinIO with no injected network latency, under heavy concurrent
+load on the host machine (load average above 39 on 8 cores during the run) — neither
+real S3's round-trip character nor its available bandwidth is reproduced here, so that
+confirmation stays gated on X-4 (real S3, or MinIO with injected latency). Second,
+throughput did not scale monotonically with parallelism: it rose from 1-way through
+32-way, then fell at 64-way (98.1 MB/s) — every additional worker pays a real
+per-connection setup cost (its own client and Tokio runtime), so a real reader's
+parallelism level is a tuning question, not "more is always better." The budget's
+expiry condition otherwise stands: the R1 RFC MUST confirm or replace the 100 MB
+figure with numbers measured in the M0 MinIO benchmarks, now including this one;
+until then every cold-path RFC computes against 100 MB and says so.
 
 **Segment count is reported, never hidden.** The budget binds per segment, so scale
 forces many segments — at the R1 sizing law, corrected by RFC 0010's own grounded

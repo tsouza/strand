@@ -26,7 +26,7 @@ use strand_core::container::{ChunkCodec, StorageClass, Tier};
 use strand_core::manifest::{SegmentRef, SnapshotMetadata, commit, read_snapshot};
 use strand_core::s3_store::S3Store;
 use strand_core::segment::{BlobSpec, SegmentBuilder, write_segment};
-use strand_core::store::{ConditionalStore, StoreError};
+use strand_core::store::{ConditionalStore, RangeGetStore, StoreError};
 use testcontainers_modules::minio::MinIO;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
@@ -319,5 +319,28 @@ fn reader_on_a_compacted_snapshot_recovers_against_real_object_storage() {
             "recovered onto the newer snapshot"
         );
         assert_eq!(read_back.segments.len(), 2);
+    });
+}
+
+/// `S3Store::get_range` (X-5: the trait extension the parallel-range-fetch
+/// benchmark depends on) against real MinIO: a sub-range GET must return
+/// exactly the requested bytes, not the whole object, and must honor S3's
+/// clamp-at-end-of-object semantics for an over-long range.
+#[test]
+fn get_range_returns_exactly_the_requested_bytes_against_real_object_storage() {
+    with_store(|store| {
+        let payload: Vec<u8> = (0u32..10_000).map(|i| (i % 256) as u8).collect();
+        store.put_if_absent("range-target", &payload).unwrap();
+
+        let middle = store.get_range("range-target", 100, 200).unwrap();
+        assert_eq!(middle, payload[100..200]);
+
+        let clamped = store
+            .get_range("range-target", 9_990, 1_000_000)
+            .unwrap();
+        assert_eq!(clamped, payload[9_990..]);
+
+        let whole = store.get_range("range-target", 0, payload.len() as u64).unwrap();
+        assert_eq!(whole, payload);
     });
 }
