@@ -109,20 +109,40 @@ this chapter restricts the value to STRAND's own recommended default.
 
 STRAND's recommended default, for an implementation with no other requirement, is
 ICU4X's `icu_segmenter` crate, constructed via `WordSegmenter::
-try_new_dictionary()` — not `try_new_auto()`, which substitutes an LSTM model for
-Thai and Lao rather than dictionary lookup and would silently misrepresent this
-field. This covers Han, Hiragana/Katakana, Thai, and Lao from one Unicode-3.0-
-licensed, pure-Rust dependency with no native build dependency (RFC 0004 Discussion
-— post-approval amendments, `references/icu4x-icu-segmenter-crate.md`). `identity`
-names the segmentation family (e.g. `"icu4x-dictionary"`) and `version` names the
-`icu`/`icu_segmenter` crate's semver (e.g. `"icu_segmenter 2.3.0"`) — independent
-of this descriptor's own `icu_version` field (§1), since ICU4X versions separately
-from classic ICU4C and the two MUST NOT be assumed to correspond. This default is a
-format-level recommendation only: neither `crates/strand-lexical/src/analyzer.rs`
-implements it yet nor does `conformance/analyzers/` carry a dictionary-segmented
-vector (RFC 0004 Non-goals) — both remain open M1 execution work, and the exact
-byte-level pinning of `version` (crate semver alone, or also a compiled-data
-content hash per invariant 11) is left to that implementation session.
+new_dictionary()` — not `new_auto()`/`try_new_auto()`, which substitute an LSTM
+model for Thai and Lao rather than dictionary lookup and would silently
+misrepresent this field. (RFC 0004's Discussion amendment named this constructor
+`try_new_dictionary()`; fetching the real `icu_segmenter` 2.3.0 source at
+implementation time — `CLAUDE.md` §3 — found the infallible, `compiled_data`-only
+constructor is actually named `new_dictionary()`, with `try_new_dictionary()`
+reserved for callers supplying a custom `BufferProvider`. The distinction that
+matters, dictionary lookup rather than LSTM, is unchanged; only the exact function
+name is corrected here.) This covers Han, Hiragana/Katakana, Thai, and Lao from one
+Unicode-3.0-licensed, pure-Rust dependency with no native build dependency (RFC
+0004 Discussion — post-approval amendments, `references/icu4x-icu-segmenter-crate.md`).
+`identity` names the segmentation family (`"icu4x-dictionary"`) and `version` names
+both the `icu_segmenter` crate's own semver and the `icu_segmenter_data` crate's
+semver that actually carries the compiled dictionary bytes (e.g. `"icu_segmenter
+2.3.0 (icu_segmenter_data 2.3.0)"`) — independent of this descriptor's own
+`icu_version` field (§1), since ICU4X versions separately from classic ICU4C and
+the two MUST NOT be assumed to correspond. Pinning mechanism, decided at
+implementation time (M1-6, `docs/roadmap.md`): a crate-semver pair (segmenter crate
+plus its compiled-data crate), not a content hash of the compiled dictionary
+bytes — the semver pair is what `Cargo.lock` already pins deterministically for any
+build, while hashing the dictionary data baked into `icu_segmenter_data` as
+generated Rust source (`references/icu-license-word-break-dictionaries.md`
+describes the upstream word lists this data derives from; the crate itself
+`include!()`s generated `.rs.data` files rather than shipping a separate binary
+blob to hash) would need new build-time tooling this task did not judge necessary
+yet. This is a coarser byte-determinism anchor than a content hash (invariant 11,
+`CLAUDE.md` §5, prefers checksums where practical); a future session MAY tighten it
+to also carry a content hash of the compiled dictionary blob, the same way RFC 0004
+itself left the stemmer's commit-hash pinning open for a later session. Implemented
+in `crates/strand-lexical/src/analyzer.rs` (`tokenize_dictionary_segmented`,
+`analyze_dictionary_segmented_word_only`); one dictionary-segmented conformance
+vector exists (`conformance/analyzers/icu4x-dictionary-zh-01.json`, real
+Simplified Chinese, Han script) — every other script this default covers (Thai,
+Lao, Hiragana/Katakana) remains unvectored, real, separate follow-on work.
 
 ## 6. Placement constraint
 
@@ -132,10 +152,15 @@ budget.
 
 ## 7. Conformance status
 
-One descriptor implemented and pinned (`crates/strand-lexical/src/analyzer.rs`,
-`conformance/analyzers/lucene-en-word-only-01.json`) — the `lucene-en-10.5.1`
-English chain RFC 0004's worked example describes. Every other declared
-combination this schema permits (other languages, other stopword lists,
-`token_retention: "all-segments"`, `case_folding: "full-case-fold"`, dictionary
+Two descriptors implemented and pinned (`crates/strand-lexical/src/analyzer.rs`):
+the `lucene-en-10.5.1` English chain RFC 0004's worked example describes
+(`conformance/analyzers/lucene-en-word-only-01.json`), and the ICU4X dictionary
+default's Han-script path (`conformance/analyzers/icu4x-dictionary-zh-01.json`,
+M1-6, `docs/roadmap.md`). Every other declared combination this schema permits
+(other languages, other stopword lists, `token_retention: "all-segments"`,
+`case_folding: "full-case-fold"`, Thai/Lao/Hiragana/Katakana dictionary
 segmentation) remains unimplemented and unvectored; each is real, separate M1
-execution work, not covered by this one vector's presence.
+execution work, not covered by these two vectors' presence. A real
+segmentation-accuracy bake-off validating (or revising) the ICU4X default itself
+is also still open (M1-7, `docs/roadmap.md`; RFC 0004 Discussion, "How this could
+be wrong").

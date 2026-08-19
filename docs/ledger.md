@@ -300,16 +300,28 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   M1-1) — is now also resolved, license-side and design-side: RFC 0004 Discussion
   — post-approval amendments (2026-08-19) license-audits five live candidates
   (MeCab, Lindera, Jieba/`jieba-rs`, ICU4C via `rust_icu`, ICU4X's `icu_segmenter`)
-  and recommends ICU4X's `icu_segmenter` (`WordSegmenter::try_new_dictionary()`,
-  Unicode-3.0 license — determined Apache-2.0-compatible here for the first time in
-  this project, `references/icu4x-icu-segmenter-crate.md`) over Lindera's
-  CC-CEDICT-backed Chinese path (CC BY-SA 4.0, share-alike, rejected —
-  `references/cc-cedict-and-lindera-cc-cedict-license.md`) and over `rust_icu`'s
-  native-C-dependency shape. `spec/analyzer-descriptors.md` §5 names the default.
-  Still open, genuinely: no accuracy bake-off was run (license/dependency-shape
-  grounds only), no implementation exists in `crates/strand-lexical`, and no
-  dictionary-segmented `conformance/analyzers/` vector exists — real M1 execution
-  work, not done by this grounding pass.
+  and recommends ICU4X's `icu_segmenter` (`WordSegmenter::new_dictionary()` — the
+  RFC's own amendment first named this `try_new_dictionary()`; fetching the real
+  2.3.0 source at implementation time (M1-6, below) found the infallible
+  compiled-data constructor is actually `new_dictionary()`, corrected in the RFC
+  and here, dictionary-vs-LSTM distinction unaffected — Unicode-3.0 license,
+  determined Apache-2.0-compatible here for the first time in this project,
+  `references/icu4x-icu-segmenter-crate.md`) over Lindera's CC-CEDICT-backed
+  Chinese path (CC BY-SA 4.0, share-alike, rejected — `references/cc-cedict-and-
+  lindera-cc-cedict-license.md`) and over `rust_icu`'s native-C-dependency shape.
+  `spec/analyzer-descriptors.md` §5 names the default. **M1-6 (2026-08-19,
+  `docs/roadmap.md`) implements it**: `crates/strand-lexical/src/analyzer.rs`
+  populates `segmentation_dictionary` for Han-script content via `icu_segmenter`
+  2.3.0 (`compiled_data` feature only — `auto`/`lstm` disabled at the Cargo.toml
+  level so the LSTM constructors are not even reachable), and
+  `conformance/analyzers/icu4x-dictionary-zh-01.json` pins one real,
+  non-predicted Simplified Chinese dictionary-segmentation vector.
+  `segmentation_dictionary.version` is pinned as the `icu_segmenter`/
+  `icu_segmenter_data` crate-semver pair, not a content hash (`spec/
+  analyzer-descriptors.md` §5 states the reasoning and leaves a content-hash
+  upgrade open). Still open, genuinely: no accuracy bake-off was run
+  (license/dependency-shape grounds only, M1-7), and Thai/Lao/Hiragana/Katakana
+  remain unvectored — one Han-script vector does not cover the whole default.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1): a
   first decode-throughput measurement now exists

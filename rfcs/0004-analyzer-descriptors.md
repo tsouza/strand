@@ -497,3 +497,51 @@ session to name the default. `docs/ledger.md` and `docs/roadmap.md` M1-1 are
 updated to reflect a resolved format-design decision with implementation still
 open, not a fully closed item. No wire format changes: `segmentation_dictionary`'s
 shape (`{script, identity, version}`) is unchanged from Approval.
+
+**2026-08-19 — M1-6 implemented; one constructor name corrected against the real
+crate.** `crates/strand-lexical/src/analyzer.rs` now populates
+`segmentation_dictionary` for Han-script content, wired to `icu_segmenter` 2.3.0
+(added to `crates/strand-lexical/Cargo.toml` with `default-features = false,
+features = ["compiled_data"]` — deliberately excluding the crate's own `auto`/
+`lstm` features so `new_auto`/`new_lstm` are not even reachable from this crate, a
+compile-time guardrail on top of the code-review one this amendment already named).
+One real dictionary-segmented conformance vector was added,
+`conformance/analyzers/icu4x-dictionary-zh-01.json`, built from real ICU4X output
+on a real Simplified Chinese sentence, not predicted (`crates/strand-lexical/src/
+analyzer.rs`'s test module records the same real output as a unit test).
+
+Fetching the real `icu_segmenter` 2.3.0 source directly (`CLAUDE.md` §3, the same
+discipline this RFC's own Motivation section describes) found this amendment's own
+paragraph above named the wrong constructor: the infallible, `compiled_data`-only
+dictionary constructor is `WordSegmenter::new_dictionary()`, not
+`try_new_dictionary()`. `try_new_dictionary()` exists in the real API but is the
+fallible variant `gen_buffer_data_constructors!` generates for callers supplying a
+custom `BufferProvider` — not the zero-argument, compiled-data path this
+amendment's own recommendation assumed. This is a small, textbook instance of the
+exact failure mode §3 warns against (implementing a detail from a plausible-sounding
+remembered name rather than the fetched source) and is corrected here rather than
+silently fixed in code with the RFC left wrong: the load-bearing distinction this
+amendment cared about — dictionary lookup, not LSTM — is unaffected, since
+`new_dictionary()` is exactly as infallible-with-compiled-data and
+dictionary-lookup-based as the mistakenly-named `try_new_dictionary()` was assumed
+to be. `spec/analyzer-descriptors.md` §5 is updated with the corrected name.
+
+`segmentation_dictionary.version`'s byte-level pinning mechanism (left open above)
+is resolved as: the `icu_segmenter` crate's semver paired with the
+`icu_segmenter_data` crate's semver (e.g. `"icu_segmenter 2.3.0 (icu_segmenter_data
+2.3.0)"`), not a content hash of the compiled dictionary data. `Cargo.lock` already
+pins both crate versions deterministically for any given build; hashing the
+dictionary data itself would require new build-time tooling against
+`icu_segmenter_data`'s generated Rust source (it `include!()`s `.rs.data` files
+rather than shipping one hashable binary blob), which this task judged unnecessary
+for a first implementation. `spec/analyzer-descriptors.md` §5 states this choice
+and leaves a content-hash upgrade as still-open follow-on work, the same way this
+RFC's own "How this could be wrong" section already left the stemmer's
+commit-hash pinning open for a later session.
+
+Not done here, and not claimed: the Thai/Lao/Hiragana/Katakana scripts this
+default also covers remain unvectored (one Han-script vector only), and M1-7's
+segmentation-accuracy bake-off is unstarted — both already named as open in this
+amendment's own Open questions and "How this could be wrong," unchanged by this
+implementation pass. `docs/roadmap.md` M1-6 is updated to closed; M1-7 remains
+open.

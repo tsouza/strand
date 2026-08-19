@@ -19,7 +19,7 @@
 //! whatever its descriptor claims.
 
 use serde_json::Value;
-use strand_lexical::analyzer::analyze_lucene_en_word_only;
+use strand_lexical::analyzer::{analyze_dictionary_segmented_word_only, analyze_lucene_en_word_only};
 
 fn conformance_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(concat!(
@@ -60,6 +60,44 @@ fn lucene_en_word_only_01_matches_rfc_0004s_worked_example() {
     assert_eq!(descriptor["counts_overlaps_in_length"], false);
 
     let actual_tokens = analyze_lucene_en_word_only(input);
+    assert_eq!(actual_tokens, expected_tokens);
+    assert_eq!(actual_tokens.len() as u64, expected_document_length);
+}
+
+#[test]
+fn icu4x_dictionary_zh_01_matches_real_icu4x_segmenter_output() {
+    let path = conformance_dir().join("icu4x-dictionary-zh-01.json");
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    let vector: Value = serde_json::from_str(&raw).unwrap();
+
+    let input = vector["input"].as_str().unwrap();
+    let expected_tokens: Vec<String> = vector["expected_tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let expected_document_length = vector["expected_document_length"].as_u64().unwrap();
+
+    // This vector's descriptor names the ICU4X dictionary default
+    // (spec/analyzer-descriptors.md §5) for Han-script content: word-only
+    // retention, no case folding, no stopwords, no stemming.
+    let descriptor = &vector["descriptor"];
+    assert_eq!(
+        descriptor["tokenizer_profile"]["token_retention"],
+        "word-only"
+    );
+    assert_eq!(descriptor["stopword_list_id"], Value::Null);
+    assert_eq!(descriptor["stemmer"], Value::Null);
+    assert_eq!(
+        descriptor["segmentation_dictionary"]["identity"],
+        "icu4x-dictionary"
+    );
+    assert_eq!(descriptor["segmentation_dictionary"]["script"], "Han");
+    assert_eq!(descriptor["counts_overlaps_in_length"], false);
+
+    let actual_tokens = analyze_dictionary_segmented_word_only(input);
     assert_eq!(actual_tokens, expected_tokens);
     assert_eq!(actual_tokens.len() as u64, expected_document_length);
 }

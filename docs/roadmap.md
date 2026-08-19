@@ -52,7 +52,7 @@ in `docs/ledger.md`; not repeated here.
   (`ProposeDeletionVectorCommit`, two new invariants, both mutation-tested;
   RFC 0002 Discussion — post-approval amendments).
 
-## M1 — Lexical (implemented; three real grounding/design gaps remain, plus two new implementation follow-ons from M1-1's resolution)
+## M1 — Lexical (implemented; three real grounding/design gaps remain, plus one open implementation follow-on from M1-1's resolution)
 
 M1 shipped (BP128 postings, positions, FST term dictionary, block-max,
 filter bitmaps, analyzer descriptors, RFC 0009's per-term overhead
@@ -61,7 +61,8 @@ were missing from this document's first draft, found by this document's
 own adversarial review. One of the four, M1-1, is now resolved as a
 format-design decision (2026-08-19); its own resolution surfaced two new,
 narrower implementation/verification tasks, M1-6 and M1-7, listed after
-M1-5 below.
+M1-5 below. M1-6 is itself now done (2026-08-19); M1-7 (the
+segmentation-accuracy bake-off) remains open.
 
 - **M1-1** — ~~Which CJK/Thai/Lao segmentation dictionary STRAND adopts as
   a default~~ — resolved. Source: RFC 0004 Non-goals and Open questions
@@ -115,17 +116,30 @@ Also grounding debt, not M1-blocking but M1-adjacent and feeding M4:
   consequence lands in M4.
 - **M1-6** — Implement M1-1's resolved default: populate
   `segmentation_dictionary` in `crates/strand-lexical/src/analyzer.rs`
-  using ICU4X's `icu_segmenter` (`WordSegmenter::try_new_dictionary()` —
-  not `try_new_auto()`, which silently substitutes LSTM for Thai/Lao, RFC
-  0004 Discussion), and add at least one real dictionary-segmented vector
-  to `conformance/analyzers/` (a CJK or Thai/Lao worked example, the same
-  raw-text-in/token-stream-out shape as
+  using ICU4X's `icu_segmenter` (`WordSegmenter::new_dictionary()` — not
+  `new_auto()`/`try_new_auto()`, which silently substitute LSTM for
+  Thai/Lao, RFC 0004 Discussion), and add at least one real
+  dictionary-segmented vector to `conformance/analyzers/` (a CJK or
+  Thai/Lao worked example, the same raw-text-in/token-stream-out shape as
   `lucene-en-word-only-01.json`). Also pin `segmentation_dictionary.version`
   concretely — crate semver, a compiled-data content hash, or both, per
   invariant 11 — a decision RFC 0004's amendment left to this task.
   Source: RFC 0004 Discussion — post-approval amendments; `spec/
-  analyzer-descriptors.md` §5. Status: open, real implementation work.
-  Depends on: M1-1 (done).
+  analyzer-descriptors.md` §5. Status: **done** (2026-08-19) —
+  `crates/strand-lexical/src/analyzer.rs` (`tokenize_dictionary_segmented`,
+  `analyze_dictionary_segmented_word_only`), `icu_segmenter 2.3.0` added to
+  `crates/strand-lexical/Cargo.toml` with `default-features = false,
+  features = ["compiled_data"]` (excludes `auto`/`lstm`, a compile-time
+  guardrail against the LSTM trap); one real Han-script conformance vector,
+  `conformance/analyzers/icu4x-dictionary-zh-01.json`; `version` pinned as
+  the `icu_segmenter`/`icu_segmenter_data` crate-semver pair, not a content
+  hash (`spec/analyzer-descriptors.md` §5 states the reasoning). Fetching
+  the real crate source at implementation time found RFC 0004's own
+  amendment had named the wrong constructor
+  (`try_new_dictionary()` vs. the real `new_dictionary()`); corrected in
+  the RFC and spec, dictionary-vs-LSTM distinction unaffected. Thai, Lao,
+  Hiragana, and Katakana remain unvectored — one script's vector does not
+  cover the whole default; see M1-7. Depends on: M1-1 (done).
 - **M1-7** — Run a real segmentation-accuracy bake-off validating (or
   revising) M1-1's default: ICU4X's dictionary path vs. Lindera+IPADIC for
   Japanese, vs. Jieba for Chinese, vs. PyThaiNLP for Thai, the same
