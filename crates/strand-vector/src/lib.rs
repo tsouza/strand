@@ -21,6 +21,7 @@ pub mod descriptor;
 pub mod estimate;
 pub mod fastscan;
 pub mod flat;
+pub mod kmeans;
 pub mod navigation;
 pub mod posting_list;
 pub mod quantize;

@@ -392,12 +392,23 @@ values) and a 2,000-trial statistical test (96%+ containment, checked statistica
 rather than as a flaky proptest property since the guarantee is probabilistic by
 design). `tests/query_a_real_cluster.rs` is the first genuinely full end-to-end test:
 a real cluster written to a real blob, a real query scanned against it with no further
-I/O, correctly ranking the true nearest neighbor. **Still deliberately out of scope**:
-`MatrixRotator`'s realized-matrix *generation* (QR decomposition — its *application*
-is implemented); real k-means clustering; the multi-bit Extended-RaBitQ path; and the
-actual `nprobe` cluster-selection/scan-orchestration pipeline that wires the estimator
-up to a real multi-cluster query (the single-cluster scan is now real and tested).
-All real, separate, unwritten work.
+I/O, correctly ranking the true nearest neighbor. **Real k-means clustering is
+implemented too** (`kmeans.rs`) — Lloyd's algorithm with k-means++ seeding, the first
+module in this crate with no external reference to byte-match (the reference library
+itself delegates clustering to Faiss rather than shipping its own; RFC 0010 Design §3
+already named clustering as construction-side and wire-format-irrelevant), verified
+by testing the properties a correct implementation must have (monotonically
+non-increasing inertia, no empty clusters, deterministic given a seed, well-separated
+blobs recovered exactly) rather than cross-checked against a compiled reference.
+`tests/build_a_real_index.rs` is the capstone test so far: 200 raw vectors, clustered
+from nothing, built into a real four-blob-type segment, opened cold, and queried
+across every real cluster, correctly matching brute-force ground truth. **Still
+deliberately out of scope**: `MatrixRotator`'s realized-matrix *generation* (QR
+decomposition — its *application* is implemented); the multi-bit Extended-RaBitQ
+path; and the `nprobe`-bounded cluster-selection step itself (the capstone test scans
+every cluster for its own exhaustive correctness check, not yet the bounded,
+parallel-wave query RFC 0010 Design §6 specifies). All real, separate, unwritten
+work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,

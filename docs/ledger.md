@@ -611,6 +611,48 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   consumes these factors (FastScan's `accumulate()` plus the formula built
   on top of it), `MatrixRotator`'s matrix generation, k-means clustering,
   and multi-bit Extended-RaBitQ (all unchanged Non-goals from RFC 0010).
+- **K-means clustering implemented — 2026-08-19, same day, prompted by
+  "implement k-means clustering next."** `crates/strand-vector/src/
+  kmeans.rs`'s `kmeans` produces the centroids and cluster assignments
+  every earlier module in this crate had to receive pre-made in every
+  test until now. **A genuinely different grounding situation from every
+  other module built this session**: `descriptor.rs`, `rotate.rs`,
+  `quantize.rs`, and `estimate.rs` all had to match the reference
+  implementation byte-for-byte or bit-for-bit, because their output is
+  wire-visible. Clustering has no such constraint — the reference library
+  itself ships no C++ k-means at all; its own construction-side tooling
+  (`python/ivf.py`) delegates to Faiss, a separate library this project
+  has no reason to vendor or byte-match, and RFC 0010 Design §3 already
+  named the clustering algorithm as construction-side and wire-format-
+  irrelevant. What was owed instead: mathematical correctness against the
+  well-known standard algorithm — Lloyd's algorithm with k-means++ seeding
+  (Arthur & Vassilvitskii, SODA 2007) — verified by testing the properties
+  a correct implementation must have (inertia never increases as more
+  iterations run from the same seed; every returned cluster is non-empty,
+  including under a real empty-cluster-recovery test that deliberately
+  requests more clusters than natural groups exist; deterministic given a
+  seed; well-separated synthetic blobs are recovered exactly), not by
+  cross-checking against a compiled reference — the first module this
+  session where that verification style was the right one, not a
+  compromise.
+
+  **The capstone test for the crate so far**
+  (`tests/build_a_real_index.rs`): 200 raw vectors, clustered from
+  nothing (no pre-given centroid, for the first time), rotated, quantized,
+  assembled into a real four-blob-type `strand-core` segment, opened cold,
+  and queried across every real cluster — correctly ranking a
+  deliberately-nearest vector first, confirmed against brute-force ground
+  truth over the original raw vectors. 8 new tests, all passing; workspace
+  total now 155, clippy clean.
+
+  What remains from RFC 0010's original Non-goals list, narrower again:
+  `MatrixRotator`'s matrix *generation* (its application is implemented);
+  the multi-bit Extended-RaBitQ path; and the `nprobe`-bounded cluster-
+  selection step itself (this session's own capstone test scans *every*
+  cluster for its own exhaustive correctness check, rather than selecting
+  the `nprobe` nearest by centroid distance first — a real, deliberately
+  named simplification, not yet the bounded, parallel-wave query RFC 0010
+  Design §6 actually specifies).
 - **Query-side distance estimator implemented — 2026-08-19, same day,
   prompted by "implement the query-side distance estimator next."**
   `crates/strand-vector/src/estimate.rs`'s `estimate_distance` closes the
