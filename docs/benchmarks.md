@@ -126,10 +126,24 @@ the engine-constant premise itself.
 JVM parity harness into an engine-constant JVM-side benchmark and carries the
 invariant-5 Lucene-parity profile test.
 
-**Quickwit adapter (optional, after the tantivy fork exists).** Hypothesis, to be
-tested by R11(c) against post-relicense internals rather than assumed: Quickwit's
-read path is close enough to tantivy's that the adapter inherits most of the
-fork. Its unique payoff if true: Quickwit's internal hotcache cold-open versus
+**Quickwit adapter (optional, after the tantivy fork exists).** Hypothesis tested by
+R11(c) against post-relicense internals rather than assumed, 2026-08-19
+(`references/r11c-quickwit-relicense-and-hotcache-source.md`): **partially confirmed**.
+License is clean — Quickwit relicensed from AGPLv3 to Apache-2.0 in PR #5645
+(2025-01-23, verified against the actual commit diff, not just the announcement),
+compatible with this project's dependency policy. The inheritance claim itself splits:
+Quickwit's `quickwit-directories` crate (`HotDirectory`, `BundleDirectory`) is
+confirmed to implement only tantivy's *public* `Directory`/`FileHandle` traits — the
+same extension point the tantivy fork already plans to expose — so the adapter would
+sit on the identical interface, not on internals the fork diverges from. But Quickwit's
+split footer and hotcache are Quickwit's own independent wire format (its own
+`postcard`-serialized layout), so "inherits the fork" cannot mean reusing Quickwit's
+`Directory` implementation directly — the adapter still needs its own read path for
+STRAND bytes, exactly as it would without this finding. What *does* transfer cleanly:
+building the adapter against the exact tantivy commit the fork already pins (Quickwit
+itself git-pins an unreleased tantivy commit with an opt-in `quickwit` feature, not a
+crates.io release — the fork RFC should do the same, deliberately, not by accident).
+Its unique payoff, unchanged: Quickwit's internal hotcache cold-open versus
 STRAND's specified one, same engine — the fairest test of the lineage's hotcache
 claim (`docs/lineage.md`). Scoped, not built, 2026-08-19
 (`references/quickwit-comparison-scoping.md`): deployment, index config, and

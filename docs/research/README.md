@@ -153,18 +153,26 @@ data: the M3 multi-segment benchmark curve. Deliverable: an RFC that either spec
 an optional summary blob class or states the honest scale ceiling of a summary-free
 manifest.
 
-**R11 — Adapter feasibility (partial grounding; audit open).** Verified
-2026-08-18 against live source: tantivy and FAISS are both MIT (byte-level
+**R11 — Adapter feasibility (partial grounding; (c) closed, rest of audit open).**
+Verified 2026-08-18 against live source: tantivy and FAISS are both MIT (byte-level
 LICENSE reads, `quickwit-oss/tantivy`, `facebookresearch/faiss`); FAISS ships
 the inverted-lists extension surface at `faiss/invlists/` (`InvertedLists.h`,
 `OnDiskInvertedLists.h`, `BlockInvertedLists.h`); `IndexIVFRaBitQ` extends
 `IndexIVF` and its FastScan variant (`IndexIVFRaBitQFastScan` →
 `IndexIVFFastScan`) initializes a `CodePacker` in its inverted lists and retains
 an `orig_invlists` pointer — the source basis for splitting the adapter claim by
-kernel. Unverified and owned by R11: tantivy's reader surface and codec-SPI
-absence; whether FastScan search can execute over externally hosted lists;
-Quickwit post-relicense internals; the warm-tier graph host. Sources to vendor
-at M0: both LICENSE files; `faiss/invlists/InvertedLists.h` and
+kernel. R11(c), Quickwit post-relicense internals, is now closed (2026-08-19,
+`references/r11c-quickwit-relicense-and-hotcache-source.md`): Quickwit is Apache-2.0,
+confirmed at the commit that removed `LICENSE_AGPLv3.0.txt` and added `LICENSE`
+(PR #5645, 2025-01-23), not just the announcement; its `quickwit-directories` crate
+(`HotDirectory`, `BundleDirectory`) implements only tantivy's public `Directory`/
+`FileHandle` traits, confirming the *mechanism* half of the inherits-from-the-fork
+hypothesis, while its split/hotcache wire format is Quickwit's own independent
+byte layout, so the *code* does not transfer — a STRAND adapter still writes its own
+`Directory` implementation, the same way Quickwit's was. Still unverified and owned
+by the rest of R11: tantivy's reader surface and codec-SPI absence; whether FastScan
+search can execute over externally hosted lists; the warm-tier graph host. Sources
+to vendor at M0: both LICENSE files; `faiss/invlists/InvertedLists.h` and
 `OnDiskInvertedLists.h`; `faiss/IndexIVFRaBitQ.h`, `faiss/IndexIVFFastScan.h`,
 `faiss/IndexIVFRaBitQFastScan.h`; tantivy segment-reader sources at the pinned
-commit; Quickwit split/hotcache sources post-relicense.
+commit; Quickwit split/hotcache sources post-relicense (now vendored, see above).
