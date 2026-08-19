@@ -424,7 +424,23 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   blob-backed since document-length storage isn't a registered blob anywhere
   yet (RFC 0007's own Non-goals). Does not require an RFC: no new byte
   layout or registry entry is introduced, only composition of what RFC
-  0003/0005/0007 already approved.
+  0003/0005/0007 already approved. **Scale-tested against real MS MARCO data,
+  not just the 3-document toy corpus**: `bench/src/field_end_to_end.rs` runs
+  the identical pipeline over real passages. At 10,000 real documents
+  (25,737 distinct terms): `build_field` 0.50s, a 1.52 MB segment, cold open
+  (in-memory store, so decode cost only, not network latency) 0.28ms, BM25
+  queries in 19–65μs. At 100,000 real documents (107,544 distinct terms):
+  `build_field` 4.65s, a 9.49 MB segment, cold open 2.64ms, queries in
+  184–448μs. This run caught a real, if minor, usability finding: querying
+  with a raw, unstemmed word (`"energy"`) returns no matches even though the
+  term is genuinely present, because `FieldReader::lookup` does raw-string
+  FST lookup and documents are indexed post-stem (`"energy"` → `"energi"`).
+  Not a bug in the write or read path — confirmed by running the same word
+  through `analyzer::analyze_lucene_en_word_only` before querying, which
+  resolves correctly (117 matches at 10K docs) — but a real reminder that a
+  future real query-execution layer (not yet built, `docs/milestones.md`
+  M5) needs to run query text through the same analyzer chain a field's
+  documents were indexed with, not accept raw strings.
 - **Batch-shaped reader trait — resolved 2026-08-19.** `crates/strand-core/src/
   batch.rs` now defines `BatchReader` (`next_batch(&mut self, out: &mut Vec<Item>)
   -> usize`, invariant 9's frozen shape), and `PostingsReader::batches()`
