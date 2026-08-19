@@ -17,7 +17,7 @@
 //! reusing RFC 0007's own 10-byte postings worked example's length for
 //! continuity) and checks it against the pinned conformance golden file.
 
-use strand_lexical::term_dictionary::{TermInfo, SHORT_TERM_INFO_RECORD_LEN};
+use strand_lexical::term_dictionary::{SHORT_TERM_INFO_RECORD_LEN, TermInfo};
 
 fn toy_short_term_info() -> TermInfo {
     TermInfo {
@@ -43,10 +43,17 @@ fn worked_example_matches_conformance_golden_file() {
         "golden file conformance/term-dictionary/short-term-info-worked-example.bin must exist",
     );
 
-    assert_eq!(bytes.to_vec(), golden, "must match RFC 0009's pinned 16 bytes exactly");
+    assert_eq!(
+        bytes.to_vec(),
+        golden,
+        "must match RFC 0009's pinned 16 bytes exactly"
+    );
     assert_eq!(
         bytes,
-        [0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00],
+        [
+            0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00,
+            0x00, 0x00
+        ],
         "must match RFC 0009's worked example bytes exactly"
     );
 }

@@ -150,14 +150,20 @@ fn main() {
         doc_ordinal += 1;
         sampled_passages += 1;
         if sampled_passages.is_multiple_of(50_000) {
-            eprintln!("  {sampled_passages} passages indexed, {} terms so far", index.len());
+            eprintln!(
+                "  {sampled_passages} passages indexed, {} terms so far",
+                index.len()
+            );
         }
     }
 
     let vocabulary_size = index.len() as u64;
     let total_postings: u64 = index.values().map(|v| v.len() as u64).sum();
-    let total_term_occurrences: u64 =
-        index.values().flat_map(|v| v.iter()).map(|&(_, tf)| tf as u64).sum();
+    let total_term_occurrences: u64 = index
+        .values()
+        .flat_map(|v| v.iter())
+        .map(|&(_, tf)| tf as u64)
+        .sum();
     eprintln!(
         "Indexed {sampled_passages} passages, {vocabulary_size} distinct terms, {total_postings} \
          postings, {total_term_occurrences} total term occurrences"
@@ -192,8 +198,10 @@ fn main() {
     // rather than every term (postings-list count alone can run into the
     // millions of terms; this keeps the emitted JSON small while still
     // spanning the whole frequency spectrum, not just head or tail terms).
-    let mut doc_freqs: Vec<(String, u32)> =
-        index.iter().map(|(term, postings)| (term.clone(), postings.len() as u32)).collect();
+    let mut doc_freqs: Vec<(String, u32)> = index
+        .iter()
+        .map(|(term, postings)| (term.clone(), postings.len() as u32))
+        .collect();
     doc_freqs.sort_by_key(|(_, df)| *df);
 
     let n = doc_freqs.len();
@@ -262,7 +270,10 @@ fn main() {
         deciles,
     };
 
-    let out_path = concat!(env!("CARGO_MANIFEST_DIR"), "/results/msmarco-real-postings-sample.json");
+    let out_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/results/msmarco-real-postings-sample.json"
+    );
     let json = serde_json::to_string_pretty(&output).unwrap();
     std::fs::write(out_path, &json).unwrap_or_else(|e| panic!("write {out_path}: {e}"));
     eprintln!("Wrote {out_path} ({} bytes)", json.len());

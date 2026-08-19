@@ -30,13 +30,13 @@
 use flate2::read::MultiGzDecoder;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
-use strand_bench::{percentile, store_for, timed, with_minio, CountingStore};
+use strand_bench::{CountingStore, percentile, store_for, timed, with_minio};
 use strand_core::container::{Footer, Hotcache};
 use strand_core::manifest::{commit, read_snapshot};
 use strand_core::scoring::Bm25Profile;
-use strand_core::segment::{write_segment, SegmentBuilder};
+use strand_core::segment::{SegmentBuilder, write_segment};
 use strand_core::store::ConditionalStore;
-use strand_lexical::field::{build_field, FieldReader};
+use strand_lexical::field::{FieldReader, build_field};
 
 const ITERATIONS: usize = 30;
 
@@ -112,11 +112,15 @@ fn main() {
     eprintln!("Loaded {} real passages; building field...", doc_refs.len());
 
     let field = build_field(&doc_refs);
-    let vocabulary_size = field.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN;
+    let vocabulary_size =
+        field.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN;
     eprintln!(
         "Field built: {} docs, {vocabulary_size} terms, {} bytes across 4 blobs",
         doc_refs.len(),
-        field.term_dict.len() + field.term_info.len() + field.postings.len() + field.positions.len()
+        field.term_dict.len()
+            + field.term_info.len()
+            + field.postings.len()
+            + field.positions.len()
     );
 
     let doc_lengths = field.doc_lengths.clone();
@@ -131,7 +135,12 @@ fn main() {
         }
 
         let snapshot = commit(&store, |row_id_base| {
-            vec![write_segment(&store, "segments/field-cold-open.bin", &builder, row_id_base)]
+            vec![write_segment(
+                &store,
+                "segments/field-cold-open.bin",
+                &builder,
+                row_id_base,
+            )]
         })
         .expect("commit succeeds against an empty table");
         let segment_bytes_len = snapshot.segments[0].byte_length;
@@ -179,7 +188,8 @@ fn main() {
                 let segment_ref = &snapshot.segments[0];
                 let (segment_bytes, _) = counting.get(&segment_ref.path).unwrap().unwrap();
                 let hotcache = open_segment_bytes(&segment_bytes);
-                let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
+                let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)
+                    .expect("all four blobs present");
 
                 let bm25 = reader.search_bm25("state", &doc_lengths, &profile);
                 let phrase = reader.phrase_query(&["united", "states"]);
@@ -191,7 +201,9 @@ fn main() {
         full_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let get_count_open_and_query = full_get_counts[0];
         assert!(
-            full_get_counts.iter().all(|&c| c == get_count_open_and_query),
+            full_get_counts
+                .iter()
+                .all(|&c| c == get_count_open_and_query),
             "GET count per open+query must be constant across iterations: {full_get_counts:?}"
         );
         assert_eq!(

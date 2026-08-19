@@ -37,7 +37,7 @@ use std::time::Instant;
 use strand_lexical::field::build_field;
 use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions};
 use tantivy::tokenizer::{PreTokenizedString, Token};
-use tantivy::{doc, Index, IndexWriter};
+use tantivy::{Index, IndexWriter, doc};
 
 #[derive(Deserialize)]
 struct CorpusLine {
@@ -58,7 +58,9 @@ fn main() {
 
     const CORPUS_TOTAL_PASSAGES: u64 = 8_841_823;
     let stride = (CORPUS_TOTAL_PASSAGES / sample_target).max(1);
-    eprintln!("Sampling every {stride}-th passage (target {sample_target}, corpus {CORPUS_TOTAL_PASSAGES})");
+    eprintln!(
+        "Sampling every {stride}-th passage (target {sample_target}, corpus {CORPUS_TOTAL_PASSAGES})"
+    );
 
     let mut docs: Vec<String> = Vec::new();
     for (line_no, line) in reader.lines().enumerate() {
@@ -85,7 +87,10 @@ fn main() {
             }
         }
     }
-    eprintln!("Loaded {} real, non-empty-after-analysis passages", docs.len());
+    eprintln!(
+        "Loaded {} real, non-empty-after-analysis passages",
+        docs.len()
+    );
     let doc_refs: Vec<&str> = docs.iter().map(String::as_str).collect();
 
     // Path 1: native.
@@ -105,7 +110,10 @@ fn main() {
     let mut schema_builder = Schema::builder();
     let body_indexing =
         TextFieldIndexing::default().set_index_option(IndexRecordOption::WithFreqsAndPositions);
-    let body = schema_builder.add_text_field("body", TextOptions::default().set_indexing_options(body_indexing));
+    let body = schema_builder.add_text_field(
+        "body",
+        TextOptions::default().set_indexing_options(body_indexing),
+    );
     let schema = schema_builder.build();
     let index = Index::create_in_dir(index_dir.path(), schema).expect("create tantivy index");
     // Single-threaded: the importer only accepts a single-segment index
@@ -114,7 +122,9 @@ fn main() {
     // exactly, matching native build_field's doc_ordinal = array-index
     // convention — required for the byte-for-byte comparison below to be
     // meaningful.
-    let mut writer: IndexWriter = index.writer_with_num_threads(1, 200_000_000).expect("open index writer");
+    let mut writer: IndexWriter = index
+        .writer_with_num_threads(1, 200_000_000)
+        .expect("open index writer");
 
     let tantivy_build_start = Instant::now();
     for text in &docs {
@@ -124,19 +134,31 @@ fn main() {
         for (position, word) in words.iter().enumerate() {
             let offset_from = offset;
             let offset_to = offset_from + word.len();
-            tokens.push(Token { offset_from, offset_to, position, text: word.clone(), position_length: 1 });
+            tokens.push(Token {
+                offset_from,
+                offset_to,
+                position,
+                text: word.clone(),
+                position_length: 1,
+            });
             offset = offset_to + 1;
         }
-        let pretok = PreTokenizedString { text: words.join(" "), tokens };
-        writer.add_document(doc!(body => pretok)).expect("add_document");
+        let pretok = PreTokenizedString {
+            text: words.join(" "),
+            tokens,
+        };
+        writer
+            .add_document(doc!(body => pretok))
+            .expect("add_document");
     }
     writer.commit().expect("commit");
     let tantivy_build_seconds = tantivy_build_start.elapsed().as_secs_f64();
     eprintln!("real tantivy index built and committed in {tantivy_build_seconds:.2}s");
 
     let import_start = Instant::now();
-    let (imported, row_count) = strand_tools::convert::import_tantivy_field(index_dir.path(), "body")
-        .expect("import succeeds");
+    let (imported, row_count) =
+        strand_tools::convert::import_tantivy_field(index_dir.path(), "body")
+            .expect("import succeeds");
     eprintln!(
         "strand_tools::convert::import_tantivy_field: {:.2}s — term_dict {} bytes, term_info {} bytes, postings {} bytes, positions {} bytes",
         import_start.elapsed().as_secs_f64(),
@@ -145,7 +167,11 @@ fn main() {
         imported.postings.len(),
         imported.positions.len(),
     );
-    assert_eq!(row_count, doc_refs.len() as u64, "imported row count must match the real document count");
+    assert_eq!(
+        row_count,
+        doc_refs.len() as u64,
+        "imported row count must match the real document count"
+    );
 
     // The real comparison: byte-for-byte, not "close enough."
     let mut mismatches: Vec<String> = Vec::new();
@@ -190,7 +216,10 @@ fn main() {
             "MATCH: native build_field and the real tantivy-import path produced byte-identical \
              FieldBlobs on {} real documents ({} bytes total: {} term_dict + {} term_info + {} postings + {} positions).",
             doc_refs.len(),
-            native.term_dict.len() + native.term_info.len() + native.postings.len() + native.positions.len(),
+            native.term_dict.len()
+                + native.term_info.len()
+                + native.postings.len()
+                + native.positions.len(),
             native.term_dict.len(),
             native.term_info.len(),
             native.postings.len(),

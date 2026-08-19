@@ -17,7 +17,7 @@
 
 use roaring::RoaringBitmap;
 use strand_lexical::filter_bitmaps::{
-    build_filter_bitmap_store, build_value_dictionary, FilterBitmapStore, ValueDictionary,
+    FilterBitmapStore, ValueDictionary, build_filter_bitmap_store, build_value_dictionary,
 };
 
 fn toy_bitmaps() -> Vec<RoaringBitmap> {
@@ -44,7 +44,10 @@ fn worked_example_matches_conformance_golden_files() {
     ))
     .expect("golden file conformance/filter-bitmaps/toy-bitmap-store.bin must exist");
 
-    assert_eq!(fst_bytes, golden_fst, "FST bytes must match RFC 0006's pinned 53 bytes");
+    assert_eq!(
+        fst_bytes, golden_fst,
+        "FST bytes must match RFC 0006's pinned 53 bytes"
+    );
     assert_eq!(
         store_bytes, golden_store,
         "filter-bitmap store bytes must match RFC 0006's pinned 68 bytes"
@@ -73,5 +76,9 @@ fn worked_example_resolves_query_predicate_per_the_rfc() {
     assert!(bitmap.contains(5));
     assert!(!bitmap.contains(0));
 
-    assert_eq!(dict.get(b"green"), None, "a lookup miss is a normal outcome");
+    assert_eq!(
+        dict.get(b"green"),
+        None,
+        "a lookup miss is a normal outcome"
+    );
 }

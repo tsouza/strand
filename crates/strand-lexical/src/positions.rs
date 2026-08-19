@@ -25,7 +25,9 @@
 
 use bitpacking::{BitPacker, BitPacker8x};
 
-use crate::postings::{block_count_for, block_real_len, scalar_bits_needed, scalar_pack, scalar_unpack, BLOCK_LEN};
+use crate::postings::{
+    BLOCK_LEN, block_count_for, block_real_len, scalar_bits_needed, scalar_pack, scalar_unpack,
+};
 
 /// Builds a positions blob (`spec/positions.md` §4) from a term's postings,
 /// in postings order: `doc_positions[i]` is the `i`-th posting's
@@ -39,9 +41,15 @@ use crate::postings::{block_count_for, block_real_len, scalar_bits_needed, scala
 /// Panics if `doc_positions` is empty, if any entry is empty, or if any
 /// entry is not strictly increasing.
 pub fn build_positions(doc_positions: &[Vec<u32>]) -> Vec<u8> {
-    assert!(!doc_positions.is_empty(), "a positions list must cover at least one posting");
+    assert!(
+        !doc_positions.is_empty(),
+        "a positions list must cover at least one posting"
+    );
     for positions in doc_positions {
-        assert!(!positions.is_empty(), "every posting has at least one occurrence");
+        assert!(
+            !positions.is_empty(),
+            "every posting has at least one occurrence"
+        );
         assert!(
             positions.windows(2).all(|w| w[0] < w[1]),
             "within-document positions must be strictly increasing"
@@ -148,7 +156,12 @@ impl<'a> PositionsReader<'a> {
         if bytes.len() < min_len {
             return Err(PositionsError::Truncated);
         }
-        Ok(PositionsReader { bytes, total_term_freq, postings_block_count, position_block_count })
+        Ok(PositionsReader {
+            bytes,
+            total_term_freq,
+            postings_block_count,
+            position_block_count,
+        })
     }
 
     fn postings_block_pos_prefix_region(&self) -> &'a [u8] {
@@ -175,7 +188,8 @@ impl<'a> PositionsReader<'a> {
     }
 
     fn stream(&self) -> &'a [u8] {
-        &self.bytes[4 + 4 * self.postings_block_count.saturating_sub(1) + self.position_block_count..]
+        &self.bytes
+            [4 + 4 * self.postings_block_count.saturating_sub(1) + self.position_block_count..]
     }
 
     fn packed_len(&self, block_idx: usize, width: u8) -> usize {
@@ -214,8 +228,14 @@ impl<'a> PositionsReader<'a> {
     /// sum of `tf` for documents in block `lo` strictly before the target
     /// (already known from that same skip's block decode), and the target
     /// document's own `tf`, returns its absolute within-document positions.
-    pub fn positions_for_doc(&self, postings_block_idx: usize, local_prefix_tf: u32, tf: u32) -> Vec<u32> {
-        let start_index = self.postings_block_pos_prefix(postings_block_idx) as usize + local_prefix_tf as usize;
+    pub fn positions_for_doc(
+        &self,
+        postings_block_idx: usize,
+        local_prefix_tf: u32,
+        tf: u32,
+    ) -> Vec<u32> {
+        let start_index =
+            self.postings_block_pos_prefix(postings_block_idx) as usize + local_prefix_tf as usize;
         let end_index = start_index + tf as usize;
         let start_block = start_index / BLOCK_LEN;
         let end_block = (end_index - 1) / BLOCK_LEN;

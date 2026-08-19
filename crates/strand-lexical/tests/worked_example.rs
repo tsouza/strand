@@ -16,7 +16,7 @@
 //! against the pinned conformance golden files.
 
 use strand_lexical::term_dictionary::{
-    build_term_dictionary, TermDictionary, TermInfo, TermInfoStore,
+    TermDictionary, TermInfo, TermInfoStore, build_term_dictionary,
 };
 
 fn toy_terms() -> Vec<(&'static [u8], TermInfo)> {
@@ -69,7 +69,10 @@ fn worked_example_matches_conformance_golden_files() {
     ))
     .expect("golden file conformance/term-dictionary/toy-terms.terminfo must exist");
 
-    assert_eq!(fst_bytes, golden_fst, "FST bytes must match RFC 0005's pinned 60 bytes");
+    assert_eq!(
+        fst_bytes, golden_fst,
+        "FST bytes must match RFC 0005's pinned 60 bytes"
+    );
     assert_eq!(
         term_info_bytes, golden_term_info,
         "term-info bytes must match RFC 0005's pinned 84 bytes"

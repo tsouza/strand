@@ -24,9 +24,9 @@
 use strand_core::container::{Footer, Hotcache};
 use strand_core::manifest::{commit, read_snapshot};
 use strand_core::scoring::Bm25Profile;
-use strand_core::segment::{write_segment, SegmentBuilder};
+use strand_core::segment::{SegmentBuilder, write_segment};
 use strand_core::store::{ConditionalStore, InMemoryStore};
-use strand_lexical::field::{build_field, build_field_without_positions, FieldReader};
+use strand_lexical::field::{FieldReader, build_field, build_field_without_positions};
 
 const DOCS: [&str; 3] = [
     "the dog runs in the park",
@@ -54,7 +54,12 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
 
     let store = InMemoryStore::new();
     let snapshot = commit(&store, |row_id_base| {
-        vec![write_segment(&store, "segments/field-0.bin", &builder, row_id_base)]
+        vec![write_segment(
+            &store,
+            "segments/field-0.bin",
+            &builder,
+            row_id_base,
+        )]
     })
     .expect("commit succeeds against an empty table");
 
@@ -65,16 +70,20 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
     // Real reader path: pointer -> snapshot -> segment bytes -> footer ->
     // hotcache -> blob registry -> FieldReader (invariant 3's one-wave
     // rule: everything past this point is already-resident bytes).
-    let read_back = read_snapshot(&store).expect("read succeeds").expect("a snapshot exists");
+    let read_back = read_snapshot(&store)
+        .expect("read succeeds")
+        .expect("a snapshot exists");
     assert_eq!(read_back, snapshot);
 
     let segment_ref = &read_back.segments[0];
-    let (segment_bytes, _) =
-        ConditionalStore::get(&store, &segment_ref.path).expect("get succeeds").expect("segment exists");
+    let (segment_bytes, _) = ConditionalStore::get(&store, &segment_ref.path)
+        .expect("get succeeds")
+        .expect("segment exists");
     let hotcache = open_segment_bytes(&segment_bytes);
     assert_eq!(hotcache.row_id_count, 3);
 
-    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
+    let reader =
+        FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
 
     // "dog" appears in docs 0 and 2; "cat" in docs 1 and 2; "park" in 0 and 2.
     let dog_matches = reader.lookup("dog").expect("dog is a real term");
@@ -87,13 +96,17 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
     cat_docs.sort_unstable();
     assert_eq!(cat_docs, vec![1, 2]);
 
-    assert!(reader.lookup("giraffe").is_none(), "a real miss must be None, not an error");
+    assert!(
+        reader.lookup("giraffe").is_none(),
+        "a real miss must be None, not an error"
+    );
 
     // BM25-ranked search: "park" appears in docs 0 and 2, doc 0 is shorter
     // so should rank at least as high after length normalization.
     let profile = Bm25Profile::default();
-    let ranked =
-        reader.search_bm25("park", &field.doc_lengths, &profile).expect("park is a real term");
+    let ranked = reader
+        .search_bm25("park", &field.doc_lengths, &profile)
+        .expect("park is a real term");
     let ranked_docs: Vec<u32> = ranked.iter().map(|&(doc, _)| doc).collect();
     assert_eq!(ranked_docs.len(), 2);
     assert!(ranked_docs.contains(&0));
@@ -103,7 +116,11 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
         "results must be sorted by descending score: {ranked:?}"
     );
 
-    assert!(reader.search_bm25("giraffe", &field.doc_lengths, &profile).is_none());
+    assert!(
+        reader
+            .search_bm25("giraffe", &field.doc_lengths, &profile)
+            .is_none()
+    );
 
     // Real phrase query (RFC 0008, `spec/positions.md` §6). Doc 2, "the dog
     // and the cat play in the park", tokenizes (after stopword removal) to
@@ -122,7 +139,10 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
         "dog and park never appear adjacent in any document"
     );
 
-    assert!(reader.phrase_query(&["dog", "giraffe"]).is_empty(), "a real miss must yield no matches");
+    assert!(
+        reader.phrase_query(&["dog", "giraffe"]).is_empty(),
+        "a real miss must yield no matches"
+    );
 }
 
 #[test]
@@ -137,21 +157,33 @@ fn a_field_that_opts_out_of_positions_builds_a_smaller_segment_and_still_answers
 
     let mut builder = SegmentBuilder::new(DOCS.len() as u64);
     let blob_specs = without_positions.to_blob_specs();
-    assert_eq!(blob_specs.len(), 3, "no positions blob when a field opts out");
+    assert_eq!(
+        blob_specs.len(),
+        3,
+        "no positions blob when a field opts out"
+    );
     for blob in blob_specs {
         builder.add_blob(blob);
     }
 
     let store = InMemoryStore::new();
     commit(&store, |row_id_base| {
-        vec![write_segment(&store, "segments/field-no-positions.bin", &builder, row_id_base)]
+        vec![write_segment(
+            &store,
+            "segments/field-no-positions.bin",
+            &builder,
+            row_id_base,
+        )]
     })
     .expect("commit succeeds against an empty table");
 
-    let read_back = read_snapshot(&store).expect("read succeeds").expect("a snapshot exists");
+    let read_back = read_snapshot(&store)
+        .expect("read succeeds")
+        .expect("a snapshot exists");
     let segment_ref = &read_back.segments[0];
-    let (segment_bytes, _) =
-        ConditionalStore::get(&store, &segment_ref.path).expect("get succeeds").expect("segment exists");
+    let (segment_bytes, _) = ConditionalStore::get(&store, &segment_ref.path)
+        .expect("get succeeds")
+        .expect("segment exists");
     let hotcache = open_segment_bytes(&segment_bytes);
 
     let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)

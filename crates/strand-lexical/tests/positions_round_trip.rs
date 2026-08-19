@@ -21,7 +21,7 @@
 //! the original input directly — not each other.
 
 use proptest::prelude::*;
-use strand_lexical::positions::{build_positions, PositionsError, PositionsReader};
+use strand_lexical::positions::{PositionsError, PositionsReader, build_positions};
 use strand_lexical::postings::BLOCK_LEN;
 
 fn arb_doc_positions(
@@ -54,8 +54,10 @@ fn term_freqs_of(doc_positions: &[Vec<u32>]) -> Vec<u32> {
 fn locate(doc_positions: &[Vec<u32>], target_doc_idx: usize) -> (usize, u32, u32) {
     let block_idx = target_doc_idx / BLOCK_LEN;
     let block_start = block_idx * BLOCK_LEN;
-    let local_prefix_tf: u32 =
-        doc_positions[block_start..target_doc_idx].iter().map(|p| p.len() as u32).sum();
+    let local_prefix_tf: u32 = doc_positions[block_start..target_doc_idx]
+        .iter()
+        .map(|p| p.len() as u32)
+        .sum();
     let tf = doc_positions[target_doc_idx].len() as u32;
     (block_idx, local_prefix_tf, tf)
 }
@@ -132,5 +134,8 @@ fn reader_rejects_truncated_bytes() {
     let doc_positions = vec![vec![3u32, 9], vec![0], vec![1, 4, 10]];
     let bytes = build_positions(&doc_positions);
     let too_short = &bytes[..3];
-    assert_eq!(PositionsReader::new(too_short, 3).unwrap_err(), PositionsError::Truncated);
+    assert_eq!(
+        PositionsReader::new(too_short, 3).unwrap_err(),
+        PositionsError::Truncated
+    );
 }

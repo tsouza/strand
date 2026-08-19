@@ -15,7 +15,7 @@
 //! Reproduces RFC 0007's worked example (3 postings, single block) and
 //! checks it against the pinned conformance golden file.
 
-use strand_lexical::postings::{build_postings, PostingsReader};
+use strand_lexical::postings::{PostingsReader, build_postings};
 
 fn toy_ordinals() -> Vec<u32> {
     vec![5, 12, 47]
@@ -35,7 +35,10 @@ fn worked_example_matches_conformance_golden_file() {
     ))
     .expect("golden file conformance/postings/toy-postings.bin must exist");
 
-    assert_eq!(bytes, golden, "must match RFC 0007's pinned 10 bytes exactly");
+    assert_eq!(
+        bytes, golden,
+        "must match RFC 0007's pinned 10 bytes exactly"
+    );
     assert_eq!(
         bytes,
         vec![0x2F, 0x00, 0x00, 0x00, 0x06, 0x02, 0xC5, 0x31, 0x02, 0x36],
@@ -59,5 +62,9 @@ fn worked_example_decodes_and_skips_correctly() {
     assert_eq!(reader.skip(12), Some((12, 1)));
     assert_eq!(reader.skip(6), Some((12, 1)));
     assert_eq!(reader.skip(48), None, "no posting >= 48 exists");
-    assert_eq!(reader.skip(5), Some((5, 2)), "exact match on the first posting");
+    assert_eq!(
+        reader.skip(5),
+        Some((5, 2)),
+        "exact match on the first posting"
+    );
 }

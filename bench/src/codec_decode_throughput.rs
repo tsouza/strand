@@ -131,7 +131,9 @@ fn random_values(rng: &mut StdRng, width: u8) -> Vec<u32> {
     } else {
         (1u32 << width) - 1
     };
-    (0..VALUES_PER_UNIT).map(|_| rng.random_range(0..=max)).collect()
+    (0..VALUES_PER_UNIT)
+        .map(|_| rng.random_range(0..=max))
+        .collect()
 }
 
 fn bench_bitpacker4x(values: &[u32], width: u8) -> CodecResult {
@@ -154,7 +156,11 @@ fn bench_bitpacker4x(values: &[u32], width: u8) -> CodecResult {
         let dst = &mut decompressed[b * BitPacker4x::BLOCK_LEN..(b + 1) * BitPacker4x::BLOCK_LEN];
         bp.decompress(src, dst, width);
     }
-    assert_eq!(values, &decompressed[..], "BitPacker4x round-trip mismatch at width {width}");
+    assert_eq!(
+        values,
+        &decompressed[..],
+        "BitPacker4x round-trip mismatch at width {width}"
+    );
 
     let encode_start = Instant::now();
     for _ in 0..ITERATIONS {
@@ -207,7 +213,11 @@ fn bench_bitpacker8x(values: &[u32], width: u8) -> CodecResult {
         let dst = &mut decompressed[b * BitPacker8x::BLOCK_LEN..(b + 1) * BitPacker8x::BLOCK_LEN];
         bp.decompress(src, dst, width);
     }
-    assert_eq!(values, &decompressed[..], "BitPacker8x round-trip mismatch at width {width}");
+    assert_eq!(
+        values,
+        &decompressed[..],
+        "BitPacker8x round-trip mismatch at width {width}"
+    );
 
     let encode_start = Instant::now();
     for _ in 0..ITERATIONS {
@@ -256,16 +266,16 @@ fn bench_fastlanes(values: &[u32], width: u8) -> CodecResult {
         FastLanesBitPacking::unchecked_pack(width, values, &mut packed);
         FastLanesBitPacking::unchecked_unpack(width, &packed, &mut unpacked);
     }
-    assert_eq!(values, &unpacked[..], "FastLanes round-trip mismatch at width {width}");
+    assert_eq!(
+        values,
+        &unpacked[..],
+        "FastLanes round-trip mismatch at width {width}"
+    );
 
     let encode_start = Instant::now();
     for _ in 0..ITERATIONS {
         unsafe {
-            FastLanesBitPacking::unchecked_pack(
-                width,
-                std::hint::black_box(values),
-                &mut packed,
-            );
+            FastLanesBitPacking::unchecked_pack(width, std::hint::black_box(values), &mut packed);
         }
         std::hint::black_box(&packed);
     }
@@ -297,7 +307,10 @@ fn bench_fastpfor(values: &[u32]) -> CodecResult {
 
     let mut codec = FastPForBlock256::default();
     let (blocks, remainder) = slice_to_blocks::<FastPForBlock256>(values);
-    assert!(remainder.is_empty(), "VALUES_PER_UNIT must be a multiple of 256");
+    assert!(
+        remainder.is_empty(),
+        "VALUES_PER_UNIT must be a multiple of 256"
+    );
 
     let mut encoded = Vec::new();
     codec.encode_blocks(blocks, &mut encoded).unwrap();
@@ -433,7 +446,11 @@ fn bench_bitpacker8x_skewed(values: &[u32]) -> SkewedResult {
         let dst = &mut decompressed[b * BitPacker8x::BLOCK_LEN..(b + 1) * BitPacker8x::BLOCK_LEN];
         bp.decompress(src, dst, width);
     }
-    assert_eq!(values, &decompressed[..], "BitPacker8x skewed round-trip mismatch");
+    assert_eq!(
+        values,
+        &decompressed[..],
+        "BitPacker8x skewed round-trip mismatch"
+    );
     let compressed_bytes = compressed_len;
 
     let decode_start = Instant::now();
@@ -466,7 +483,10 @@ fn bench_bitpacker8x_skewed(values: &[u32]) -> SkewedResult {
 /// Returns `None` if the file doesn't exist yet — this measurement is
 /// optional, run only after `cargo run -p strand-bench --bin msmarco-index`.
 fn load_real_postings_field(field: &str) -> Option<Vec<u32>> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/results/msmarco-real-postings-sample.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/results/msmarco-real-postings-sample.json"
+    );
     let raw = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let deciles = json.get("deciles")?.as_array()?;
@@ -507,9 +527,17 @@ fn average_skewed_results(codec: &str, results: &[SkewedResult]) -> RealCorpusRe
     RealCorpusResult {
         codec: codec.to_string(),
         chunks_measured: results.len(),
-        decode_ns_per_1024_values: results.iter().map(|r| r.decode_ns_per_1024_values).sum::<f64>() / n,
+        decode_ns_per_1024_values: results
+            .iter()
+            .map(|r| r.decode_ns_per_1024_values)
+            .sum::<f64>()
+            / n,
         decode_values_per_sec: results.iter().map(|r| r.decode_values_per_sec).sum::<f64>() / n,
-        encode_ns_per_1024_values: results.iter().map(|r| r.encode_ns_per_1024_values).sum::<f64>() / n,
+        encode_ns_per_1024_values: results
+            .iter()
+            .map(|r| r.encode_ns_per_1024_values)
+            .sum::<f64>()
+            / n,
         compressed_bytes_per_1024_values: results
             .iter()
             .map(|r| r.compressed_bytes_per_1024_values as f64)
@@ -557,18 +585,25 @@ fn main() {
 
     let real_msmarco_d_gaps = load_real_postings_field("d_gaps").map(|pooled| {
         println!("real d_gaps: {} pooled values", pooled.len());
-        vec![bench_fastpfor_real(&pooled), bench_bitpacker8x_real(&pooled)]
+        vec![
+            bench_fastpfor_real(&pooled),
+            bench_bitpacker8x_real(&pooled),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+    });
+    let real_msmarco_term_frequencies =
+        load_real_postings_field("term_frequencies").map(|pooled| {
+            println!("real term_frequencies: {} pooled values", pooled.len());
+            vec![
+                bench_fastpfor_real(&pooled),
+                bench_bitpacker8x_real(&pooled),
+            ]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>()
-    });
-    let real_msmarco_term_frequencies = load_real_postings_field("term_frequencies").map(|pooled| {
-        println!("real term_frequencies: {} pooled values", pooled.len());
-        vec![bench_fastpfor_real(&pooled), bench_bitpacker8x_real(&pooled)]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-    });
+        });
     if real_msmarco_d_gaps.is_none() {
         println!(
             "no bench/results/msmarco-real-postings-sample.json found — \

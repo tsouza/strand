@@ -22,7 +22,10 @@ use serde_json::Value;
 use strand_lexical::analyzer::analyze_lucene_en_word_only;
 
 fn conformance_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/analyzers"))
+    std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../conformance/analyzers"
+    ))
 }
 
 #[test]
@@ -47,7 +50,10 @@ fn lucene_en_word_only_01_matches_rfc_0004s_worked_example() {
     // "word-only" retention, "lower" case folding, lucene-en-10.5.1
     // stopwords, snowball-porter2-en stemming.
     let descriptor = &vector["descriptor"];
-    assert_eq!(descriptor["tokenizer_profile"]["token_retention"], "word-only");
+    assert_eq!(
+        descriptor["tokenizer_profile"]["token_retention"],
+        "word-only"
+    );
     assert_eq!(descriptor["tokenizer_profile"]["case_folding"], "lower");
     assert_eq!(descriptor["stopword_list_id"], "lucene-en-10.5.1");
     assert_eq!(descriptor["stemmer"]["name"], "snowball-porter2-en");

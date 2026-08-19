@@ -39,7 +39,10 @@ pub struct Bm25Profile {
 
 impl Default for Bm25Profile {
     fn default() -> Self {
-        Bm25Profile { k1: DEFAULT_K1, b: DEFAULT_B }
+        Bm25Profile {
+            k1: DEFAULT_K1,
+            b: DEFAULT_B,
+        }
     }
 }
 
@@ -70,7 +73,10 @@ pub struct LuceneParityProfile {
 
 impl Default for LuceneParityProfile {
     fn default() -> Self {
-        LuceneParityProfile { k1: DEFAULT_K1, b: DEFAULT_B }
+        LuceneParityProfile {
+            k1: DEFAULT_K1,
+            b: DEFAULT_B,
+        }
     }
 }
 

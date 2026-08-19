@@ -125,7 +125,9 @@ impl<'a> TermInfoStore<'a> {
     /// Direct-indexed read at `ordinal * TERM_INFO_RECORD_LEN`
     /// (`spec/term-dictionary.md` §4) — no scan.
     pub fn get(&self, ordinal: u64) -> Option<TermInfo> {
-        let start = usize::try_from(ordinal).ok()?.checked_mul(TERM_INFO_RECORD_LEN)?;
+        let start = usize::try_from(ordinal)
+            .ok()?
+            .checked_mul(TERM_INFO_RECORD_LEN)?;
         let end = start.checked_add(TERM_INFO_RECORD_LEN)?;
         let record: &[u8; TERM_INFO_RECORD_LEN] = self.bytes.get(start..end)?.try_into().ok()?;
         Some(TermInfo::decode(record))
@@ -160,9 +162,12 @@ impl<'a> ShortTermInfoStore<'a> {
     /// scan. The returned `TermInfo`'s `positions_offset`/`positions_length`
     /// are always `0` (`TermInfo::decode_short`'s own contract).
     pub fn get(&self, ordinal: u64) -> Option<TermInfo> {
-        let start = usize::try_from(ordinal).ok()?.checked_mul(SHORT_TERM_INFO_RECORD_LEN)?;
+        let start = usize::try_from(ordinal)
+            .ok()?
+            .checked_mul(SHORT_TERM_INFO_RECORD_LEN)?;
         let end = start.checked_add(SHORT_TERM_INFO_RECORD_LEN)?;
-        let record: &[u8; SHORT_TERM_INFO_RECORD_LEN] = self.bytes.get(start..end)?.try_into().ok()?;
+        let record: &[u8; SHORT_TERM_INFO_RECORD_LEN] =
+            self.bytes.get(start..end)?.try_into().ok()?;
         Some(TermInfo::decode_short(record))
     }
 }

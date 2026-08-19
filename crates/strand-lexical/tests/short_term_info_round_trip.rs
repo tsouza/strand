@@ -22,22 +22,29 @@
 use proptest::prelude::*;
 use std::collections::BTreeSet;
 use strand_lexical::term_dictionary::{
-    build_term_dictionary_short, ShortTermInfoStore, TermDictionary, TermInfo,
-    SHORT_TERM_INFO_RECORD_LEN,
+    SHORT_TERM_INFO_RECORD_LEN, ShortTermInfoStore, TermDictionary, TermInfo,
+    build_term_dictionary_short,
 };
 
 fn arb_term_info() -> impl Strategy<Value = TermInfo> {
-    (any::<u32>(), any::<u64>(), any::<u32>(), any::<u64>(), any::<u32>()).prop_map(
-        |(doc_freq, postings_offset, postings_length, positions_offset, positions_length)| {
-            TermInfo {
-                doc_freq,
-                postings_offset,
-                postings_length,
-                positions_offset,
-                positions_length,
-            }
-        },
+    (
+        any::<u32>(),
+        any::<u64>(),
+        any::<u32>(),
+        any::<u64>(),
+        any::<u32>(),
     )
+        .prop_map(
+            |(doc_freq, postings_offset, postings_length, positions_offset, positions_length)| {
+                TermInfo {
+                    doc_freq,
+                    postings_offset,
+                    postings_length,
+                    positions_offset,
+                    positions_length,
+                }
+            },
+        )
 }
 
 proptest! {

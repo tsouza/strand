@@ -47,7 +47,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Command::Inspect { path } => run_inspect(&path),
-        Command::Convert { index_dir, field, output } => run_convert(&index_dir, &field, &output),
+        Command::Convert {
+            index_dir,
+            field,
+            output,
+        } => run_convert(&index_dir, &field, &output),
     }
 }
 

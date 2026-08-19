@@ -25,9 +25,9 @@ use std::time::Instant;
 use strand_core::container::{Footer, Hotcache};
 use strand_core::manifest::{commit, read_snapshot};
 use strand_core::scoring::Bm25Profile;
-use strand_core::segment::{write_segment, SegmentBuilder};
+use strand_core::segment::{SegmentBuilder, write_segment};
 use strand_core::store::{ConditionalStore, InMemoryStore};
-use strand_lexical::field::{build_field, build_field_without_positions, FieldReader};
+use strand_lexical::field::{FieldReader, build_field, build_field_without_positions};
 
 #[derive(Deserialize)]
 struct CorpusLine {
@@ -78,7 +78,9 @@ fn main() {
     // a same-count-different-documents one.
     const CORPUS_TOTAL_PASSAGES: u64 = 8_841_823;
     let stride = (CORPUS_TOTAL_PASSAGES / sample_target).max(1);
-    eprintln!("Sampling every {stride}-th passage (target {sample_target}, corpus {CORPUS_TOTAL_PASSAGES})");
+    eprintln!(
+        "Sampling every {stride}-th passage (target {sample_target}, corpus {CORPUS_TOTAL_PASSAGES})"
+    );
 
     let mut docs: Vec<String> = Vec::new();
     for (line_no, line) in reader.lines().enumerate() {
@@ -116,7 +118,8 @@ fn main() {
     // corpus — a real, committed number for the fix's payoff, previously
     // unexercised (docs/ledger.md's RFC 0009 entry).
     let field_no_positions = build_field_without_positions(&doc_refs);
-    let term_info_savings = field.term_info.len() as i64 - field_no_positions.term_info.len() as i64;
+    let term_info_savings =
+        field.term_info.len() as i64 - field_no_positions.term_info.len() as i64;
     eprintln!(
         "build_field_without_positions: term_info {} bytes (vs. {} bytes with positions, {} bytes saved), \
          no positions blob at all ({} bytes not written)",
@@ -134,7 +137,12 @@ fn main() {
     let store = InMemoryStore::new();
     let commit_start = Instant::now();
     let snapshot = commit(&store, |row_id_base| {
-        vec![write_segment(&store, "segments/field-large.bin", &builder, row_id_base)]
+        vec![write_segment(
+            &store,
+            "segments/field-large.bin",
+            &builder,
+            row_id_base,
+        )]
     })
     .expect("commit succeeds against an empty table");
     let commit_elapsed = commit_start.elapsed();
@@ -146,21 +154,30 @@ fn main() {
     );
 
     let open_start = Instant::now();
-    let read_back = read_snapshot(&store).expect("read succeeds").expect("a snapshot exists");
+    let read_back = read_snapshot(&store)
+        .expect("read succeeds")
+        .expect("a snapshot exists");
     let segment_ref = &read_back.segments[0];
-    let (segment_bytes, _) =
-        ConditionalStore::get(&store, &segment_ref.path).expect("get succeeds").expect("segment exists");
+    let (segment_bytes, _) = ConditionalStore::get(&store, &segment_ref.path)
+        .expect("get succeeds")
+        .expect("segment exists");
     let hotcache = open_segment_bytes(&segment_bytes);
-    let reader = FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
+    let reader =
+        FieldReader::open(&segment_bytes, &hotcache.blobs).expect("all four blobs present");
     let open_elapsed = open_start.elapsed();
-    eprintln!("cold open (pointer -> snapshot -> segment -> hotcache -> FieldReader): {:.2}ms", open_elapsed.as_secs_f64() * 1000.0);
+    eprintln!(
+        "cold open (pointer -> snapshot -> segment -> hotcache -> FieldReader): {:.2}ms",
+        open_elapsed.as_secs_f64() * 1000.0
+    );
 
     let profile = Bm25Profile::default();
     // FieldReader::lookup does raw-string FST lookup — documents are
     // indexed *stemmed* (e.g. "energy" -> "energi"), so a realistic query
     // path must run the query term through the same analyzer before
     // looking it up, exactly like a document does at index time.
-    let sample_terms = ["state", "system", "water", "time", "process", "law", "energy", "health"];
+    let sample_terms = [
+        "state", "system", "water", "time", "process", "law", "energy", "health",
+    ];
     for raw_term in sample_terms {
         let stemmed = strand_lexical::analyzer::analyze_lucene_en_word_only(raw_term);
         let Some(term) = stemmed.first() else {
@@ -213,7 +230,8 @@ fn main() {
         );
     }
 
-    let vocabulary_size = field.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN;
+    let vocabulary_size =
+        field.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN;
     eprintln!(
         "Done: {} real documents, {vocabulary_size} distinct terms, real end-to-end query path validated at scale.",
         doc_refs.len(),

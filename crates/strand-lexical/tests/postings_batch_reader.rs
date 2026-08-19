@@ -18,7 +18,7 @@
 
 use proptest::prelude::*;
 use strand_core::batch::BatchReader;
-use strand_lexical::postings::{build_postings, PostingsReader, BLOCK_LEN};
+use strand_lexical::postings::{BLOCK_LEN, PostingsReader, build_postings};
 
 fn arb_postings_list(max_len: usize, max_gap: u32) -> impl Strategy<Value = (Vec<u32>, Vec<u32>)> {
     prop::collection::vec((1u32..=max_gap, 0u32..=1_000_000u32), 1..max_len).prop_map(|pairs| {
@@ -47,8 +47,16 @@ fn single_block_yields_one_batch_then_exhausts() {
     assert_eq!(out, vec![(5, 2), (12, 1), (47, 3)]);
 
     let before_len = out.len();
-    assert_eq!(batches.next_batch(&mut out), 0, "exhausted reader must return 0");
-    assert_eq!(out.len(), before_len, "exhausted call must not append anything");
+    assert_eq!(
+        batches.next_batch(&mut out),
+        0,
+        "exhausted reader must return 0"
+    );
+    assert_eq!(
+        out.len(),
+        before_len,
+        "exhausted call must not append anything"
+    );
 }
 
 #[test]

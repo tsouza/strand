@@ -128,7 +128,10 @@ fn build_field_impl(docs: &[&str], with_positions: bool) -> FieldBlobs {
 
         let mut per_doc_positions: HashMap<String, Vec<u32>> = HashMap::new();
         for (position, token) in tokens.into_iter().enumerate() {
-            per_doc_positions.entry(token).or_default().push(position as u32);
+            per_doc_positions
+                .entry(token)
+                .or_default()
+                .push(position as u32);
         }
         // Documents are processed in ascending doc_ordinal order and each
         // contributes at most one entry per term, so every term's postings
@@ -137,7 +140,10 @@ fn build_field_impl(docs: &[&str], with_positions: bool) -> FieldBlobs {
         // pushed in token order, so they're already strictly increasing —
         // build_positions's precondition.
         for (term, positions) in per_doc_positions {
-            per_term.entry(term.into_bytes()).or_default().push((doc_ordinal as u32, positions));
+            per_term
+                .entry(term.into_bytes())
+                .or_default()
+                .push((doc_ordinal as u32, positions));
         }
     }
 
@@ -176,7 +182,8 @@ pub fn build_field_from_postings(
         let posting_bytes = postings::build_postings(&ordinals, &term_freqs);
 
         let (positions_offset, positions_length) = if with_positions {
-            let doc_positions: Vec<Vec<u32>> = term_postings.iter().map(|(_, p)| p.clone()).collect();
+            let doc_positions: Vec<Vec<u32>> =
+                term_postings.iter().map(|(_, p)| p.clone()).collect();
             let position_bytes = positions::build_positions(&doc_positions);
             let offset = positions_bytes.len() as u64;
             let length = position_bytes.len() as u32;
@@ -197,12 +204,15 @@ pub fn build_field_from_postings(
         terms_with_info.push((term, info));
     }
 
-    let refs: Vec<(&[u8], TermInfo)> =
-        terms_with_info.iter().map(|(term, info)| (term.as_slice(), *info)).collect();
+    let refs: Vec<(&[u8], TermInfo)> = terms_with_info
+        .iter()
+        .map(|(term, info)| (term.as_slice(), *info))
+        .collect();
     let (term_dict, term_info) = if with_positions {
         term_dictionary::build_term_dictionary(&refs).expect("terms are sorted by construction")
     } else {
-        term_dictionary::build_term_dictionary_short(&refs).expect("terms are sorted by construction")
+        term_dictionary::build_term_dictionary_short(&refs)
+            .expect("terms are sorted by construction")
     };
 
     FieldBlobs {
@@ -321,14 +331,18 @@ impl<'a> FieldReader<'a> {
     /// against a real field identity, `spec/term-dictionary.md` §3a).
     pub fn open(segment_bytes: &'a [u8], blobs: &[BlobEntry]) -> Result<Self, FieldReaderError> {
         let find = |blob_type_id: u16| {
-            blobs.iter().find(|b| b.family_id == LEXICAL_FAMILY && b.blob_type_id == blob_type_id)
+            blobs
+                .iter()
+                .find(|b| b.family_id == LEXICAL_FAMILY && b.blob_type_id == blob_type_id)
         };
-        let slice_of =
-            |entry: &BlobEntry| &segment_bytes[entry.offset as usize..(entry.offset + entry.length) as usize];
+        let slice_of = |entry: &BlobEntry| {
+            &segment_bytes[entry.offset as usize..(entry.offset + entry.length) as usize]
+        };
 
-        let dict_entry =
-            find(BLOB_TYPE_TERM_DICTIONARY).ok_or(FieldReaderError::MissingBlob("term-dictionary"))?;
-        let postings_entry = find(BLOB_TYPE_POSTINGS).ok_or(FieldReaderError::MissingBlob("postings"))?;
+        let dict_entry = find(BLOB_TYPE_TERM_DICTIONARY)
+            .ok_or(FieldReaderError::MissingBlob("term-dictionary"))?;
+        let postings_entry =
+            find(BLOB_TYPE_POSTINGS).ok_or(FieldReaderError::MissingBlob("postings"))?;
 
         let term_dict = TermDictionary::open(slice_of(dict_entry).to_vec())
             .map_err(FieldReaderError::TermDictionary)?;
@@ -339,7 +353,8 @@ impl<'a> FieldReader<'a> {
             )
         } else if let Some(entry) = find(BLOB_TYPE_TERM_INFO_SHORT) {
             TermInfoSource::Short(
-                ShortTermInfoStore::new(slice_of(entry)).map_err(FieldReaderError::TermInfoStore)?,
+                ShortTermInfoStore::new(slice_of(entry))
+                    .map_err(FieldReaderError::TermInfoStore)?,
             )
         } else {
             return Err(FieldReaderError::MissingBlob("term-info"));
@@ -348,7 +363,12 @@ impl<'a> FieldReader<'a> {
         let postings = slice_of(postings_entry);
         let positions = find(BLOB_TYPE_POSITIONS).map(slice_of);
 
-        Ok(FieldReader { term_dict, term_info, postings, positions })
+        Ok(FieldReader {
+            term_dict,
+            term_info,
+            postings,
+            positions,
+        })
     }
 
     /// Full query resolution (`spec/postings.md` §6): term string → FST
@@ -360,7 +380,8 @@ impl<'a> FieldReader<'a> {
         let info = self.term_info.get(ordinal)?;
         let start = info.postings_offset as usize;
         let end = start + info.postings_length as usize;
-        let reader = PostingsReader::new(&self.postings[start..end], info.doc_freq as usize).ok()?;
+        let reader =
+            PostingsReader::new(&self.postings[start..end], info.doc_freq as usize).ok()?;
         let (ordinals, term_freqs) = reader.decode_all();
         Some(ordinals.into_iter().zip(term_freqs).collect())
     }
@@ -409,14 +430,18 @@ impl<'a> FieldReader<'a> {
 
         let postings_start = info.postings_offset as usize;
         let postings_end = postings_start + info.postings_length as usize;
-        let postings_reader =
-            PostingsReader::new(&self.postings[postings_start..postings_end], info.doc_freq as usize).ok()?;
+        let postings_reader = PostingsReader::new(
+            &self.postings[postings_start..postings_end],
+            info.doc_freq as usize,
+        )
+        .ok()?;
         let (ordinals, term_freqs) = postings_reader.decode_all();
 
         let pos_start = info.positions_offset as usize;
         let pos_end = pos_start + info.positions_length as usize;
         let positions_reader =
-            PositionsReader::new(&positions_bytes[pos_start..pos_end], info.doc_freq as usize).ok()?;
+            PositionsReader::new(&positions_bytes[pos_start..pos_end], info.doc_freq as usize)
+                .ok()?;
         let all_positions = positions_reader.decode_all(&term_freqs);
 
         Some(ordinals.into_iter().zip(all_positions).collect())

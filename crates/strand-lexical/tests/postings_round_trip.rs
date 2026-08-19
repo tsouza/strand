@@ -19,7 +19,7 @@
 //! and skip queries match a plain reference implementation.
 
 use proptest::prelude::*;
-use strand_lexical::postings::{build_postings, PostingsError, PostingsReader, BLOCK_LEN};
+use strand_lexical::postings::{BLOCK_LEN, PostingsError, PostingsReader, build_postings};
 
 fn arb_postings_list(max_len: usize, max_gap: u32) -> impl Strategy<Value = (Vec<u32>, Vec<u32>)> {
     prop::collection::vec((1u32..=max_gap, 0u32..=1_000_000u32), 1..max_len).prop_map(|pairs| {
@@ -102,7 +102,10 @@ fn reader_rejects_truncated_bytes() {
     // block_max(0..3) + widths still fits, but let's truncate below the
     // minimum header size instead to guarantee a real Truncated error.
     let too_short = &bytes[..3];
-    assert_eq!(PostingsReader::new(too_short, 3).unwrap_err(), PostingsError::Truncated);
+    assert_eq!(
+        PostingsReader::new(too_short, 3).unwrap_err(),
+        PostingsError::Truncated
+    );
     // A merely-shorter-than-full-payload slice may still pass header
     // validation (this reader doesn't validate stream lengths eagerly);
     // decode_all on it would panic on out-of-bounds access, which is the

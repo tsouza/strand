@@ -19,7 +19,7 @@
 //! alongside this one, per RFC 0009 Design §1), and checks it against the
 //! pinned conformance golden file.
 
-use strand_lexical::positions::{build_positions, PositionsReader};
+use strand_lexical::positions::{PositionsReader, build_positions};
 
 fn toy_doc_positions() -> Vec<Vec<u32>> {
     vec![
@@ -43,7 +43,10 @@ fn worked_example_matches_conformance_golden_file() {
     ))
     .expect("golden file conformance/positions/toy-positions.bin must exist");
 
-    assert_eq!(bytes, golden, "must match RFC 0009's pinned 8 bytes exactly");
+    assert_eq!(
+        bytes, golden,
+        "must match RFC 0009's pinned 8 bytes exactly"
+    );
     assert_eq!(
         bytes,
         vec![0x06, 0x00, 0x00, 0x00, 0x03, 0x33, 0x32, 0x03],

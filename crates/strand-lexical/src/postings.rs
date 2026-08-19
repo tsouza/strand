@@ -27,7 +27,11 @@ pub const BLOCK_LEN: usize = BitPacker8x::BLOCK_LEN;
 /// `BitPacker8x`'s SIMD kernel; only a trailing partial block uses this.
 pub(crate) fn scalar_bits_needed(values: &[u32]) -> u8 {
     let max = values.iter().copied().max().unwrap_or(0);
-    if max == 0 { 0 } else { (32 - max.leading_zeros()) as u8 }
+    if max == 0 {
+        0
+    } else {
+        (32 - max.leading_zeros()) as u8
+    }
 }
 
 pub(crate) fn scalar_pack(values: &[u32], width: u8) -> Vec<u8> {
@@ -104,7 +108,11 @@ pub(crate) fn block_real_len(doc_freq: usize, block_idx: usize) -> usize {
 /// Panics if `ordinals` and `term_freqs` have different lengths, if either is
 /// empty, or if `ordinals` is not strictly increasing.
 pub fn build_postings(ordinals: &[u32], term_freqs: &[u32]) -> Vec<u8> {
-    assert_eq!(ordinals.len(), term_freqs.len(), "ordinals and term_freqs must have equal length");
+    assert_eq!(
+        ordinals.len(),
+        term_freqs.len(),
+        "ordinals and term_freqs must have equal length"
+    );
     assert!(!ordinals.is_empty(), "a postings list must be non-empty");
     assert!(
         ordinals.windows(2).all(|w| w[0] < w[1]),
@@ -189,7 +197,11 @@ impl<'a> PostingsReader<'a> {
         if bytes.len() < min_len {
             return Err(PostingsError::Truncated);
         }
-        Ok(PostingsReader { bytes, doc_freq, block_count })
+        Ok(PostingsReader {
+            bytes,
+            doc_freq,
+            block_count,
+        })
     }
 
     fn block_max_region(&self) -> &'a [u8] {
@@ -245,7 +257,9 @@ impl<'a> PostingsReader<'a> {
         let gap_bytes = &streams[gap_off..gap_off + gap_len];
 
         // Term-frequency stream starts right after the whole gap stream.
-        let gap_stream_total: usize = (0..self.block_count).map(|b| self.packed_len(b, gap_widths[b])).sum();
+        let gap_stream_total: usize = (0..self.block_count)
+            .map(|b| self.packed_len(b, gap_widths[b]))
+            .sum();
         let tf_off = gap_stream_total + self.stream_offset(tf_widths, block_idx);
         let tf_len = self.packed_len(block_idx, tf_width);
         let tf_bytes = &streams[tf_off..tf_off + tf_len];
@@ -258,7 +272,10 @@ impl<'a> PostingsReader<'a> {
             bp.decompress(tf_bytes, &mut tfs, tf_width);
             (gaps, tfs)
         } else {
-            (scalar_unpack(gap_bytes, real_len, gap_width), scalar_unpack(tf_bytes, real_len, tf_width))
+            (
+                scalar_unpack(gap_bytes, real_len, gap_width),
+                scalar_unpack(tf_bytes, real_len, tf_width),
+            )
         }
     }
 
@@ -313,7 +330,11 @@ impl<'a> PostingsReader<'a> {
     /// per `next_batch` call — the natural batch unit here, since a block
     /// is already the reader's unit of independent decode.
     pub fn batches(&self) -> PostingsBatchReader<'a> {
-        PostingsBatchReader { reader: *self, next_block: 0, prev_ordinal: 0 }
+        PostingsBatchReader {
+            reader: *self,
+            next_block: 0,
+            prev_ordinal: 0,
+        }
     }
 }
 

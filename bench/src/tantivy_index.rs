@@ -38,7 +38,7 @@ use tantivy::collector::TopDocs;
 use tantivy::query::{PhraseQuery, TermQuery};
 use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions};
 use tantivy::tokenizer::{PreTokenizedString, Token};
-use tantivy::{doc, Index, IndexWriter, Term};
+use tantivy::{Index, IndexWriter, Term, doc};
 
 #[derive(Deserialize)]
 struct CorpusLine {
@@ -65,7 +65,11 @@ fn latency_stats(mut samples: Vec<u64>) -> LatencyStats {
         let idx = ((count as f64 - 1.0) * p).round() as usize;
         samples[idx.min(count - 1)]
     };
-    let mean_ns = if count == 0 { 0.0 } else { samples.iter().sum::<u64>() as f64 / count as f64 };
+    let mean_ns = if count == 0 {
+        0.0
+    } else {
+        samples.iter().sum::<u64>() as f64 / count as f64
+    };
     LatencyStats {
         count,
         mean_ns,
@@ -115,7 +119,10 @@ fn main() {
     let mut schema_builder = Schema::builder();
     let body_indexing =
         TextFieldIndexing::default().set_index_option(IndexRecordOption::WithFreqsAndPositions);
-    let body = schema_builder.add_text_field("body", TextOptions::default().set_indexing_options(body_indexing));
+    let body = schema_builder.add_text_field(
+        "body",
+        TextOptions::default().set_indexing_options(body_indexing),
+    );
     let schema = schema_builder.build();
 
     let index = Index::create_in_dir(index_dir.path(), schema).expect("create tantivy index");
@@ -175,7 +182,9 @@ fn main() {
         let text = words.join(" ");
         let pretok = PreTokenizedString { text, tokens };
 
-        index_writer.add_document(doc!(body => pretok)).expect("add_document");
+        index_writer
+            .add_document(doc!(body => pretok))
+            .expect("add_document");
 
         sampled_passages += 1;
         if sampled_passages.is_multiple_of(50_000) {
@@ -197,10 +206,16 @@ fn main() {
         }
         let size = entry.metadata().expect("metadata").len();
         index_total_bytes += size;
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("(none)").to_string();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("(none)")
+            .to_string();
         *bytes_by_extension.entry(ext).or_insert(0) += size;
     }
-    eprintln!("Index on disk: {index_total_bytes} bytes total, by extension: {bytes_by_extension:?}");
+    eprintln!(
+        "Index on disk: {index_total_bytes} bytes total, by extension: {bytes_by_extension:?}"
+    );
 
     let reader = index.reader().expect("open reader");
     let searcher = reader.searcher();
@@ -210,16 +225,23 @@ fn main() {
         let term = Term::from_field_text(body, term_text);
         let query = TermQuery::new(term, IndexRecordOption::WithFreqsAndPositions);
         let start = Instant::now();
-        let _ = searcher.search(&query, &TopDocs::with_limit(10).order_by_score()).expect("term search");
+        let _ = searcher
+            .search(&query, &TopDocs::with_limit(10).order_by_score())
+            .expect("term search");
         term_latencies_ns.push(start.elapsed().as_nanos() as u64);
     }
 
     let mut phrase_latencies_ns: Vec<u64> = Vec::with_capacity(phrase_query_pairs.len());
     for (a, b) in &phrase_query_pairs {
-        let terms = vec![Term::from_field_text(body, a), Term::from_field_text(body, b)];
+        let terms = vec![
+            Term::from_field_text(body, a),
+            Term::from_field_text(body, b),
+        ];
         let query = PhraseQuery::new(terms);
         let start = Instant::now();
-        let _ = searcher.search(&query, &TopDocs::with_limit(10).order_by_score()).expect("phrase search");
+        let _ = searcher
+            .search(&query, &TopDocs::with_limit(10).order_by_score())
+            .expect("phrase search");
         phrase_latencies_ns.push(start.elapsed().as_nanos() as u64);
     }
 
@@ -249,7 +271,10 @@ fn main() {
     // (tantivy-index-benchmark.json) — a fixed name would silently
     // overwrite that citation source on the next differently-scaled run.
     let out_path = if sample_target == 500_000 {
-        format!("{}/results/tantivy-index-benchmark.json", env!("CARGO_MANIFEST_DIR"))
+        format!(
+            "{}/results/tantivy-index-benchmark.json",
+            env!("CARGO_MANIFEST_DIR")
+        )
     } else {
         format!(
             "{}/results/tantivy-index-benchmark-{sampled_passages}.json",

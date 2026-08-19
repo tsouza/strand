@@ -38,10 +38,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use strand_lexical::field::{build_field_from_postings, FieldBlobs};
+use strand_lexical::field::{FieldBlobs, build_field_from_postings};
 use tantivy::postings::Postings;
 use tantivy::schema::IndexRecordOption;
-use tantivy::{DocSet, Index, TantivyError, TERMINATED};
+use tantivy::{DocSet, Index, TERMINATED, TantivyError};
 
 #[derive(Debug)]
 pub enum ImportError {
@@ -63,12 +63,20 @@ impl std::fmt::Display for ImportError {
         match self {
             ImportError::Tantivy(e) => write!(f, "tantivy: {e}"),
             ImportError::Io(e) => write!(f, "tantivy reader I/O: {e}"),
-            ImportError::UnknownField(name) => write!(f, "field {name:?} not found in index schema"),
+            ImportError::UnknownField(name) => {
+                write!(f, "field {name:?} not found in index schema")
+            }
             ImportError::MultiSegment(n) => {
-                write!(f, "index has {n} segments; this importer only accepts a single-segment index")
+                write!(
+                    f,
+                    "index has {n} segments; this importer only accepts a single-segment index"
+                )
             }
             ImportError::HasDeletions(n) => {
-                write!(f, "segment has {n} deleted documents; this importer only accepts a deletion-free segment")
+                write!(
+                    f,
+                    "segment has {n} deleted documents; this importer only accepts a deletion-free segment"
+                )
             }
         }
     }
@@ -95,7 +103,10 @@ impl From<std::io::Error> for ImportError {
 /// (`IndexRecordOption::WithFreqsAndPositions`) — a source field indexed
 /// without them is a real, separate case this importer does not handle
 /// (Non-goals in this module's own doc comment).
-pub fn import_tantivy_field(index_dir: &Path, field_name: &str) -> Result<(FieldBlobs, u64), ImportError> {
+pub fn import_tantivy_field(
+    index_dir: &Path,
+    field_name: &str,
+) -> Result<(FieldBlobs, u64), ImportError> {
     let index = Index::open_in_dir(index_dir)?;
     let schema = index.schema();
     let field = schema
@@ -122,8 +133,8 @@ pub fn import_tantivy_field(index_dir: &Path, field_name: &str) -> Result<(Field
     let mut stream = term_dict.stream()?;
     let mut positions_buf: Vec<u32> = Vec::new();
     while let Some((term_bytes, term_info)) = stream.next() {
-        let mut postings =
-            inverted_index.read_postings_from_terminfo(term_info, IndexRecordOption::WithFreqsAndPositions)?;
+        let mut postings = inverted_index
+            .read_postings_from_terminfo(term_info, IndexRecordOption::WithFreqsAndPositions)?;
 
         let mut doc_postings: Vec<(u32, Vec<u32>)> = Vec::new();
         let mut doc_id = postings.doc();
@@ -152,7 +163,7 @@ mod tests {
     use strand_core::segment::SegmentBuilder;
     use strand_lexical::field::FieldReader;
     use tantivy::schema::{Schema, TEXT};
-    use tantivy::{doc, IndexWriter};
+    use tantivy::{IndexWriter, doc};
 
     fn open_segment_bytes(bytes: &[u8]) -> Hotcache {
         let footer_bytes: [u8; 40] = bytes[bytes.len() - 40..].try_into().unwrap();
@@ -174,14 +185,19 @@ mod tests {
         let title = schema_builder.add_text_field("title", TEXT);
         let schema = schema_builder.build();
 
-        let index = tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
+        let index =
+            tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
         // Single-threaded writer: this importer only accepts a
         // single-segment index (Non-goals, above), and tantivy's default
         // multi-threaded writer can split even a handful of documents
         // added before one commit across multiple segments.
-        let mut writer: IndexWriter = index.writer_with_num_threads(1, 50_000_000).expect("open index writer");
+        let mut writer: IndexWriter = index
+            .writer_with_num_threads(1, 50_000_000)
+            .expect("open index writer");
         writer.add_document(doc!(title => "dog runs park")).unwrap();
-        writer.add_document(doc!(title => "cat sleeps mat")).unwrap();
+        writer
+            .add_document(doc!(title => "cat sleeps mat"))
+            .unwrap();
         writer.add_document(doc!(title => "dog cat park")).unwrap();
         writer.commit().expect("commit");
 
@@ -212,13 +228,21 @@ mod tests {
         let reader = FieldReader::open(&segment_bytes, &hotcache.blobs)
             .expect("all four blobs present (importer always keeps positions)");
 
-        let mut dog_docs: Vec<u32> =
-            reader.lookup("dog").expect("dog is a real term").into_iter().map(|(d, _)| d).collect();
+        let mut dog_docs: Vec<u32> = reader
+            .lookup("dog")
+            .expect("dog is a real term")
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect();
         dog_docs.sort_unstable();
         assert_eq!(dog_docs, vec![0, 2]);
 
-        let mut cat_docs: Vec<u32> =
-            reader.lookup("cat").expect("cat is a real term").into_iter().map(|(d, _)| d).collect();
+        let mut cat_docs: Vec<u32> = reader
+            .lookup("cat")
+            .expect("cat is a real term")
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect();
         cat_docs.sort_unstable();
         assert_eq!(cat_docs, vec![1, 2]);
 
@@ -249,7 +273,8 @@ mod tests {
         let mut schema_builder = Schema::builder();
         let title = schema_builder.add_text_field("title", TEXT);
         let schema = schema_builder.build();
-        let index = tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
+        let index =
+            tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
 
         // NoMergePolicy: two separate commits below must land as two real,
         // distinct segments, deterministically — without this, tantivy's
@@ -257,17 +282,25 @@ mod tests {
         // depending on timing) merge them into one before this test reads
         // the index, silently making the test not exercise what it claims
         // to.
-        let mut writer: IndexWriter = index.writer_with_num_threads(1, 50_000_000).expect("open index writer");
+        let mut writer: IndexWriter = index
+            .writer_with_num_threads(1, 50_000_000)
+            .expect("open index writer");
         writer.set_merge_policy(Box::new(tantivy::merge_policy::NoMergePolicy));
         writer.add_document(doc!(title => "dog runs park")).unwrap();
         writer.commit().expect("first commit");
-        writer.add_document(doc!(title => "cat sleeps mat")).unwrap();
+        writer
+            .add_document(doc!(title => "cat sleeps mat"))
+            .unwrap();
         writer.commit().expect("second commit");
 
         // Confirm the precondition this test actually depends on — two
         // real segments — rather than assuming NoMergePolicy did its job.
         let reader = index.reader().expect("open reader");
-        assert_eq!(reader.searcher().segment_readers().len(), 2, "test setup must produce two real segments");
+        assert_eq!(
+            reader.searcher().segment_readers().len(),
+            2,
+            "test setup must produce two real segments"
+        );
 
         match import_tantivy_field(dir.path(), "title") {
             Err(ImportError::MultiSegment(2)) => {}
@@ -282,11 +315,16 @@ mod tests {
         let mut schema_builder = Schema::builder();
         let title = schema_builder.add_text_field("title", TEXT);
         let schema = schema_builder.build();
-        let index = tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
+        let index =
+            tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
 
-        let mut writer: IndexWriter = index.writer_with_num_threads(1, 50_000_000).expect("open index writer");
+        let mut writer: IndexWriter = index
+            .writer_with_num_threads(1, 50_000_000)
+            .expect("open index writer");
         writer.add_document(doc!(title => "dog runs park")).unwrap();
-        writer.add_document(doc!(title => "cat sleeps mat")).unwrap();
+        writer
+            .add_document(doc!(title => "cat sleeps mat"))
+            .unwrap();
         writer.commit().expect("commit");
         writer.delete_term(tantivy::Term::from_field_text(title, "cat"));
         writer.commit().expect("commit the deletion");
@@ -295,8 +333,16 @@ mod tests {
         // deleted document in a real, still-single segment.
         let reader = index.reader().expect("open reader");
         let segment_readers = reader.searcher().segment_readers().to_vec();
-        assert_eq!(segment_readers.len(), 1, "test setup must stay single-segment");
-        assert_eq!(segment_readers[0].num_deleted_docs(), 1, "test setup must produce one real deletion");
+        assert_eq!(
+            segment_readers.len(),
+            1,
+            "test setup must stay single-segment"
+        );
+        assert_eq!(
+            segment_readers[0].num_deleted_docs(),
+            1,
+            "test setup must produce one real deletion"
+        );
 
         match import_tantivy_field(dir.path(), "title") {
             Err(ImportError::HasDeletions(1)) => {}

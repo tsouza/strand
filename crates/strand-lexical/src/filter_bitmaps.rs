@@ -16,7 +16,7 @@
 //! family. Layout is normative per `spec/filter-bitmaps.md`, approved by RFC
 //! 0006 (`rfcs/0006-filter-bitmaps.md`).
 
-use crate::term_dictionary::{build_ordinal_fst, TermDictionary, TermDictionaryError};
+use crate::term_dictionary::{TermDictionary, TermDictionaryError, build_ordinal_fst};
 use roaring::RoaringBitmap;
 
 /// Fixed byte length of one filter-bitmap directory record
@@ -163,11 +163,14 @@ impl<'a> FilterBitmapStore<'a> {
     /// resident — no further fetch (`spec/filter-bitmaps.md` §4).
     pub fn bitmap_bytes(&self, ordinal: u64) -> Result<&'a [u8], FilterBitmapStoreError> {
         let entry = self.directory_entry(ordinal)?;
-        let start = usize::try_from(entry.bitmap_offset).map_err(|_| FilterBitmapStoreError::OutOfRange)?;
+        let start =
+            usize::try_from(entry.bitmap_offset).map_err(|_| FilterBitmapStoreError::OutOfRange)?;
         let end = start
             .checked_add(entry.bitmap_length as usize)
             .ok_or(FilterBitmapStoreError::OutOfRange)?;
-        self.bytes.get(start..end).ok_or(FilterBitmapStoreError::OutOfRange)
+        self.bytes
+            .get(start..end)
+            .ok_or(FilterBitmapStoreError::OutOfRange)
     }
 
     /// Deserializes the value's bitmap for membership/set-operation queries

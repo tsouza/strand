@@ -19,21 +19,28 @@
 use proptest::prelude::*;
 use std::collections::BTreeSet;
 use strand_lexical::term_dictionary::{
-    build_term_dictionary, TermDictionary, TermInfo, TermInfoStore,
+    TermDictionary, TermInfo, TermInfoStore, build_term_dictionary,
 };
 
 fn arb_term_info() -> impl Strategy<Value = TermInfo> {
-    (any::<u32>(), any::<u64>(), any::<u32>(), any::<u64>(), any::<u32>()).prop_map(
-        |(doc_freq, postings_offset, postings_length, positions_offset, positions_length)| {
-            TermInfo {
-                doc_freq,
-                postings_offset,
-                postings_length,
-                positions_offset,
-                positions_length,
-            }
-        },
+    (
+        any::<u32>(),
+        any::<u64>(),
+        any::<u32>(),
+        any::<u64>(),
+        any::<u32>(),
     )
+        .prop_map(
+            |(doc_freq, postings_offset, postings_length, positions_offset, positions_length)| {
+                TermInfo {
+                    doc_freq,
+                    postings_offset,
+                    postings_length,
+                    positions_offset,
+                    positions_length,
+                }
+            },
+        )
 }
 
 proptest! {

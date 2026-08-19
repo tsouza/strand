@@ -84,11 +84,17 @@ fn build_index(sample_target: u64) -> (HashMap<String, Vec<u32>>, u32) {
         }
         doc_ordinal += 1;
         if doc_ordinal.is_multiple_of(50_000) {
-            eprintln!("  {doc_ordinal} passages indexed, {} terms so far", index.len());
+            eprintln!(
+                "  {doc_ordinal} passages indexed, {} terms so far",
+                index.len()
+            );
         }
     }
 
-    eprintln!("Indexed {doc_ordinal} passages, {} distinct terms", index.len());
+    eprintln!(
+        "Indexed {doc_ordinal} passages, {} distinct terms",
+        index.len()
+    );
     (index, doc_ordinal)
 }
 
@@ -141,7 +147,11 @@ fn gaps_of(list: &[u32]) -> Vec<u32> {
 /// what the Phase 1 decode signal (`n <= 8`) was actually measuring.
 fn scalar_bits_needed(values: &[u32]) -> u8 {
     let max = values.iter().copied().max().unwrap_or(0);
-    if max == 0 { 0 } else { (32 - max.leading_zeros()) as u8 }
+    if max == 0 {
+        0
+    } else {
+        (32 - max.leading_zeros()) as u8
+    }
 }
 
 fn scalar_pack(values: &[u32], width: u8) -> Vec<u8> {
@@ -213,7 +223,11 @@ fn bp128_variable_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
         let out = &mut compressed[compressed_len..];
         compressed_len += bp.compress(block, out, width);
     }
-    let tail_width = if remainder > 0 { scalar_bits_needed(&gaps[full_blocks * block_len..]) } else { 0 };
+    let tail_width = if remainder > 0 {
+        scalar_bits_needed(&gaps[full_blocks * block_len..])
+    } else {
+        0
+    };
     let tail_start = compressed_len;
     if remainder > 0 {
         let tail_bytes = scalar_pack(&gaps[full_blocks * block_len..], tail_width);
@@ -240,7 +254,11 @@ fn bp128_variable_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
         }
         if remainder > 0 {
             let tail_bytes_len = (remainder * tail_width as usize).div_ceil(8);
-            let tail = scalar_unpack(&compressed[tail_start..tail_start + tail_bytes_len], remainder, tail_width);
+            let tail = scalar_unpack(
+                &compressed[tail_start..tail_start + tail_bytes_len],
+                remainder,
+                tail_width,
+            );
             decompressed.extend(tail);
         }
         let mut out = Vec::with_capacity(decompressed.len());
@@ -252,7 +270,11 @@ fn bp128_variable_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
         out
     };
 
-    assert_eq!(decode_all(), list, "BP128 variable-final-block round-trip mismatch");
+    assert_eq!(
+        decode_all(),
+        list,
+        "BP128 variable-final-block round-trip mismatch"
+    );
 
     let decode_start = Instant::now();
     for _ in 0..REPEATS {
@@ -398,8 +420,15 @@ fn bp128_blockmax_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64) {
     // exactly one block's compressed bytes, never its predecessors'. This is
     // the whole point of block-max skipping; recomputing it per skip call
     // would silently decode every preceding block on every query.
-    let block_start_value: Vec<u32> =
-        (0..blocks).map(|b| if b * block_len == 0 { 0 } else { list[b * block_len - 1] }).collect();
+    let block_start_value: Vec<u32> = (0..blocks)
+        .map(|b| {
+            if b * block_len == 0 {
+                0
+            } else {
+                list[b * block_len - 1]
+            }
+        })
+        .collect();
 
     // Sibling metadata bytes: one u32 per block for the block-max array
     // (invariant 4's "raw statistics, sibling blob" shape), plus the
@@ -439,8 +468,14 @@ fn bp128_blockmax_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64) {
         let decoded_block = decode_block(block_idx);
         let expected = full.partition_point(|&v| v < t);
         let found = block_idx * block_len
-            + decoded_block.partition_point(|&v| v < t).min(decoded_block.len());
-        assert_eq!(found.min(list.len()), expected, "block-max skip disagreed with full scan");
+            + decoded_block
+                .partition_point(|&v| v < t)
+                .min(decoded_block.len());
+        assert_eq!(
+            found.min(list.len()),
+            expected,
+            "block-max skip disagreed with full scan"
+        );
     }
 
     let skip_start = Instant::now();
@@ -490,14 +525,19 @@ fn measure_list(list: &[u32], universe: u32) -> ListRecord {
     let gaps = gaps_of(list);
     let n = list.len();
     let gap_mean = gaps.iter().map(|&g| g as f64).sum::<f64>() / n as f64;
-    let gap_variance = gaps.iter().map(|&g| (g as f64 - gap_mean).powi(2)).sum::<f64>() / n as f64;
+    let gap_variance = gaps
+        .iter()
+        .map(|&g| (g as f64 - gap_mean).powi(2))
+        .sum::<f64>()
+        / n as f64;
     let density = n as f64 / universe as f64;
 
     let targets = skip_targets(list);
     let (bp128_bytes, bp128_decode_ns, bp128_skip_ns) = bp128_bench(list, &targets);
     let (ef_bytes, ef_decode_ns, ef_skip_ns) = ef_bench(list, universe, &targets);
     let (blockmax_bytes, blockmax_skip_ns) = bp128_blockmax_bench(list, &targets);
-    let (bp128var_bytes, bp128var_decode_ns, bp128var_skip_ns) = bp128_variable_bench(list, &targets);
+    let (bp128var_bytes, bp128var_decode_ns, bp128var_skip_ns) =
+        bp128_variable_bench(list, &targets);
 
     let skip_winner = [
         ("bp128", bp128_skip_ns),
@@ -566,7 +606,11 @@ fn fit_threshold(
         let correct = data
             .iter()
             .filter(|(f, label)| {
-                let predicted_ef_wins = if ef_wins_above { *f > threshold } else { *f <= threshold };
+                let predicted_ef_wins = if ef_wins_above {
+                    *f > threshold
+                } else {
+                    *f <= threshold
+                };
                 predicted_ef_wins == *label
             })
             .count();
@@ -647,7 +691,10 @@ fn main() {
     // iteration order, which is randomized per-process (SipHash with a
     // random seed), silently sampling a different set of lists on every run.
     terms.sort_by(|(term_a, list_a), (term_b, list_b)| {
-        list_a.len().cmp(&list_b.len()).then_with(|| term_a.cmp(term_b))
+        list_a
+            .len()
+            .cmp(&list_b.len())
+            .then_with(|| term_a.cmp(term_b))
     });
 
     const TARGET_LISTS: usize = 4000;
@@ -676,20 +723,25 @@ fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0x0050_4841_5331); // "PHAS1"
     shuffled_indices.shuffle(&mut rng);
     let split_at = (records.len() * 7) / 10;
-    let train: Vec<&ListRecord> = shuffled_indices[..split_at].iter().map(|&i| &records[i]).collect();
-    let held_out: Vec<&ListRecord> =
-        shuffled_indices[split_at..].iter().map(|&i| &records[i]).collect();
+    let train: Vec<&ListRecord> = shuffled_indices[..split_at]
+        .iter()
+        .map(|&i| &records[i])
+        .collect();
+    let held_out: Vec<&ListRecord> = shuffled_indices[split_at..]
+        .iter()
+        .map(|&i| &records[i])
+        .collect();
     eprintln!("Split: {} train, {} held-out", train.len(), held_out.len());
 
-    let size_train: Vec<(f64, bool)> =
-        train.iter().map(|r| (0.0, r.winner_size_ef)).collect();
-    let skip_train: Vec<(f64, bool)> =
-        train.iter().map(|r| (0.0, r.winner_skip_ef)).collect();
+    let size_train: Vec<(f64, bool)> = train.iter().map(|r| (0.0, r.winner_size_ef)).collect();
+    let skip_train: Vec<(f64, bool)> = train.iter().map(|r| (0.0, r.winner_skip_ef)).collect();
 
     type FeatureExtractor = fn(&ListRecord) -> f64;
     let feature_extractors: Vec<(&str, FeatureExtractor)> = vec![
         ("gap_variance", |r: &ListRecord| r.gap_variance),
-        ("log_gap_variance", |r: &ListRecord| (r.gap_variance + 1.0).ln()),
+        ("log_gap_variance", |r: &ListRecord| {
+            (r.gap_variance + 1.0).ln()
+        }),
         ("n", |r: &ListRecord| r.n as f64),
         ("density", |r: &ListRecord| r.density),
         ("gap_mean", |r: &ListRecord| r.gap_mean),
@@ -700,43 +752,88 @@ fn main() {
     let mut decode_signals = Vec::new();
     let mut decode_var_signals = Vec::new();
     for (name, extractor) in &feature_extractors {
-        let tr: Vec<(f64, bool)> = train.iter().map(|r| (extractor(r), r.winner_size_ef)).collect();
-        let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (extractor(r), r.winner_size_ef)).collect();
+        let tr: Vec<(f64, bool)> = train
+            .iter()
+            .map(|r| (extractor(r), r.winner_size_ef))
+            .collect();
+        let ho: Vec<(f64, bool)> = held_out
+            .iter()
+            .map(|r| (extractor(r), r.winner_size_ef))
+            .collect();
         size_signals.push(fit_threshold(&tr, &ho, name));
 
-        let tr: Vec<(f64, bool)> = train.iter().map(|r| (extractor(r), r.winner_skip_ef)).collect();
-        let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (extractor(r), r.winner_skip_ef)).collect();
+        let tr: Vec<(f64, bool)> = train
+            .iter()
+            .map(|r| (extractor(r), r.winner_skip_ef))
+            .collect();
+        let ho: Vec<(f64, bool)> = held_out
+            .iter()
+            .map(|r| (extractor(r), r.winner_skip_ef))
+            .collect();
         skip_signals.push(fit_threshold(&tr, &ho, name));
 
-        let tr: Vec<(f64, bool)> = train.iter().map(|r| (extractor(r), r.winner_decode_ef)).collect();
-        let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (extractor(r), r.winner_decode_ef)).collect();
+        let tr: Vec<(f64, bool)> = train
+            .iter()
+            .map(|r| (extractor(r), r.winner_decode_ef))
+            .collect();
+        let ho: Vec<(f64, bool)> = held_out
+            .iter()
+            .map(|r| (extractor(r), r.winner_decode_ef))
+            .collect();
         decode_signals.push(fit_threshold(&tr, &ho, name));
 
-        let tr: Vec<(f64, bool)> =
-            train.iter().map(|r| (extractor(r), r.winner_decode_ef_vs_var)).collect();
-        let ho: Vec<(f64, bool)> =
-            held_out.iter().map(|r| (extractor(r), r.winner_decode_ef_vs_var)).collect();
+        let tr: Vec<(f64, bool)> = train
+            .iter()
+            .map(|r| (extractor(r), r.winner_decode_ef_vs_var))
+            .collect();
+        let ho: Vec<(f64, bool)> = held_out
+            .iter()
+            .map(|r| (extractor(r), r.winner_decode_ef_vs_var))
+            .collect();
         decode_var_signals.push(fit_threshold(&tr, &ho, name));
     }
     let _ = (size_train, skip_train);
 
     // Step 4: one pairwise-interaction term, gap_variance * density.
     let interaction = |r: &ListRecord| r.gap_variance * r.density;
-    let tr: Vec<(f64, bool)> = train.iter().map(|r| (interaction(r), r.winner_size_ef)).collect();
-    let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (interaction(r), r.winner_size_ef)).collect();
+    let tr: Vec<(f64, bool)> = train
+        .iter()
+        .map(|r| (interaction(r), r.winner_size_ef))
+        .collect();
+    let ho: Vec<(f64, bool)> = held_out
+        .iter()
+        .map(|r| (interaction(r), r.winner_size_ef))
+        .collect();
     let size_interaction_signal = fit_threshold(&tr, &ho, "gap_variance*density");
 
-    let tr: Vec<(f64, bool)> = train.iter().map(|r| (interaction(r), r.winner_skip_ef)).collect();
-    let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (interaction(r), r.winner_skip_ef)).collect();
+    let tr: Vec<(f64, bool)> = train
+        .iter()
+        .map(|r| (interaction(r), r.winner_skip_ef))
+        .collect();
+    let ho: Vec<(f64, bool)> = held_out
+        .iter()
+        .map(|r| (interaction(r), r.winner_skip_ef))
+        .collect();
     let skip_interaction_signal = fit_threshold(&tr, &ho, "gap_variance*density");
 
-    let tr: Vec<(f64, bool)> = train.iter().map(|r| (interaction(r), r.winner_decode_ef)).collect();
-    let ho: Vec<(f64, bool)> = held_out.iter().map(|r| (interaction(r), r.winner_decode_ef)).collect();
+    let tr: Vec<(f64, bool)> = train
+        .iter()
+        .map(|r| (interaction(r), r.winner_decode_ef))
+        .collect();
+    let ho: Vec<(f64, bool)> = held_out
+        .iter()
+        .map(|r| (interaction(r), r.winner_decode_ef))
+        .collect();
     let decode_interaction_signal = fit_threshold(&tr, &ho, "gap_variance*density");
 
-    let tr: Vec<(f64, bool)> = train.iter().map(|r| (interaction(r), r.winner_decode_ef_vs_var)).collect();
-    let ho: Vec<(f64, bool)> =
-        held_out.iter().map(|r| (interaction(r), r.winner_decode_ef_vs_var)).collect();
+    let tr: Vec<(f64, bool)> = train
+        .iter()
+        .map(|r| (interaction(r), r.winner_decode_ef_vs_var))
+        .collect();
+    let ho: Vec<(f64, bool)> = held_out
+        .iter()
+        .map(|r| (interaction(r), r.winner_decode_ef_vs_var))
+        .collect();
     let decode_var_interaction_signal = fit_threshold(&tr, &ho, "gap_variance*density");
 
     // GO/NO-GO: a signal counts only if it beats its own held-out majority
@@ -746,22 +843,37 @@ fn main() {
     let best_size = size_signals
         .iter()
         .chain(std::iter::once(&size_interaction_signal))
-        .max_by(|a, b| a.held_out_accuracy.partial_cmp(&b.held_out_accuracy).unwrap())
+        .max_by(|a, b| {
+            a.held_out_accuracy
+                .partial_cmp(&b.held_out_accuracy)
+                .unwrap()
+        })
         .unwrap();
     let best_skip = skip_signals
         .iter()
         .chain(std::iter::once(&skip_interaction_signal))
-        .max_by(|a, b| a.held_out_accuracy.partial_cmp(&b.held_out_accuracy).unwrap())
+        .max_by(|a, b| {
+            a.held_out_accuracy
+                .partial_cmp(&b.held_out_accuracy)
+                .unwrap()
+        })
         .unwrap();
     let best_decode = decode_signals
         .iter()
         .chain(std::iter::once(&decode_interaction_signal))
-        .max_by(|a, b| a.held_out_accuracy.partial_cmp(&b.held_out_accuracy).unwrap())
+        .max_by(|a, b| {
+            a.held_out_accuracy
+                .partial_cmp(&b.held_out_accuracy)
+                .unwrap()
+        })
         .unwrap();
-    let size_signal_found = best_size.held_out_accuracy - best_size.held_out_majority_baseline >= REAL_SIGNAL_MARGIN;
-    let skip_signal_found = best_skip.held_out_accuracy - best_skip.held_out_majority_baseline >= REAL_SIGNAL_MARGIN;
-    let decode_signal_found =
-        best_decode.held_out_accuracy - best_decode.held_out_majority_baseline >= REAL_SIGNAL_MARGIN;
+    let size_signal_found =
+        best_size.held_out_accuracy - best_size.held_out_majority_baseline >= REAL_SIGNAL_MARGIN;
+    let skip_signal_found =
+        best_skip.held_out_accuracy - best_skip.held_out_majority_baseline >= REAL_SIGNAL_MARGIN;
+    let decode_signal_found = best_decode.held_out_accuracy
+        - best_decode.held_out_majority_baseline
+        >= REAL_SIGNAL_MARGIN;
 
     let go_no_go = if size_signal_found || skip_signal_found || decode_signal_found {
         format!(
@@ -779,13 +891,18 @@ fn main() {
     // per-list against bp128var_bytes too, not just the aggregate mean —
     // the padding bug already inflated one aggregate mean (decode) in a way
     // a per-list check caught; verify size the same way before trusting it.
-    let ef_wins_size_vs_var_fraction =
-        records.iter().filter(|r| r.ef_bytes < r.bp128var_bytes).count() as f64 / records.len() as f64;
+    let ef_wins_size_vs_var_fraction = records
+        .iter()
+        .filter(|r| r.ef_bytes < r.bp128var_bytes)
+        .count() as f64
+        / records.len() as f64;
     let ef_wins_skip_fraction =
         records.iter().filter(|r| r.winner_skip_ef).count() as f64 / records.len() as f64;
-    let ef_wins_decode_fraction =
-        records.iter().filter(|r| r.ef_decode_ns < r.bp128_decode_ns).count() as f64
-            / records.len() as f64;
+    let ef_wins_decode_fraction = records
+        .iter()
+        .filter(|r| r.ef_decode_ns < r.bp128_decode_ns)
+        .count() as f64
+        / records.len() as f64;
     let n = records.len() as f64;
     let mean_bp128_decode_ns = records.iter().map(|r| r.bp128_decode_ns).sum::<f64>() / n;
     let mean_ef_decode_ns = records.iter().map(|r| r.ef_decode_ns).sum::<f64>() / n;
@@ -797,8 +914,11 @@ fn main() {
     let mean_blockmax_bytes = records.iter().map(|r| r.blockmax_bytes as f64).sum::<f64>() / n;
     let skip_winner_bp128_fraction =
         records.iter().filter(|r| r.skip_winner == "bp128").count() as f64 / n;
-    let skip_winner_blockmax_fraction =
-        records.iter().filter(|r| r.skip_winner == "blockmax").count() as f64 / n;
+    let skip_winner_blockmax_fraction = records
+        .iter()
+        .filter(|r| r.skip_winner == "blockmax")
+        .count() as f64
+        / n;
     let skip_winner_ef_fraction =
         records.iter().filter(|r| r.skip_winner == "ef").count() as f64 / n;
     eprintln!(
@@ -844,8 +964,10 @@ fn main() {
         let ef_wins_var = short.iter().filter(|r| r.winner_decode_ef_vs_var).count() as f64 / s;
         eprintln!(
             "n<=8 lists only ({} of {} lists): mean decode ns: BP128-fixed={mean_bp128_short:.1} BP128-variable={mean_bp128var_short:.1} EF={mean_ef_short:.1} | EF wins vs fixed-block on {:.1}%, EF wins vs variable-block on {:.1}%",
-            short.len(), records.len(),
-            ef_wins_fixed * 100.0, ef_wins_var * 100.0
+            short.len(),
+            records.len(),
+            ef_wins_fixed * 100.0,
+            ef_wins_var * 100.0
         );
     }
 
@@ -853,21 +975,32 @@ fn main() {
     // spanning more than one BitPacker8x block (256 values) — report it
     // separately from the short-list-dominated aggregate above, which would
     // otherwise hide whatever real advantage it has on long lists.
-    let multi_block: Vec<&ListRecord> = records.iter().filter(|r| r.n > BitPacker8x::BLOCK_LEN).collect();
+    let multi_block: Vec<&ListRecord> = records
+        .iter()
+        .filter(|r| r.n > BitPacker8x::BLOCK_LEN)
+        .collect();
     if !multi_block.is_empty() {
         let m = multi_block.len() as f64;
         let mean_bp128 = multi_block.iter().map(|r| r.bp128_skip_ns).sum::<f64>() / m;
         let mean_blockmax = multi_block.iter().map(|r| r.blockmax_skip_ns).sum::<f64>() / m;
         let mean_ef = multi_block.iter().map(|r| r.ef_skip_ns).sum::<f64>() / m;
-        let blockmax_beats_bp128 =
-            multi_block.iter().filter(|r| r.blockmax_skip_ns < r.bp128_skip_ns).count() as f64 / m;
+        let blockmax_beats_bp128 = multi_block
+            .iter()
+            .filter(|r| r.blockmax_skip_ns < r.bp128_skip_ns)
+            .count() as f64
+            / m;
         eprintln!(
             "multi-block lists only (n>{}, {} of {} lists): mean skip ns: BP128={mean_bp128:.1} blockmax={mean_blockmax:.1} EF={mean_ef:.1} | blockmax beats plain BP128 on {:.1}% of these",
-            BitPacker8x::BLOCK_LEN, multi_block.len(), records.len(),
+            BitPacker8x::BLOCK_LEN,
+            multi_block.len(),
+            records.len(),
             blockmax_beats_bp128 * 100.0
         );
     } else {
-        eprintln!("no lists longer than one BitPacker8x block ({}) in this sample", BitPacker8x::BLOCK_LEN);
+        eprintln!(
+            "no lists longer than one BitPacker8x block ({}) in this sample",
+            BitPacker8x::BLOCK_LEN
+        );
     }
 
     // -----------------------------------------------------------------
@@ -884,17 +1017,27 @@ fn main() {
     // (invariant 4 is already-designed, not optional) — using block-max only
     // where it actually helps (a static n>256 check, not an oracle peek).
     let bp128_family_skip = |r: &ListRecord| {
-        if r.n > BitPacker8x::BLOCK_LEN { r.blockmax_skip_ns } else { r.bp128_skip_ns }
+        if r.n > BitPacker8x::BLOCK_LEN {
+            r.blockmax_skip_ns
+        } else {
+            r.bp128_skip_ns
+        }
     };
-    let oracle_skip_mean =
-        records.iter().map(|r| bp128_family_skip(r).min(r.ef_skip_ns)).sum::<f64>() / m;
+    let oracle_skip_mean = records
+        .iter()
+        .map(|r| bp128_family_skip(r).min(r.ef_skip_ns))
+        .sum::<f64>()
+        / m;
     let bp128_family_skip_mean = records.iter().map(bp128_family_skip).sum::<f64>() / m;
     let ef_only_skip_mean = records.iter().map(|r| r.ef_skip_ns).sum::<f64>() / m;
     let better_pure_skip = bp128_family_skip_mean.min(ef_only_skip_mean);
     let skip_ceiling_gain = (better_pure_skip - oracle_skip_mean) / better_pure_skip;
 
-    let oracle_decode_mean =
-        records.iter().map(|r| r.bp128var_decode_ns.min(r.ef_decode_ns)).sum::<f64>() / m;
+    let oracle_decode_mean = records
+        .iter()
+        .map(|r| r.bp128var_decode_ns.min(r.ef_decode_ns))
+        .sum::<f64>()
+        / m;
     let bp128var_decode_mean = records.iter().map(|r| r.bp128var_decode_ns).sum::<f64>() / m;
     let ef_only_decode_mean = records.iter().map(|r| r.ef_decode_ns).sum::<f64>() / m;
     let better_pure_decode = bp128var_decode_mean.min(ef_only_decode_mean);
@@ -904,8 +1047,11 @@ fn main() {
     // encoding, no padding waste), not the padded bp128_bytes — using the
     // padded figure here would let the "oracle" silently rediscover the
     // encoder fix already made rather than measure real chooser value.
-    let oracle_bytes_mean =
-        records.iter().map(|r| (r.bp128var_bytes as f64).min(r.ef_bytes as f64)).sum::<f64>() / m;
+    let oracle_bytes_mean = records
+        .iter()
+        .map(|r| (r.bp128var_bytes as f64).min(r.ef_bytes as f64))
+        .sum::<f64>()
+        / m;
     let bp128var_bytes_mean = records.iter().map(|r| r.bp128var_bytes as f64).sum::<f64>() / m;
     let ef_bytes_mean = records.iter().map(|r| r.ef_bytes as f64).sum::<f64>() / m;
     let better_pure_bytes = bp128var_bytes_mean.min(ef_bytes_mean);

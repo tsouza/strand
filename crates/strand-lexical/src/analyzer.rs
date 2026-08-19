@@ -33,9 +33,9 @@ use unicode_segmentation::UnicodeSegmentation;
 /// in `EnglishAnalyzer` (`references/lucene-english-stopwords.md`) — the
 /// `lucene-en-10.5.1` `stopword_list_id`.
 pub const LUCENE_EN_10_5_1_STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is",
-    "it", "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there",
-    "these", "they", "this", "to", "was", "will", "with",
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it",
+    "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these",
+    "they", "this", "to", "was", "will", "with",
 ];
 
 /// Tokenizes per `token_retention: "word-only"`: UAX #29 word-boundary
@@ -57,13 +57,19 @@ pub fn lowercase(token: &str) -> String {
 
 /// Removes any token present in `stopwords`, preserving order.
 pub fn remove_stopwords(tokens: Vec<String>, stopwords: &HashSet<&str>) -> Vec<String> {
-    tokens.into_iter().filter(|t| !stopwords.contains(t.as_str())).collect()
+    tokens
+        .into_iter()
+        .filter(|t| !stopwords.contains(t.as_str()))
+        .collect()
 }
 
 /// Snowball Porter2 English stemming (`stemmer.name = "snowball-porter2-en"`).
 pub fn stem_en(tokens: &[String]) -> Vec<String> {
     let stemmer = Stemmer::create(Algorithm::English);
-    tokens.iter().map(|t| stemmer.stem(t).into_owned()).collect()
+    tokens
+        .iter()
+        .map(|t| stemmer.stem(t).into_owned())
+        .collect()
 }
 
 /// The full chain for the descriptor RFC 0004's worked example names:
@@ -74,7 +80,10 @@ pub fn stem_en(tokens: &[String]) -> Vec<String> {
 /// `false` and this chain produces no overlaps to begin with.
 pub fn analyze_lucene_en_word_only(text: &str) -> Vec<String> {
     let stopwords: HashSet<&str> = LUCENE_EN_10_5_1_STOPWORDS.iter().copied().collect();
-    let lowered: Vec<String> = tokenize_word_only(text).into_iter().map(lowercase).collect();
+    let lowered: Vec<String> = tokenize_word_only(text)
+        .into_iter()
+        .map(lowercase)
+        .collect();
     let filtered = remove_stopwords(lowered, &stopwords);
     stem_en(&filtered)
 }

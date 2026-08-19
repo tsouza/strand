@@ -20,7 +20,7 @@
 use proptest::prelude::*;
 use roaring::RoaringBitmap;
 use strand_lexical::filter_bitmaps::{
-    build_filter_bitmap_store, FilterBitmapError, FilterBitmapStore, MAX_ROW_ID_COUNT,
+    FilterBitmapError, FilterBitmapStore, MAX_ROW_ID_COUNT, build_filter_bitmap_store,
 };
 
 #[test]
@@ -51,7 +51,10 @@ fn run_container_promotion_does_not_change_serialized_bytes() {
 #[test]
 fn row_id_count_above_the_roaring_cap_is_rejected() {
     let result = build_filter_bitmap_store(&[RoaringBitmap::new()], MAX_ROW_ID_COUNT + 1);
-    assert_eq!(result, Err(FilterBitmapError::RowIdCountExceedsRoaringCapacity));
+    assert_eq!(
+        result,
+        Err(FilterBitmapError::RowIdCountExceedsRoaringCapacity)
+    );
 }
 
 #[test]
