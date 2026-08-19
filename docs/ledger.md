@@ -268,7 +268,21 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   Lucene 10.5.1 source and maps it to the descriptor's own
   `counts_overlaps_in_length` field. The tantivy half remains open — no tantivy
   source has been vendored for this yet — and gates M4's tantivy-fork parity work,
-  not M1.
+  not M1. The same track's other named gap — which CJK/Thai/Lao
+  `segmentation_dictionary` STRAND recommends as a default (`docs/roadmap.md`
+  M1-1) — is now also resolved, license-side and design-side: RFC 0004 Discussion
+  — post-approval amendments (2026-08-19) license-audits five live candidates
+  (MeCab, Lindera, Jieba/`jieba-rs`, ICU4C via `rust_icu`, ICU4X's `icu_segmenter`)
+  and recommends ICU4X's `icu_segmenter` (`WordSegmenter::try_new_dictionary()`,
+  Unicode-3.0 license — determined Apache-2.0-compatible here for the first time in
+  this project, `references/icu4x-icu-segmenter-crate.md`) over Lindera's
+  CC-CEDICT-backed Chinese path (CC BY-SA 4.0, share-alike, rejected —
+  `references/cc-cedict-and-lindera-cc-cedict-license.md`) and over `rust_icu`'s
+  native-C-dependency shape. `spec/analyzer-descriptors.md` §5 names the default.
+  Still open, genuinely: no accuracy bake-off was run (license/dependency-shape
+  grounds only), no implementation exists in `crates/strand-lexical`, and no
+  dictionary-segmented `conformance/analyzers/` vector exists — real M1 execution
+  work, not done by this grounding pass.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1): a
   first decode-throughput measurement now exists

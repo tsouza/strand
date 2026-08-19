@@ -121,8 +121,12 @@ reproducing `"The whales swim quickly."` → `["whale", "swim", "quick"]`,
 licensed implementations (`unicode-rs/unicode-segmentation`,
 `CurrySoftware/rust-stemmers`, both Apache-2.0-compatible), not hand-rolled
 algorithms. The full vector suite across languages and scripts is still M1
-execution work, not done by this one vector, and the CJK/Thai/Lao segmentation-
-dictionary choice remains unresolved (RFC 0004's own Non-goals). **Tantivy importer
+execution work, not done by this one vector. The CJK/Thai/Lao segmentation-
+dictionary *default* is now resolved — ICU4X's `icu_segmenter`, RFC 0004 Discussion
+— post-approval amendments, `spec/analyzer-descriptors.md` §5 — but populating
+`segmentation_dictionary` in `crates/strand-lexical/src/analyzer.rs` and adding a
+dictionary-segmented conformance vector remain unimplemented, real M1 execution
+work. **Tantivy importer
 is now real**: `strand-tools convert --index-dir <path> --field <name> --output
 <path>` (`crates/strand-tools/src/convert.rs`) opens a real tantivy index via
 tantivy's own reader API (`InvertedIndexReader`, `TermDictionary::stream`,

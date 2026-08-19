@@ -52,19 +52,28 @@ in `docs/ledger.md`; not repeated here.
   (`ProposeDeletionVectorCommit`, two new invariants, both mutation-tested;
   RFC 0002 Discussion — post-approval amendments).
 
-## M1 — Lexical (implemented; four real grounding/design gaps remain)
+## M1 — Lexical (implemented; three real grounding/design gaps remain, plus two new implementation follow-ons from M1-1's resolution)
 
 M1 shipped (BP128 postings, positions, FST term dictionary, block-max,
 filter bitmaps, analyzer descriptors, RFC 0009's per-term overhead
 reduction) — but four items its own approving RFCs left explicitly open
 were missing from this document's first draft, found by this document's
-own adversarial review:
+own adversarial review. One of the four, M1-1, is now resolved as a
+format-design decision (2026-08-19); its own resolution surfaced two new,
+narrower implementation/verification tasks, M1-6 and M1-7, listed after
+M1-5 below.
 
-- **M1-1** — Which CJK/Thai/Lao segmentation dictionary STRAND adopts as a
-  default (MeCab, Jieba, ICU's dictionary-based break iterator, or another
-  candidate) is unresolved. Source: RFC 0004 Non-goals and Open questions
+- **M1-1** — ~~Which CJK/Thai/Lao segmentation dictionary STRAND adopts as
+  a default~~ — resolved. Source: RFC 0004 Non-goals and Open questions
   ("gates real conformance for those scripts, not an edge case"). Status:
-  open, real grounding-plus-design work. Depends on: nothing.
+  **done** — RFC 0004 Discussion — post-approval amendments license-audits
+  five live candidates (MeCab, Lindera, Jieba/`jieba-rs`, ICU4C via
+  `rust_icu`, ICU4X's `icu_segmenter`) and recommends ICU4X's
+  `icu_segmenter` (`WordSegmenter::try_new_dictionary()`, Unicode-3.0
+  license) as the default, named in `spec/analyzer-descriptors.md` §5.
+  This closes the *design* gap only — see M1-6 and M1-7 below for the
+  implementation and accuracy-verification work this resolution itself
+  named as still open. Depends on: nothing.
 - **M1-2** — FST term-dictionary size at realistic vocabulary scale
   (MS MARCO or larger) is unmeasured. Source: RFC 0005 Open questions
   ("needed before the cold-open byte budget question... can be answered
@@ -96,6 +105,29 @@ Also grounding debt, not M1-blocking but M1-adjacent and feeding M4:
   cannot claim length-accounting parity without it) — tracked here, under
   M1, because the gap itself is M1-era grounding debt even though its
   consequence lands in M4.
+- **M1-6** — Implement M1-1's resolved default: populate
+  `segmentation_dictionary` in `crates/strand-lexical/src/analyzer.rs`
+  using ICU4X's `icu_segmenter` (`WordSegmenter::try_new_dictionary()` —
+  not `try_new_auto()`, which silently substitutes LSTM for Thai/Lao, RFC
+  0004 Discussion), and add at least one real dictionary-segmented vector
+  to `conformance/analyzers/` (a CJK or Thai/Lao worked example, the same
+  raw-text-in/token-stream-out shape as
+  `lucene-en-word-only-01.json`). Also pin `segmentation_dictionary.version`
+  concretely — crate semver, a compiled-data content hash, or both, per
+  invariant 11 — a decision RFC 0004's amendment left to this task.
+  Source: RFC 0004 Discussion — post-approval amendments; `spec/
+  analyzer-descriptors.md` §5. Status: open, real implementation work.
+  Depends on: M1-1 (done).
+- **M1-7** — Run a real segmentation-accuracy bake-off validating (or
+  revising) M1-1's default: ICU4X's dictionary path vs. Lindera+IPADIC for
+  Japanese, vs. Jieba for Chinese, vs. PyThaiNLP for Thai, the same
+  discipline R2 applied to postings codecs (`docs/ledger.md` R2). M1-1's
+  recommendation was made on license and dependency-shape grounds, not
+  measured accuracy — RFC 0004's own amendment names this gap explicitly.
+  Source: RFC 0004 Discussion — post-approval amendments, "How this could
+  be wrong." Status: open, measurement work, not gating M1-6 (a default
+  need only be declared correctly, not proven best) but should land before
+  M1's analyzer work is considered fully closed. Depends on: nothing.
 
 ## M2 — Vectors (nearly closed; loose ends remain)
 
