@@ -384,9 +384,30 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   whether the FastScan path can run over external lists at all given its
   `CodePacker`/`BlockInvertedLists` packing, including the load-time repack cost if
   so; (c) Quickwit split/hotcache internals post-relicense, testing the
-  inherits-from-the-fork hypothesis; (d) the fork reader-module list that arms the
-  fork failure triggers (docs/benchmarks.md); (e) the warm-tier graph host choice.
-  Adapter milestones remain conditional on R11 (b)–(e), still open.
+  inherits-from-the-fork hypothesis — **resolved 2026-08-19**
+  (`references/r11c-quickwit-relicense-and-hotcache-source.md`): Quickwit's license
+  is confirmed Apache-2.0 both byte-level (current `LICENSE` file) and commit-level
+  (PR #5645, "Relicense to Apache 2.0," 2025-01-23, removed `LICENSE_AGPLv3.0.txt`
+  and `LICENSE.md`, added `LICENSE`), fully compatible with this project's
+  Apache-2.0-only dependency policy, no exceptions needed. The hypothesis itself
+  splits in two: the *mechanism* is confirmed — Quickwit's `quickwit-directories`
+  crate (`HotDirectory`, `BundleDirectory`, `CachingDirectory`) implements
+  tantivy's public `Directory`/`FileHandle` traits only, with no patch to tantivy
+  internals, the identical extension point a STRAND tantivy fork already plans to
+  use (`docs/benchmarks.md`'s engine-constant rule) — but the *code* does not
+  transfer: Quickwit's split footer and hotcache are its own `postcard`-serialized
+  wire format, unrelated to STRAND's own footer/hotcache byte layout
+  (`spec/container.md` §4), so a STRAND fork still needs its own `Directory` impl
+  written from scratch, the same way Quickwit's was. One complication surfaced for
+  the fork RFC: tantivy's canonical repo (`github.com/quickwit-oss/tantivy`) is
+  itself Quickwit-maintained, ships an opt-in `quickwit` Cargo feature, and
+  Quickwit's own build pins an arbitrary unreleased git commit rather than a
+  numbered crates.io release — reinforcing (not creating) the already-planned
+  practice of the STRAND fork pinning its own explicit commit rather than assuming
+  crates.io and tantivy's git trunk behave identically; (d) the fork reader-module
+  list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier
+  graph host choice. Adapter milestones remain conditional on R11 (b) and (e),
+  still open.
 
   **R11(a) finding (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`,
   fetched against tantivy tag `0.26.1` and Lucene tag `releases/lucene/10.5.1`,
@@ -454,8 +475,9 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 - **Other pending figures:** the parallel-wave aggregate throughput behind the 100 MB
   budget rationale — not yet measurable at all until a `tier: cold-fetchable` vector
   blob exists (M2); tantivy codec-SPI absence — resolved, R11(a) above; FAISS
-  FastScan external-list feasibility (R11(b)); the Quickwit inheritance hypothesis
-  (R11(c)). The M0 vendoring deliverable is partially
+  FastScan external-list feasibility (R11(b)). The Quickwit inheritance hypothesis
+  (R11(c)) is no longer pending — resolved above with vendored primary sources. The
+  M0 vendoring deliverable is partially
   done — `references/` holds the R2 and RFC-0002 grounding, all four turbopuffer
   pages (`CLAUDE.md` §7's ~100ms planning figure, the measured p50=874ms/14ms
   cold/cached figures, the published p90s, invariant 9's batched-iterator numbers, and

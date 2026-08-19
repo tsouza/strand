@@ -155,29 +155,41 @@ data: the M3 multi-segment benchmark curve. Deliverable: an RFC that either spec
 an optional summary blob class or states the honest scale ceiling of a summary-free
 manifest.
 
-**R11 — Adapter feasibility (partial grounding; audit open; (a) resolved).**
-Verified 2026-08-18 against live source: tantivy and FAISS are both MIT
-(byte-level LICENSE reads, `quickwit-oss/tantivy`, `facebookresearch/faiss`);
-FAISS ships the inverted-lists extension surface at `faiss/invlists/`
-(`InvertedLists.h`, `OnDiskInvertedLists.h`, `BlockInvertedLists.h`);
-`IndexIVFRaBitQ` extends `IndexIVF` and its FastScan variant
-(`IndexIVFRaBitQFastScan` → `IndexIVFFastScan`) initializes a `CodePacker` in
-its inverted lists and retains an `orig_invlists` pointer — the source basis
-for splitting the adapter claim by kernel. **R11(a) resolved 2026-08-19**
-against tantivy tag `0.26.1` and Lucene tag `releases/lucene/10.5.1`
-(`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`): tantivy has
-no codec SPI — `Directory` is a byte-range storage abstraction, `SegmentComponent`
-is a closed seven-variant enum with one concrete reader/writer wired per variant,
-and the `Postings` trait is a runtime query-result iterator, not a wire-format
-registration point; the named "tantivy fork" M4 path means forking and modifying
-tantivy's internal reader/writer modules directly. Lucene's `Codec`/`PostingsFormat`
-SPI, by contrast, is real and confirmed current: eleven abstract format methods on
-`Codec`, resolved via `java.util.ServiceLoader` through `META-INF/services/
-org.apache.lucene.codecs.Codec`, with `FilterCodec` as the documented delegation
-base a `StrandCodec` would extend. Still unverified and owned by R11: whether
-FastScan search can execute over externally hosted lists (b); Quickwit
-post-relicense internals (c); the fork reader-module list (d); the warm-tier graph
-host (e). Sources to vendor at M0: both LICENSE files; `faiss/invlists/InvertedLists.h` and
+**R11 — Adapter feasibility (partial grounding; (a) and (c) resolved, rest of
+audit open).** Verified 2026-08-18 against live source: tantivy and FAISS are
+both MIT (byte-level LICENSE reads, `quickwit-oss/tantivy`,
+`facebookresearch/faiss`); FAISS ships the inverted-lists extension surface at
+`faiss/invlists/` (`InvertedLists.h`, `OnDiskInvertedLists.h`,
+`BlockInvertedLists.h`); `IndexIVFRaBitQ` extends `IndexIVF` and its FastScan
+variant (`IndexIVFRaBitQFastScan` → `IndexIVFFastScan`) initializes a
+`CodePacker` in its inverted lists and retains an `orig_invlists` pointer —
+the source basis for splitting the adapter claim by kernel. **R11(a) resolved
+2026-08-19** against tantivy tag `0.26.1` and Lucene tag
+`releases/lucene/10.5.1`
+(`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`): tantivy
+has no codec SPI — `Directory` is a byte-range storage abstraction,
+`SegmentComponent` is a closed seven-variant enum with one concrete
+reader/writer wired per variant, and the `Postings` trait is a runtime
+query-result iterator, not a wire-format registration point; the named
+"tantivy fork" M4 path means forking and modifying tantivy's internal
+reader/writer modules directly. Lucene's `Codec`/`PostingsFormat` SPI, by
+contrast, is real and confirmed current: eleven abstract format methods on
+`Codec`, resolved via `java.util.ServiceLoader` through
+`META-INF/services/org.apache.lucene.codecs.Codec`, with `FilterCodec` as the
+documented delegation base a `StrandCodec` would extend. **R11(c) resolved
+2026-08-19** (`references/r11c-quickwit-relicense-and-hotcache-source.md`):
+Quickwit is Apache-2.0, confirmed at the commit that removed
+`LICENSE_AGPLv3.0.txt` and added `LICENSE` (PR #5645, 2025-01-23), not just
+the announcement; its `quickwit-directories` crate (`HotDirectory`,
+`BundleDirectory`) implements only tantivy's public `Directory`/`FileHandle`
+traits, confirming the *mechanism* half of the inherits-from-the-fork
+hypothesis, while its split/hotcache wire format is Quickwit's own
+independent byte layout, so the *code* does not transfer — a STRAND adapter
+still writes its own `Directory` implementation, the same way Quickwit's
+was. Still unverified and owned by R11: whether FastScan search can execute
+over externally hosted lists (b); the fork reader-module list (d); the
+warm-tier graph host (e). Sources to vendor at M0: both LICENSE files;
+`faiss/invlists/InvertedLists.h` and
 `OnDiskInvertedLists.h`; `faiss/IndexIVFRaBitQ.h`, `faiss/IndexIVFFastScan.h`,
 `faiss/IndexIVFRaBitQFastScan.h`; tantivy segment-reader sources at the pinned
-commit; Quickwit split/hotcache sources post-relicense.
+commit; Quickwit split/hotcache sources post-relicense (now vendored, see above).
