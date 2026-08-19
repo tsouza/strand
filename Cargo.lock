@@ -3209,6 +3209,7 @@ dependencies = [
 name = "strand-lexical"
 version = "0.1.0"
 dependencies = [
+ "bitpacking",
  "fst",
  "proptest",
  "roaring",

@@ -137,7 +137,14 @@ sibling region (invariant 4) giving a ~7× skip-cost cut on multi-block lists. I
 own napkin math found something real worth carrying forward: postings + term-info
 for the ~520K-passage sample already total ~73.2 MB, 73% of the 100 MB cold-open
 budget, on under 6% of the full corpus — a live input for R1's segment-sizing
-work, not just this RFC's own concern. Explicitly out of scope: positions,
+work, not just this RFC's own concern. RFC 0007 is now implemented, not just
+approved: `crates/strand-lexical/src/postings.rs` builds and reads the blob
+exactly as `spec/postings.md` specifies, the RFC's own worked example round-trips
+byte-exact against the new `conformance/postings/toy-postings.bin` golden file,
+and property-based tests (`crates/strand-lexical/tests/postings_round_trip.rs`)
+cover multi-block lists spanning `BitPacker8x`'s SIMD kernel and the
+variable-length final block's scalar packer together, including skip queries
+checked against a linear-scan reference. Explicitly out of scope: positions,
 scoring-aware (term-frequency/document-length) block-max bounds, and ARM
 validation — the RFC's own adversarial review caught and corrected a false claim
 that the registered codec's crate mitigates the ARM gap; it doesn't, for the

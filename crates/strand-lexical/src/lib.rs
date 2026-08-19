@@ -14,9 +14,11 @@
 
 //! Reference implementation of STRAND's lexical (`family_id = 1`) and filter
 //! (`family_id = 2`) blob families: the term-dictionary FST and term-info
-//! store (`spec/term-dictionary.md`, RFC 0005), and the value-dictionary FST
-//! and filter-bitmap store (`spec/filter-bitmaps.md`, RFC 0006).
+//! store (`spec/term-dictionary.md`, RFC 0005), postings
+//! (`spec/postings.md`, RFC 0007), and the value-dictionary FST and
+//! filter-bitmap store (`spec/filter-bitmaps.md`, RFC 0006).
 
 pub mod analyzer;
 pub mod filter_bitmaps;
+pub mod postings;
 pub mod term_dictionary;

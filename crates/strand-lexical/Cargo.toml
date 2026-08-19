@@ -7,6 +7,7 @@ repository.workspace = true
 description = "STRAND lexical-family blobs: term-dictionary FST and term-info store (RFC 0005)"
 
 [dependencies]
+bitpacking = "0.9.3"
 fst = "0.4.7"
 roaring = "0.11.5"
 rust-stemmers = "1.2.0"

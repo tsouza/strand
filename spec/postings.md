@@ -8,8 +8,9 @@ the settled result — see the RFC for the worked example, alternatives consider
 and the adversarial review. Registered in `spec/container.md` §9: `family_id = 1`
 (lexical), `blob_type_id = 2` (postings).
 
-Reference implementation: not yet implemented; lands with the R2 lexical blob
-(M1, `docs/ledger.md`).
+Reference implementation: `crates/strand-lexical/src/postings.rs`. Golden file:
+`conformance/postings/toy-postings.bin`, matching this chapter's RFC's worked
+example exactly, byte for byte.
 
 ## 1. Scope: one postings blob per field's term dictionary
 
@@ -113,10 +114,15 @@ open, adding bytes to that wave's payload but no additional round trip.
 
 ## 9. Conformance status
 
-Not yet implemented. `rfcs/0007-postings-codec.md`'s worked example (a 3-posting,
-single-block term) is the first `conformance/postings/` golden vector once
-implemented — real executed bytes, a real round trip, `doc_freq` supplied
-externally exactly as a real reader would have it from `TermInfo`.
+Implemented (`crates/strand-lexical`). `rfcs/0007-postings-codec.md`'s worked
+example (a 3-posting, single-block term) is the first `conformance/postings/`
+golden vector — real executed bytes, a real round trip, `doc_freq` supplied
+externally exactly as a real reader would have it from `TermInfo`, confirmed
+byte-exact against `crates/strand-lexical/tests/postings_worked_example.rs`.
+Multi-block lists (spanning `BitPacker8x`'s SIMD-packed full blocks and the
+variable-length scalar-packed final block together) are property-tested in
+`crates/strand-lexical/tests/postings_round_trip.rs`, including the skip query
+checked against a plain linear-scan reference implementation.
 
 ## 10. Open dependencies
 
