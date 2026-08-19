@@ -1187,6 +1187,56 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   questions sections, and this ledger entry, are updated accordingly; no
   wire format, arithmetic, or shipped code changed as a result (`kBatchSize
   = 32` in `crates/strand-vector/src/fastscan.rs` was already correct).
+  **M2-1 (SPANN-style closure replication's metadata slot and construction
+  algorithm) resolved — 2026-08-19, `docs/roadmap.md`.** The one Non-goal
+  this RFC's own text had already flagged as "the most consequential
+  Non-goal in this RFC, not the least" is closed. Grounded live against
+  SPANN's own §3.2.2 closure-assignment criterion (Eq. 2, fetched via
+  `ar5iv`'s HTML rendering since the raw-PDF extraction already vendored
+  for this paper mangles subscripted equations) and independently
+  cross-checked against the paper's own reference implementation,
+  `microsoft/SPTAG` (`ReplicaCount` defaults to `8`, matching the paper's
+  own stated closure-replica cap exactly) — both vendored in the new
+  `references/spann-closure-assignment-algorithm.md`. New module
+  `crates/strand-vector/src/closure.rs` (`closure_replicate`,
+  `group_by_cluster`, `ClosureConfig`) implements the real algorithm:
+  Eq. 2's distance-ratio test (squared-Euclidean, matching this crate's own
+  established L2 convention — a real, stated interpretation choice since
+  the paper doesn't disambiguate), the paper's RNG-rule redundancy pruning
+  (given only partial corroboration from SPTAG — a real, named, bounded-
+  consequence gap, since the rule can only ever reduce the realized
+  replication count, never the format's worst-case byte-cost bound), and
+  the replica cap. The metadata slot is a new, always-present, fixed
+  8-byte `replication_descriptor` trailer appended after `cluster_dir` in
+  the cluster navigation tier blob (`crates/strand-vector/src/
+  navigation.rs`'s new `ReplicationDescriptor`/`ReplicationPolicy`,
+  `spec/vectors.md` §3) — deliberately *not* a reuse of that blob's
+  existing reserved bytes, whose own normative text already promises
+  readers "MUST NOT interpret" them, and deliberately *without* a
+  redundant realized-replication-factor field, since the flat-vector
+  blob's dense-per-row-id contract means a reader already has everything
+  needed to compute that statistic from data already resident after the
+  cold-open wave. Both were real near-misses an earlier draft of this
+  amendment caught and fixed before implementation, named in RFC 0010's
+  own Discussion entry. Every pre-existing call site of
+  `build_navigation_tier` needed no changes (a new
+  `build_navigation_tier_with_replication` function carries the real
+  policy; the old function now simply calls it with
+  `ReplicationDescriptor::none()`), so this is a purely additive change:
+  `conformance/vectors/toy-navigation-tier.bin` grew from 568 to 576 bytes
+  (regenerated), and RFC 0010's Napkin math figures moved by the same fixed
+  `+16` bytes (the new trailer plus a pre-existing 8-byte header omission
+  in one particular sum, closed in the same edit) — immaterial at any real
+  scale. Real tests, including a hand-checked worked example, in
+  `crates/strand-vector/tests/closure_replication_end_to_end.rs`: exact
+  byte-layout assertions for a small hand-placed-centroid case, and a
+  real-k-means, real-quantization end-to-end query proving a deliberately
+  boundary-placed vector is found via either of its two clusters and
+  deduplicated to exactly one candidate by query resolution's existing
+  dedup step (RFC 0010 Design §6 step 3, unchanged). Still open, named
+  precisely rather than folded into this resolution: compaction-time
+  re-replication after a `rebalance` merge, and cross-segment codebook
+  sharing (`docs/roadmap.md` M2-8, unchanged).
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1

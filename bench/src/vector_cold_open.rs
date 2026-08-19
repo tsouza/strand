@@ -379,15 +379,22 @@ fn main() {
         // scale: this run's real per-cluster navigation-tier byte cost
         // (padded_dims*4 f32 centroid bytes + 24-byte cluster_dir entry)
         // times `recommended_cluster_count(1_000_000)`, plus this run's
-        // real descriptor byte length and the fixed 8-byte navigation-tier
-        // header — a cross-check against, not an independent confirmation
-        // of, that RFC's own ≈12.4 MB formula result (both are the same
+        // real descriptor byte length, the fixed 8-byte navigation-tier
+        // header, and the fixed 8-byte closure-replication descriptor
+        // trailer M2-1 added (`crate::navigation::REPLICATION_DESCRIPTOR_
+        // LEN`, RFC 0010 Discussion — post-approval amendment; this run
+        // uses `build_navigation_tier`'s own no-replication default, an
+        // all-zero trailer, so the byte cost is real regardless of policy)
+        // — a cross-check against, not an independent confirmation of,
+        // that RFC's own ≈12.4 MB formula result (both are the same
         // formula; this substitutes this run's actually-built byte
         // constants for the RFC's hand computation).
         let bytes_per_cluster = (DIMS * 4 + 24) as f64;
         let clusters_at_1m = recommended_cluster_count(1_000_000) as f64;
-        let extrapolated_open_wave_bytes_at_1m_vectors =
-            descriptor_bytes_len as f64 + 8.0 + bytes_per_cluster * clusters_at_1m;
+        let extrapolated_open_wave_bytes_at_1m_vectors = descriptor_bytes_len as f64
+            + 8.0
+            + navigation::REPLICATION_DESCRIPTOR_LEN as f64
+            + bytes_per_cluster * clusters_at_1m;
 
         let result = VectorColdOpenResult {
             iterations: ITERATIONS,

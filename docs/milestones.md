@@ -368,16 +368,25 @@ Extended-RaBitQ and the warm-tier graph blob family remain unimplemented, both n
 follow-on work (RFC 0010 Non-goals). The FastScan code region's intra-batch
 bit/lane order — the one wire-format gap RFC 0010's own review left open at
 Approval — is now resolved (RFC 0010 Discussion, `spec/vectors.md` §4),
-clearing the way to actually start `crates/strand-vector`. **Not yet met by
-RFC 0010 alone**: the
-replication knob this milestone names as a deliverable — RFC 0010's own napkin math
-computes replication's real cost impact (a ~2.27×-the-budget estimate at realistic
+clearing the way to actually start `crates/strand-vector`. **The
+replication knob this milestone names as a deliverable is now met (M2-1,
+`docs/roadmap.md`, resolved 2026-08-19, RFC 0010 Discussion — post-approval
+amendment)**: RFC 0010's own napkin math already computed
+replication's real cost impact (a ~2.27×-the-budget estimate at realistic
 replica-8-equivalent density, resting on a real body-sourced 1.73× ratio as of
 2026-08-19 — SPANN's own paper has no GIST1M index-size figures at all; the real
 13.0 GB/7.5 GB numbers live in the companion cloud-native benchmark paper's Table 4,
 `references/spann-body-figures.md` — though still extrapolated from a replica-2
-baseline since neither paper measures replica-1) but does not
-add the metadata slot or construction algorithm; a follow-on RFC owns it. RFC 0010's
+baseline since neither paper measures replica-1), and M2-1 added the metadata
+slot (a new, always-present 8-byte `replication_descriptor` trailer on the
+cluster navigation tier blob, `spec/vectors.md` §3) and a real, SPANN-grounded
+construction algorithm (`crates/strand-vector/src/closure.rs`, cross-checked
+against SPTAG, the paper's own reference implementation), with real tests
+including a hand-checked worked example and a real end-to-end deduplicated
+query (`crates/strand-vector/tests/closure_replication_end_to_end.rs`). Still
+open, named precisely: compaction-time re-replication after a `rebalance`
+merge (the construction algorithm runs at initial build time only) and
+cross-segment codebook sharing (`docs/roadmap.md` M2-8). RFC 0010's
 own corrected sizing law (~131 MB per million 768d vectors before replication, not
 the previously assumed ~100 MB) is real, grounded arithmetic — **now backed by a
 real measured M0-style benchmark, not only arithmetic**: `bench/src/

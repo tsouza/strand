@@ -17,6 +17,7 @@
 //! posting lists. Layout is normative per `spec/vectors.md`, approved by
 //! RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`).
 
+pub mod closure;
 pub mod descriptor;
 pub mod estimate;
 pub mod fastscan;

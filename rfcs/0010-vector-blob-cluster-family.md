@@ -213,7 +213,13 @@ turns out to be a real undercount gets corrected here and in
   consequential Non-goal in this RFC, not the least. M2's own milestone gate
   is therefore not fully met by this RFC alone (Open questions, below); a
   follow-on RFC that also does construction-side clustering owns the
-  metadata slot and the construction algorithm together.
+  metadata slot and the construction algorithm together. **Resolved by
+  M2-1 (Discussion — post-approval amendment, below, `docs/roadmap.md`):**
+  the metadata slot (Design §3) and a real, SPANN-grounded construction
+  algorithm (`crates/strand-vector/src/closure.rs`) now exist. Cross-
+  segment codebook sharing at merge/compaction time (the next bullet) and
+  compaction-time re-replication after a rebalance remain separate, still
+  open, work (Open questions).
 - **Cross-segment codebook sharing and retraining at merge/compaction time.**
   Named precisely in Design §7 (merge semantics) as a real, load-bearing,
   unresolved question — not silently assumed away.
@@ -381,6 +387,32 @@ directly gives the byte range invariant 3 requires be resolvable with no
 further round trip — the entire posting-list blob's per-cluster addressing
 comes from this one wholesale fetch.
 
+**Closure-replication descriptor trailer (M2-1, added by this RFC's
+Discussion — post-approval amendment below).** A fixed 8 bytes, always
+present, immediately after `cluster_dir`:
+
+| offset | size | field                    | notes |
+| ------ | ---- | ------------------------ | ----- |
+| 0      | 1    | `replication_policy`     | u8: `0` = none (every vector assigned to exactly its primary cluster — the all-zero, pre-M2-1-equivalent default); `1` = `spann-closure` (`crate::closure`, `references/spann-closure-assignment-algorithm.md`). A reader MUST NOT reject an unrecognized value: query resolution's own row-id deduplication (Design §6 step 3) already tolerates duplicate row-ids regardless of *why* they're duplicated, so a reader that doesn't recognize a future policy value still decodes and queries this blob correctly — it just can't explain the segment's replication cost in that policy's own terms |
+| 1      | 1    | `max_replicas`           | u8; the per-vector replica cap actually used, total posting lists a vector may land in (primary included) — SPANN's own `ReplicaCount`. MUST be `0` when `replication_policy = 0`; MUST be `>= 1` when `replication_policy = 1` |
+| 2      | 2    | reserved                 | u16; writer MUST set zero; reader MUST NOT reject nonzero but MUST NOT interpret it |
+| 4      | 4    | `replication_epsilon`     | f32, little-endian; SPANN's own ε₁ actually used (below). MUST be `0.0` when `replication_policy = 0` |
+
+This slot deliberately records the construction-time *policy and knobs*,
+not a realized replication *factor*. The realized factor (total
+(cluster, vector) assignments divided by distinct vectors) is already
+exactly recoverable, with no new wire bytes, from data a cold-open reader
+already has resident: sum `vector_count` across every `cluster_dir` entry
+(already fetched wholesale as part of this same blob) and divide by the
+segment's own `row_id_count` (already decoded from the container's
+hotcache before this blob family is even touched, Design §1) — because
+this field's flat-vector blob is dense over every row-id in the segment
+(Design §5), this field's distinct vector count *is* the segment's
+row-id count. An earlier draft of this trailer stored that count directly
+(`distinct_row_id_count`, a redundant 8 bytes); the adversarial review
+below caught the redundancy and it was removed before implementation,
+per invariant 8's novelty-budget discipline.
+
 ### 4. Cluster posting lists (`blob_type_id = 3`)
 
 One contiguous blob, laid out as the concatenation of each cluster's own
@@ -485,11 +517,12 @@ small enough to rerank.
    registered codec's own FastScan or classical distance estimator,
    depending on `bit_width` — 1-bit only in this RFC), producing a
    candidate row-id set ranked by estimated distance. Under SPANN-style
-   closure replication (Napkin math; metadata slot not yet designed,
-   Non-goals), the same row-id can legitimately appear in more than one of
-   the `nprobe` scanned clusters — a reader MUST deduplicate by row-id
-   before ranking, keeping each row-id's best (closest) estimated distance
-   across the clusters it appeared in.
+   closure replication (Napkin math; the metadata slot and construction
+   algorithm, Design §3 and `crate::closure`, M2-1), the same row-id can
+   legitimately appear in more than one of the `nprobe` scanned clusters —
+   a reader MUST deduplicate by row-id before ranking, keeping each
+   row-id's best (closest) estimated distance across the clusters it
+   appeared in.
 4. Filter the deduplicated candidate set against the segment's deletion
    vector (invariant 2), discarding any tombstoned row-id, before either
    returning results or reranking.
@@ -627,8 +660,13 @@ for a real writer's real k-means output. `cluster_dir`: cluster 0 —
 (`03 00 00 00`), reserved `00 00 00 00`; cluster 1 — `region_offset =
 640 + 3*8 = 664` (`98 02 00 00 00 00 00 00`), `code_bytes_length = 640`
 (same, since cluster 1's 2 vectors also occupy exactly one full-cost
-batch), `vector_count = 2` (`02 00 00 00`), reserved `00 00 00 00`. Total
-navigation-tier blob: `4 + 4 + 512 + 48 = 568` bytes.
+batch), `vector_count = 2` (`02 00 00 00`), reserved `00 00 00 00`.
+`replication_descriptor` trailer (M2-1, Discussion — post-approval
+amendment, below): this worked example uses no closure replication, so the
+trailer is 8 zero bytes — `replication_policy = 0`, `max_replicas = 0`,
+reserved `00 00`, `replication_epsilon = 0.0` (`00 00 00 00`) —
+`00 00 00 00 00 00 00 00`. Total navigation-tier blob:
+`4 + 4 + 512 + 48 + 8 = 576` bytes.
 
 **Cluster posting-list blob**, `1320` bytes total (`640 + 24` for cluster 0
 plus `640 + 16` for cluster 1): the `640`-byte quantized-code region per
@@ -713,21 +751,31 @@ navigation tier: `centroid_table` costs `4,000 * 768 * 4 = 12,288,000`
 bytes; `cluster_dir` costs `4,000 * 24 = 96,000` bytes; the quantization
 descriptor costs `16 + 384 = 400` bytes (a 16-byte header plus the 384-byte
 `FhtKacRotator` payload, Design §2 — negligible, but not the 384 bytes an
-earlier draft of this section stated). **Total tier-1 (navigation tier +
-posting lists), no replication: `118,592,000 + 12,288,000 + 96,000 + 400 =
-130,976,400` ≈ 131.0 MB per million 768d vectors** — a real ~31% over the
+earlier draft of this section stated); the navigation tier's own fixed
+`num_clusters`/reserved header costs 8 bytes, and — since M2-1's Discussion
+amendment below — its closure-replication descriptor trailer (Design §3)
+adds a further fixed 8 bytes, both independent of `num_clusters` and both
+negligible at this scale. **Total tier-1 (navigation tier + posting
+lists), no replication: `118,592,000 + 12,288,000 + 96,000 + 8 + 8 + 400 =
+130,976,416` ≈ 131.0 MB per million 768d vectors** — a real ~31% over the
 `CLAUDE.md` §7 provisional 100 MB cold-open byte budget, and a real,
 uncomfortable-but-honest correction to `docs/data-structures.md`'s own
 stated sizing law, made here rather than left standing. This is nowhere
 near R1's falsifying kill criterion (4× the budget), so it does not narrow
-the mission claim.
+the mission claim. (The pre-M2-1 total quoted the navigation tier's own
+8-byte header nowhere in this particular sum — an immaterial, pre-existing
+8-byte omission in a 131-million-byte figure — while separately counting it
+in the "bytes actually fetched" figure below; M2-1's amendment closes that
+gap in the same edit that adds the new trailer, so the total's delta from
+the previously stated `130,976,400` is `+16`, not the trailer's own `+8`
+alone.)
 
 This 131.0 MB figure is the whole quantized corpus per segment, not what a
 single query fetches at open — see Design §8's `cold-fetchable` distinction.
 **Bytes actually fetched wholesale at open** (descriptor + navigation
-tier only): `400 + 8 (num_clusters/reserved header) + 12,288,000 +
-96,000 = 12,384,408` ≈ **12.4 MB** — comfortably under the 100 MB budget on
-its own.
+tier only): `400 + 8 (num_clusters/reserved header) + 12,288,000 + 96,000
++ 8 (closure-replication descriptor trailer, M2-1) = 12,384,416` ≈
+**12.4 MB** — comfortably under the 100 MB budget on its own.
 
 **This is no longer arithmetic alone.** `bench/src/vector_cold_open.rs`
 (2026-08-19) closes the gap this RFC's own Open questions named: real
@@ -738,23 +786,30 @@ four-blob-type segment — 10,000 real 768-dimensional vectors, 400 clusters
 (`4·√10,000`, `strand_vector::kmeans::recommended_cluster_count`) — committed
 to real MinIO via `strand-core`'s actual manifest CAS protocol and reopened
 cold 30 times. Real, measured result
-(`bench/results/vector-cold-open.json`): the descriptor and navigation-tier
+(`bench/results/vector-cold-open.json`, re-run 2026-08-19 alongside M2-1 —
+see Discussion, below — to include the new closure-replication descriptor
+trailer): the descriptor and navigation-tier
 blobs, read back from the real segment's own hotcache registry, total
-**1,238,808 bytes** — **1.24% of the 100 MB budget** — in **3 GETs** (pointer,
+**1,238,816 bytes** — **1.24% of the 100 MB budget** — in **3 GETs** (pointer,
 snapshot, segment), matching invariant 3's bound exactly. Scaling this run's
 own real per-cluster navigation-tier cost to RFC 0010's own 1,000,000-vector
-napkin-math scale via the same `4·√N` rule gives **12,384,408 bytes**
+napkin-math scale via the same `4·√N` rule gives **12,384,416 bytes**
 — to the byte, the hand-computed **12.4 MB** figure directly above. The
 formula was right; this is no longer just trusting the arithmetic. One
 honest limitation carried over from `bench/src/cold_open.rs` and
 `bench/src/field_cold_open.rs`: `strand-core`'s `ConditionalStore` has no
 Range-GET variant yet, so the actual network fetch this benchmark issues
-pulls the whole 33,984,732-byte segment (posting lists and flat vectors
+pulls the whole 33,984,740-byte segment (posting lists and flat vectors
 included, not just the open-wave subset) — real whole-segment-GET latency
-against local MinIO was p50 92.6ms / p90 102.2ms / p99 114.1ms (n=30), a
-strictly harder number than a Range-GET-only open-wave fetch would show, and
-not yet the real-network tail figure `CLAUDE.md` §7 still lists as a
-placeholder.
+against local MinIO in the M2-1 re-run was p50 47.6ms / p90 57.7ms / p99
+72.8ms (n=30) — lower than the original run's p50 92.6ms / p90 102.2ms /
+p99 114.1ms, most plausibly host-load variance (both runs share MinIO's
+own localhost-with-no-injected-latency caveat, and this project's shared
+build host was under heavy concurrent load during the M2-1 session,
+`docs/roadmap.md`), not a claim that Range-GET-only fetching improved —
+this is still a strictly harder number than a Range-GET-only open-wave
+fetch would show, and not yet the real-network tail figure `CLAUDE.md` §7
+still lists as a placeholder.
 
 The 131.0 MB figure is the segment-sizing quantity R1's own
 still-open sizing-law work needs (`CLAUDE.md` §7's "segment count is
@@ -801,7 +856,9 @@ remains a real, named limitation, not a measurement.
 
 - **Endianness:** little-endian throughout — every multi-byte field in the
   quantization descriptor, the navigation tier's `centroid_table` (f32) and
-  `cluster_dir` (u64/u32), and the posting-list blob's row-id arrays (u64).
+  `cluster_dir` (u64/u32), the posting-list blob's row-id arrays (u64), and
+  the closure-replication descriptor trailer's `replication_epsilon` (f32,
+  M2-1).
 - **Term sort order:** not applicable — this family has no term dictionary.
 - **Chunk codec:** not applicable — all four blob types are
   `storage-class: raw-mappable`, no chunk wrapper.
@@ -834,6 +891,10 @@ remains a real, named limitation, not a measurement.
   is explicitly marked opaque, not fabricated, so a genuine golden file for
   this family requires a working encoder and is owed at M2 implementation
   time (Open questions), not satisfied by this worked example alone.
+  `conformance/vectors/toy-navigation-tier.bin` was regenerated at M2-1
+  (568 → 576 bytes) to include the new all-zero closure-replication
+  descriptor trailer; every other golden file in this family is unaffected
+  (the trailer is additive to the navigation tier only).
 
 ## How this could be wrong
 
@@ -989,12 +1050,21 @@ what the reference implementation's own `save()`/`load()` pair already does
   "not found in this fetch's excerpt" when only the paper's abstract had
   been vendored. A ledger update recording this resolution is due alongside
   this RFC.
-- **SPANN-style replication's metadata slot and construction algorithm**
-  (Non-goals) — a real design surface this RFC's own napkin math shows is
-  worth the design effort (~2.27× the budget at a realistic, provisional
-  replica-8-equivalent density estimate is a real cost the format should
-  let a deployment see and tune, not hide), and a stated M2 milestone
-  deliverable this RFC does not complete.
+- ~~SPANN-style replication's metadata slot and construction algorithm~~ —
+  done (M2-1, 2026-08-19, Discussion — post-approval amendment, below):
+  the closure-replication descriptor trailer (Design §3) and a real,
+  SPANN-grounded construction algorithm (`crates/strand-vector/src/
+  closure.rs`, `references/spann-closure-assignment-algorithm.md`) both
+  exist, with real tests including a hand-checked worked example
+  (`crates/strand-vector/tests/closure_replication_end_to_end.rs`). Two
+  narrower items this resolution does **not** close, named precisely
+  rather than folded in: **compaction-time re-replication** — when
+  `rebalance` moves a vector to a different primary cluster (Design §7),
+  whether and how its closure replicas should be recomputed is real,
+  separate, unimplemented work, since this RFC's construction algorithm
+  runs at initial segment build time only; and **cross-segment codebook
+  sharing at merge time**, already named below, which M2-8
+  (`docs/roadmap.md`) tracks as a distinct question.
 - ~~Fetching SPANN's real body figures~~ — done (2026-08-19): SPANN's own
   PDF body was fetched in full and confirmed to contain **no** GIST1M
   dataset and **no** index-size figure at any replica count
@@ -1031,11 +1101,13 @@ what the reference implementation's own `save()`/`load()` pair already does
   not to any register width. Algorithm-shaped, not hardware-shaped.
 - ~~A real M0-style byte-budget measurement for this blob family~~ —
   resolved (Discussion, below; `bench/src/vector_cold_open.rs`, Napkin math
-  above). Real, measured result at a 10,000-vector/400-cluster scale:
-  1,238,808 open-wave bytes (1.24% of the 100 MB budget), 3 GETs/open,
-  p50=92.6ms whole-segment-GET latency against local MinIO — and the same
+  above). Real, measured result at a 10,000-vector/400-cluster scale
+  (re-run 2026-08-19 alongside M2-1 to include the new closure-replication
+  descriptor trailer):
+  1,238,816 open-wave bytes (1.24% of the 100 MB budget), 3 GETs/open,
+  p50=47.6ms whole-segment-GET latency against local MinIO — and the same
   run's own real bytes extrapolate to RFC 0010's 1,000,000-vector scale at
-  12,384,408 bytes, matching this section's hand-computed figure exactly.
+  12,384,416 bytes, matching this section's hand-computed figure exactly.
   Not yet closed: the real-network tail-latency figure (`CLAUDE.md` §7's
   own still-open placeholder) and a Range-GET-capable reader (today's
   benchmark fetches the whole segment object, not just the open-wave
@@ -1196,7 +1268,15 @@ byte cost to this RFC's own 1,000,000-vector napkin-math scale via the same
 hand-computed **≈12.4 MB** figure earlier in this Napkin math section to the
 byte. This is the real confirmation the Open questions item asked for: the
 formula was already right, and now real, executed code says so too, not
-only arithmetic.
+only arithmetic. **(Byte figures refreshed 2026-08-19 alongside M2-1,
+below, to include the new closure-replication descriptor trailer: the
+navigation-tier blob is now 1,238,416 bytes, the open-wave total 1,238,816
+bytes — still 1.24% of the budget at this precision — and the
+1,000,000-vector extrapolation 12,384,416 bytes; the ≤4-GET/room-to-spare
+conclusion is unaffected. This paragraph's own narrative — including the
+22.4s k-means timing — describes the original run and is left as history;
+the re-run's own byte and latency figures are stated fully in the M2-1
+Discussion entry below.)**
 
 One limitation carried over honestly, not discovered new: `strand-core`'s
 `ConditionalStore` trait has no Range-GET method yet — `get(&self, key)`
@@ -1263,3 +1343,212 @@ reference files updated in place with the new finding
 `references/cloud-native-vector-search-surveys-2026.md`) alongside the new
 `references/spann-body-figures.md`. `docs/ledger.md`'s R1 entry updated to
 match.
+
+**2026-08-19 — M2-1: the replication metadata slot and the closure-
+replication construction algorithm (`docs/roadmap.md`).** Prompted
+directly by this RFC's own Non-goals and Open questions, which named this
+as "a stated M2 milestone deliverable this RFC does not complete" — the
+one Non-goal this RFC's own text already flagged as "the most consequential
+Non-goal in this RFC, not the least."
+
+**Grounding, fetched live, not from memory (`CLAUDE.md` §3).** SPANN's own
+closure-assignment algorithm (§3.2.2, "Posting list expansion") was fetched
+via arXiv's `ar5iv` HTML rendering (`ar5iv.labs.arxiv.org/html/2111.08566`)
+— the raw PDF-to-text extraction `references/spann-body-figures.md` already
+used for this paper renders prose cleanly but mangles subscripted
+equations, so this session used the maintained LaTeX-to-HTML conversion
+instead, specifically for the equation itself. The criterion (Eq. 2): a
+vector `x` is additionally assigned to a non-primary cluster `c_ij` iff
+`Dist(x, c_ij) ≤ (1 + ε₁) × Dist(x, c_i1)`, `c_i1` being its primary
+(nearest) cluster and centroids ordered by ascending distance to `x`. The
+paper states `ε₁ = 10.0` for posting-list expansion (§4.2) and "at most 8
+closure replicas for each vector" (§4.2.3, the same ablation that already
+grounded the replica-8 figure this RFC's Napkin math already depended on).
+Both numbers were **independently cross-checked against the paper's own
+reference implementation**, `github.com/microsoft/SPTAG`, fetched live via
+GitHub code search: `ReplicaCount` defaults to `8`
+(`AnnService/inc/Core/SPANN/ParameterDefinitionList.h`), matching the
+paper's stated choice exactly and confirming "replica count" means the
+*total* posting lists a vector lands in, not extra replicas beyond the
+primary. A secondary RNG-rule redundancy-pruning step (skip candidate
+`c_ij` when `Dist(c_ij, x) > Dist(c_i(j-1), c_ij)`) was also fetched from
+the same section and given only **partial** corroboration: SPTAG ships a
+distinctly-named `RNGFactor` parameter with the identical mathematical
+shape, but this session could not locate the specific call site applying
+it at closure-assignment time (as opposed to head-index construction) via
+code search alone. All of this — including the residual RNG-rule gap,
+stated precisely rather than smoothed over — is vendored in the new
+`references/spann-closure-assignment-algorithm.md`.
+
+**The construction algorithm.** `crates/strand-vector/src/closure.rs`
+implements `closure_replicate`: given raw (unrotated) vectors and
+centroids, `crate::kmeans`'s own primary assignments, and a `ClosureConfig`
+(`epsilon`, `max_replicas`, `apply_rng_rule`), it walks each vector's
+non-primary clusters in ascending-distance order, applying Eq. 2's ratio
+test (exploiting its own monotonicity to stop at the first failure) and,
+optionally, the RNG-rule filter, capped at `max_replicas` total
+assignments. `ClosureConfig::spann_default()` returns the paper's own
+`epsilon = 10.0`, `max_replicas = 8`. `group_by_cluster` inverts the
+per-vector assignment lists into the per-cluster vector-index lists
+`crate::posting_list::ClusterInput` needs. One real, named STRAND-specific
+interpretation choice, since the paper does not disambiguate: `Dist` is
+implemented as **squared** Euclidean distance, matching this crate's own
+established L2 convention throughout (`kmeans.rs`'s `squared_distance`,
+`query.rs`'s `centroid_distance`) rather than introducing a second,
+inconsistent unsquared distance function only for this one purpose —
+`references/spann-closure-assignment-algorithm.md`'s own closing section
+states this precisely.
+
+**The metadata slot (Design §3, above).** A fixed 8-byte
+`replication_descriptor` trailer, always present, appended immediately
+after `cluster_dir` in the cluster navigation tier blob:
+`replication_policy` (u8), `max_replicas` (u8), 2 reserved bytes, and
+`replication_epsilon` (f32 LE). `crates/strand-vector/src/navigation.rs`
+gained `ReplicationPolicy`, `ReplicationDescriptor`, and a new
+`build_navigation_tier_with_replication` function; the existing
+`build_navigation_tier` (every pre-M2-1 call site, unmodified) now simply
+calls it with `ReplicationDescriptor::none()`, so **no existing caller
+needed to change** — a deliberate compatibility-preserving design choice,
+not an accident of the diff. `NavigationTierReader` gained `replication()`
+and `realized_replication_factor(distinct_row_id_count)`.
+
+**How this could be wrong — the adversarial review this amendment is
+required to pass, per `CLAUDE.md` §3, before this is treated as settled.**
+
+*Does the metadata slot's format collide with anything already shipped?*
+Checked directly, and one real near-miss caught before it shipped: the
+navigation tier already has a 4-byte reserved field at offset 4 (`spec/
+vectors.md` §3), and the tempting move was to repurpose it for
+`replication_policy`/`max_replicas` rather than add new bytes. Rejected,
+deliberately: that reserved field's own normative text says a reader "MUST
+NOT interpret" nonzero bytes there — a promise made to any future format
+version, not merely an implementation convenience — and this project has
+no version-negotiation mechanism that would let a reader safely distinguish
+"this reserved field now means something" from "this reserved field is
+still genuinely inert," the exact ambiguity the reserved-field convention
+exists to avoid. Appending a brand-new, always-present, fixed-size trailer
+after `cluster_dir` instead means no existing byte's meaning changes for
+anyone — purely additive. The real cost: every navigation-tier blob grows
+by exactly 8 bytes, unconditionally, including the ones this RFC's own
+worked example and golden file already pinned — both were updated in this
+same pass (`conformance/vectors/toy-navigation-tier.bin`, 568 → 576 bytes;
+Worked example, above), and `crates/strand-vector/tests/navigation.rs`'s
+`cluster_dir_region` slicing was corrected to bound itself explicitly
+(it previously sliced "to the end of the blob," silently correct only
+because `cluster_dir` used to *be* the end of the blob).
+
+A second near-miss, caught by this same review before implementation: an
+earlier draft of this trailer also stored `distinct_row_id_count` directly
+(8 more bytes), reasoning that a reader needs it to compute the realized
+replication factor. It doesn't: the flat-vector blob's own dense-per-row-
+id contract (Design §5 — every local ordinal present) means this field's
+distinct vector count *is* the segment's `row_id_count`, already decoded
+from the container's hotcache before this blob family is even touched
+(invariant 3's own cold-open sequence). Storing it again would have been
+redundant wire bytes for an already-derivable quantity, exactly what
+invariant 8's novelty-budget discipline argues against. Removed before any
+code was written against it.
+
+*Does the construction algorithm add real cold-open byte cost the napkin
+math needs to update?* Two separate answers, both stated in Napkin math
+above. The trailer itself: yes, a fixed 8 bytes per navigation tier,
+independent of `num_clusters` — immaterial at any real scale (the
+1,000,000-vector napkin-math total moves from `130,976,400` to
+`130,976,416`, `+16` once the pre-existing 8-byte header-omission in that
+particular sum is also closed in the same edit; the "bytes fetched at
+open" figure moves from `12,384,408` to `12,384,416`). Real *usage* of
+closure replication: this was already the single largest cost lever this
+RFC's own Napkin math names ("Replication's cost," ≈2.27× the budget at a
+realistic replica-8-equivalent density) — that arithmetic is unchanged by
+this amendment, because it was never about the metadata slot's own bytes;
+it was always about the posting-list bytes real replication adds, which
+this amendment now makes a real, per-segment, reader-visible, tunable
+number instead of an assumed constant, which is the entire point of M2-1.
+
+*The RNG-rule call-site gap.* Named precisely above and in `references/
+spann-closure-assignment-algorithm.md`: this rule is strictly a redundancy
+*reducer* (it only ever removes candidates the epsilon test already
+accepted, never adds any), so an implementation that got its exact
+call-site fidelity wrong would misjudge the *realized* replication factor
+a real dataset produces, not the format's correctness or its worst-case
+byte-cost bound — `max_replicas` alone already bounds that regardless of
+whether the RNG rule fires. A real, bounded-consequence gap, not a
+load-bearing one.
+
+*Nearest grave from `docs/lineage.md`, per `CLAUDE.md` §3's requirement:*
+the Optane-era formats — baking a specific, era-bound assumption into wire
+bytes that becomes unusable when the assumption breaks. The mitigation is
+already structural, not merely stated: `replication_policy` is an open,
+forward-compatible enum, and a reader encountering an unrecognized value
+(a future, non-SPANN replication algorithm) does not reject the blob —
+query resolution's own row-id deduplication (Design §6 step 3) already
+tolerates duplicate row-ids regardless of *why* they're duplicated, so
+decoding and querying stay correct even for a policy byte this chapter
+never registers. A future replication algorithm needs a new policy value
+and, if its own knobs don't fit `max_replicas`/`epsilon`, a follow-on RFC
+extending the trailer — not a wire-format break. `max_replicas` (u8) and
+`replication_epsilon` (f32) themselves are SPANN-shaped, not proven
+general: a genuinely different algorithm might need different knobs
+entirely, which this design accepts as the cost of registering one real,
+literature-grounded algorithm now rather than inventing a premature
+abstraction over algorithms that don't exist yet (invariant 8).
+
+*What this amendment explicitly does not resolve*, named in Non-goals and
+Open questions above: **compaction-time re-replication** (this RFC's
+construction algorithm runs at initial segment build time; whether and how
+closure replicas should be recomputed when `rebalance` moves a vector's
+primary cluster at merge time is real, separate, unimplemented work) and
+**cross-segment codebook sharing** (`docs/roadmap.md` M2-8, unchanged by
+this amendment).
+
+**Real tests, including a hand-checked worked example, per `CLAUDE.md`
+§3's "start from usage, not structure."**
+`crates/strand-vector/tests/closure_replication_end_to_end.rs` has two:
+`closure_replication_hand_checked_byte_layout` — 3 small vectors, 2
+hand-placed centroids chosen so distances reduce to one-coordinate
+arithmetic, a real call to `closure_replicate` and `group_by_cluster`, and
+every resulting byte checked exactly (directory offsets, both clusters'
+row-id arrays including the replicated row-id 200 appearing in both, and
+the trailer's decoded fields); and
+`a_boundary_vector_is_found_via_either_cluster_and_deduplicated_by_query_
+resolution` — real k-means on two well-separated blobs plus one vector
+placed exactly at their midpoint, real rotation and 1-bit RaBitQ
+quantization, a real query at the midpoint scanning both clusters, and an
+assertion that the boundary vector's row-id survives query resolution's
+deduplication exactly once. `crates/strand-vector/src/closure.rs` and
+`crates/strand-vector/src/navigation.rs` carry unit tests for the
+algorithm's edge cases (max-replicas capping, a tight epsilon rejecting a
+far candidate, an unrecognized policy byte decoding safely) independently.
+
+**A real, re-measured byte-budget confirmation, not left to arithmetic
+alone.** `bench/src/vector_cold_open.rs`'s extrapolation formula was
+updated to add the new 8-byte trailer, and the benchmark was re-run
+against real MinIO at the same 10,000-vector/400-cluster scale
+`bench/results/vector-cold-open.json` already used. Real, measured result:
+the descriptor and navigation-tier blobs now total **1,238,816 bytes**
+(**1.2388%** of the 100 MB budget, up from the prior 1,238,808 bytes by
+exactly the trailer's 8 bytes — confirming the code, not just the
+arithmetic), still **3 GETs/open**. The 1,000,000-vector extrapolation now
+gives **12,384,416 bytes**, matching this section's hand-computed
+12,384,416 figure to the byte. This same re-run's whole-segment-GET
+latency (p50 = 47.6ms, p90 = 57.7ms, p99 = 72.8ms, n = 30, real numbers
+in `bench/results/vector-cold-open.json`) is lower than the original run's
+(p50 = 92.6ms, p90 = 102.2ms, p99 = 114.1ms) — most plausibly host-load
+variance from this project's shared build infrastructure being under heavy
+concurrent load during this specific re-run, not a claim that anything
+about the Range-GET limitation changed; both runs share the same
+localhost-MinIO, no-injected-latency caveat and the same whole-segment-GET
+limitation named above. Real-network tail latency remains the still-open
+placeholder `CLAUDE.md` §7 already names.
+
+Sections updated: Non-goals (the closure-replication bullet marked
+resolved), Design §3 (gained the `replication_descriptor` trailer), Design
+§6 (the stale "metadata slot not yet designed" parenthetical corrected),
+Worked example (nav-tier total 568 → 576 bytes, trailer bytes spelled
+out), Napkin math (the open-bytes and total-tier-1 figures recomputed by
+`+16`; the real-measurement paragraph re-run and updated), Invariant-11
+checklist (endianness and golden-files bullets), Open questions (item
+marked done, with compaction re-replication and codebook sharing named as
+the real remaining gaps), and this Discussion entry.
+`conformance/vectors/toy-navigation-tier.bin` regenerated (576 bytes).
+`docs/ledger.md` and `docs/roadmap.md` M2-1 entries updated to match.
