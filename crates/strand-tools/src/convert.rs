@@ -195,6 +195,12 @@ mod tests {
         let (field_blobs, row_count) =
             import_tantivy_field(dir.path(), &field).expect("import succeeds");
         assert_eq!(row_count, 3);
+        // Each of the three documents is exactly 3 tokens ("dog runs
+        // park", "cat sleeps mat", "dog cat park") — a direct check that
+        // doc_lengths (accumulated as a side effect of the postings scan,
+        // doc_lengths[doc_id] += term_freq per posting) is actually right,
+        // not just plausible.
+        assert_eq!(field_blobs.doc_lengths, vec![3, 3, 3]);
 
         let mut builder = SegmentBuilder::new(row_count);
         for blob in field_blobs.to_blob_specs() {
@@ -233,6 +239,68 @@ mod tests {
         match import_tantivy_field(dir.path(), "no-such-field") {
             Err(ImportError::UnknownField(name)) => assert_eq!(name, "no-such-field"),
             Err(other) => panic!("expected ImportError::UnknownField, got {other}"),
+            Ok(_) => panic!("expected an error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn rejects_a_real_multi_segment_index() {
+        let dir = tempfile::tempdir().expect("create temp index dir");
+        let mut schema_builder = Schema::builder();
+        let title = schema_builder.add_text_field("title", TEXT);
+        let schema = schema_builder.build();
+        let index = tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
+
+        // NoMergePolicy: two separate commits below must land as two real,
+        // distinct segments, deterministically — without this, tantivy's
+        // default background merge policy could (nondeterministically,
+        // depending on timing) merge them into one before this test reads
+        // the index, silently making the test not exercise what it claims
+        // to.
+        let mut writer: IndexWriter = index.writer_with_num_threads(1, 50_000_000).expect("open index writer");
+        writer.set_merge_policy(Box::new(tantivy::merge_policy::NoMergePolicy));
+        writer.add_document(doc!(title => "dog runs park")).unwrap();
+        writer.commit().expect("first commit");
+        writer.add_document(doc!(title => "cat sleeps mat")).unwrap();
+        writer.commit().expect("second commit");
+
+        // Confirm the precondition this test actually depends on — two
+        // real segments — rather than assuming NoMergePolicy did its job.
+        let reader = index.reader().expect("open reader");
+        assert_eq!(reader.searcher().segment_readers().len(), 2, "test setup must produce two real segments");
+
+        match import_tantivy_field(dir.path(), "title") {
+            Err(ImportError::MultiSegment(2)) => {}
+            Err(other) => panic!("expected ImportError::MultiSegment(2), got {other}"),
+            Ok(_) => panic!("expected an error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn rejects_a_real_segment_with_deletions() {
+        let dir = tempfile::tempdir().expect("create temp index dir");
+        let mut schema_builder = Schema::builder();
+        let title = schema_builder.add_text_field("title", TEXT);
+        let schema = schema_builder.build();
+        let index = tantivy::Index::create_in_dir(dir.path(), schema).expect("create tantivy index");
+
+        let mut writer: IndexWriter = index.writer_with_num_threads(1, 50_000_000).expect("open index writer");
+        writer.add_document(doc!(title => "dog runs park")).unwrap();
+        writer.add_document(doc!(title => "cat sleeps mat")).unwrap();
+        writer.commit().expect("commit");
+        writer.delete_term(tantivy::Term::from_field_text(title, "cat"));
+        writer.commit().expect("commit the deletion");
+
+        // Confirm the precondition this test actually depends on — a real
+        // deleted document in a real, still-single segment.
+        let reader = index.reader().expect("open reader");
+        let segment_readers = reader.searcher().segment_readers().to_vec();
+        assert_eq!(segment_readers.len(), 1, "test setup must stay single-segment");
+        assert_eq!(segment_readers[0].num_deleted_docs(), 1, "test setup must produce one real deletion");
+
+        match import_tantivy_field(dir.path(), "title") {
+            Err(ImportError::HasDeletions(1)) => {}
+            Err(other) => panic!("expected ImportError::HasDeletions(1), got {other}"),
             Ok(_) => panic!("expected an error, got Ok"),
         }
     }
