@@ -2463,3 +2463,70 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   unblocks M5-1 (a `TableProvider` reading a multi-field index needs this)
   — M5-1 itself is not implemented here. `docs/roadmap.md`'s X-1 entry is
   updated to reflect this as done.
+- **Table metadata and retention-eligibility implemented (M3-4) —
+  2026-08-19.** `_strand/metadata.json` (`crates/strand-core/src/
+  table_metadata.rs`): `TableMetadata`, `CasHost` (the two JSON shapes RFC
+  0001 Design §3 already named — `{"type": "native", "store": ...}` /
+  `{"type": "catalog", "uri": ...}`, verified byte-for-byte against those
+  exact literals, not just round-tripped through the same code), and
+  `RetentionPolicy` (`min_snapshots_to_keep`, `max_snapshot_age_millis`,
+  spec's own "a count, a duration, or both"). `write_table_metadata`/
+  `read_table_metadata` are a write-once create (`put_if_absent`) plus a
+  plain read — no pointer, no proposed-vs-current distinction, no retry
+  loop, and therefore no new action on the `_strand/current` CAS protocol
+  `verification/manifest.tla` models: this object sits entirely outside
+  that protocol's shape, so the model needed no change. An `Ambiguous`
+  create outcome is resolved the same way `manifest.rs`'s pointer CAS
+  already does — a follow-up read checking whether this attempt's own
+  bytes are the ones now present — applied to a plain create instead of a
+  compare-and-swap.
+
+  `table_metadata::retained_snapshots` is the pure, I/O-free
+  retention-eligibility function `CLAUDE.md` §6's deletion-safety rule
+  depends on and the M3-5 orphan-sweep tool will call directly: given a
+  `RetentionPolicy`, a snapshot list, and a "now" timestamp, which
+  snapshots are still retained (and therefore which files a sweep MUST
+  NOT delete).
+
+  Implementing this surfaced two real gaps the original approved shape
+  left unstated, both resolved through RFC 0001's Discussion section per
+  `CLAUDE.md` §3 rather than decided silently inside this module — neither
+  is a new manifest commit action, so neither touches
+  `verification/manifest.tla`. First, `SnapshotMetadata` had no wall-clock
+  field at all, so a duration-based policy had nothing to measure age
+  against; `committed_at_millis: u64` was added, stamped by the proposing
+  writer immediately before each snapshot object is written (`manifest::
+  now_millis`) — additive only, explicitly carved out of invariant 11's
+  byte-determinism pins the same way `writer_nonce` already is, since it
+  is real time, not part of the logical input two implementations must
+  converge on. Second, the spec named two retention knobs but never said
+  how "both" combine; resolved as the union (a snapshot retained by either
+  criterion is retained), argued from the deletion-safety rule's own
+  asymmetric cost — under-retaining risks real, unrecoverable data loss,
+  over-retaining only costs storage, a cost this project already accepts
+  elsewhere — and confirmed against Apache Iceberg's documented behavior
+  for its own equivalent pair of knobs
+  (`references/iceberg-snapshot-expiration-retention-properties.md`: its
+  `expire_snapshots` procedure keeps the last N snapshots "regardless of"
+  the age cutoff, a real quoted union), the same prior art RFC 0001
+  already cites for this protocol's optimistic-concurrency shape. The
+  current snapshot is additionally always retained regardless of either
+  policy field, a floor the spec text implied but never stated outright.
+
+  16 new tests, `InMemoryStore`-backed: JSON round-trips for
+  `TableMetadata` and both `CasHost` variants, a real write/read round
+  trip through a store, write-once rejection of a second create, rejection
+  of a retention policy with neither field set, and `retained_snapshots`
+  exercised against a snapshot within the duration window, one outside it,
+  the inclusive boundary and one millisecond past it, the count-only
+  floor, the union case, the always-retain-current floor even when every
+  policy field would otherwise expire it, an empty snapshot list, and
+  return-order. `crates/strand-core/src/manifest.rs`'s own
+  `SnapshotMetadata` round-trip test and `tests/s3_store.rs`'s orphan
+  crash-test literal were updated for the new field; workspace-wide
+  `cargo test --workspace` and `cargo clippy --workspace --all-targets --
+  -D warnings` both clean. Real-MinIO coverage for this object (matching
+  `tests/s3_store.rs`'s coverage of the CAS protocol itself) remains open,
+  named in `spec/manifest.md` §5 rather than left implicit. M3-5 (the
+  orphan-sweep tool) was explicitly out of scope for this session — its
+  own roadmap entry records what it now has to build on top of this.

@@ -936,3 +936,81 @@ Verification: `cargo test --workspace` and `cargo clippy --workspace
 `crates/strand-core/tests/multi_field_worked_example.rs`, and
 `crates/strand-lexical/tests/field_end_to_end.rs`'s new multi-field test)
 and every other benchmark/test in this Discussion section.
+
+**M3-4: table metadata and retention-eligibility — `committed_at_millis`
+added to `SnapshotMetadata`, and the both-fields-set retention reading
+resolved (2026-08-19).** `docs/roadmap.md`'s M3-4 implements
+`_strand/metadata.json` (Design §3's table-metadata object, until now
+specified but not built — `spec/manifest.md` §1 said so explicitly) and
+the retention-eligibility function `CLAUDE.md` §6's deletion-safety rule
+depends on: "compaction may only physically delete files unreferenced by
+every retained snapshot." Two real, if narrow, gaps surfaced during that
+work, neither a new commit action on the CAS protocol — the M3-4 task's
+own scope boundary, respected here — so `verification/manifest.tla` needs
+no change for either.
+
+*Gap 1: nothing in the manifest carried wall-clock time.* A
+duration-based retention policy ("keep snapshots committed within the
+last N days") needs to compare each snapshot's age against now, but
+`SnapshotMetadata` (Design §3) had no timestamp field at all — an
+omission the original Design section simply never named, since nothing
+before M3 needed one. `SnapshotMetadata` gained `committed_at_millis:
+u64`, stamped by the proposing writer (`manifest::now_millis`,
+milliseconds since the Unix epoch) immediately before each snapshot
+object is written, in both `commit` and `commit_deletion_vector`. This is
+additive only: it changes neither CAS action's shape (write a snapshot
+object, race the pointer) — `verification/manifest.tla`'s `SnapshotRec`
+already abstracts away `path`, `checksum`, and `byte_length` as content
+its safety properties don't depend on, and `committed_at_millis` joins
+that same category. It is also, deliberately, not subject to invariant
+11's byte-determinism pins: like `writer_nonce`, it is real wall-clock
+time, not part of the logical input two independent implementations
+converging on the same index must agree on, so it is never a golden-file
+comparison target — stated explicitly on the field itself
+(`crates/strand-core/src/manifest.rs`) so a future session doesn't assume
+otherwise.
+
+*Gap 2: the spec names two retention knobs but never says how they
+combine.* `spec/manifest.md` §1 states a table declares "minimum snapshot
+retention (a count, a duration, or both)" but stops there — silent on
+what "both" means when a snapshot satisfies one criterion but not the
+other. Per `CLAUDE.md` §3, this is exactly the kind of implementation-
+revealed design gap that gets resolved here, adversarially, rather than
+picked silently inside `table_metadata.rs`. Two readings are both
+internally consistent: the *intersection* (retain only what both
+criteria agree to keep) is the more storage-frugal reading; the *union*
+(retain what either criterion alone would keep) is the safer one. The
+two are not a close call once weighed against what a wrong answer costs:
+the deletion-safety rule this whole mechanism exists to serve is
+asymmetric — under-retaining risks physically deleting a file a live
+snapshot still references, real and unrecoverable for any reader that
+has that snapshot open, while over-retaining only costs storage, a cost
+`CLAUDE.md` §6 already accepts elsewhere ("write amplification is the
+writer's problem"). `table_metadata::retained_snapshots` therefore
+implements the union, and additionally treats the current snapshot (the
+highest `version` in the list) as always retained regardless of either
+policy field — a floor the spec text doesn't state in so many words but
+that "retained" cannot coherently mean without: nothing safely lets a
+pathological policy (for example, `max_snapshot_age_millis: Some(0)`)
+mark the one snapshot every live reader is using as expired. Both
+resolutions match Apache Iceberg's own documented behavior for its
+equivalent pair of knobs (`history.expire.min-snapshots-to-keep` and
+`history.expire.max-snapshot-age-ms`, vendored verbatim in
+`references/iceberg-snapshot-expiration-retention-properties.md`: its
+`expire_snapshots` procedure's `retain_last` argument is documented to
+preserve ancestor snapshots "regardless of" the age cutoff — a real,
+quoted union, not an assumed one) — the same prior art Design §3
+already cites for this protocol's optimistic-concurrency shape — so this
+is a return to precedent already in the RFC, not a new invention.
+`spec/manifest.md` §1 now states both resolutions normatively.
+
+Verification: `cargo test --workspace` and `cargo clippy --workspace
+--all-targets -- -D warnings`, both clean, alongside
+`crates/strand-core/src/table_metadata.rs`'s own new tests (write/read
+round-trip against a real `ConditionalStore`, the exact RFC 0001 JSON
+shape for both `CasHost` variants, and `retained_snapshots` exercised
+against a snapshot within the duration window, one outside it, the
+inclusive boundary and one millisecond past it, the count-only floor, the
+union case, and the always-retain-current floor) and
+`crates/strand-core/src/manifest.rs`'s updated `SnapshotMetadata`
+round-trip test.

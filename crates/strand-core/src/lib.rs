@@ -21,3 +21,4 @@ pub mod s3_store;
 pub mod scoring;
 pub mod segment;
 pub mod store;
+pub mod table_metadata;

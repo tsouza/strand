@@ -34,7 +34,24 @@ struct CurrentState {
     version: Option<u64>,
     next_row_id: u64,
     segments: Vec<SegmentRef>,
+    /// Carried through only so [`read_snapshot`] can reconstruct a full
+    /// [`SnapshotMetadata`] without a second fetch; the value is never read
+    /// when `version` is `None` (a table with no commits yet), since that
+    /// branch returns before any [`SnapshotMetadata`] is built.
+    committed_at_millis: u64,
     pointer_etag: Option<crate::store::ETag>,
+}
+
+/// Milliseconds since the Unix epoch — the clock [`SnapshotMetadata::
+/// committed_at_millis`] stamps at proposal time. `pub(crate)` so
+/// `table_metadata.rs`'s tests can construct comparable timestamps without
+/// duplicating this three-line computation.
+pub(crate) fn now_millis() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_millis() as u64
 }
 
 /// The result of one attempt at resolving the current snapshot: either the
@@ -62,6 +79,7 @@ fn try_read_current<S: ConditionalStore>(store: &S) -> Result<ReadAttempt, Store
         version: Some(snapshot.version),
         next_row_id: snapshot.next_row_id,
         segments: snapshot.segments,
+        committed_at_millis: snapshot.committed_at_millis,
         pointer_etag: Some(pointer_etag),
     }))
 }
@@ -79,6 +97,7 @@ fn read_current<S: ConditionalStore>(store: &S) -> Result<CurrentState, StoreErr
                     version: None,
                     next_row_id: 0,
                     segments: Vec::new(),
+                    committed_at_millis: 0,
                     pointer_etag: None,
                 });
             }
@@ -143,6 +162,7 @@ pub fn commit<S: ConditionalStore>(
             version,
             next_row_id: current.next_row_id + added_row_ids,
             segments,
+            committed_at_millis: now_millis(),
         };
 
         if let Some(committed) = propose_snapshot(store, &current, snapshot)? {
@@ -197,6 +217,7 @@ pub fn commit_deletion_vector<S: ConditionalStore>(
             version,
             next_row_id: current.next_row_id,
             segments,
+            committed_at_millis: now_millis(),
         };
 
         if let Some(committed) = propose_snapshot(store, &current, snapshot)? {
@@ -337,6 +358,7 @@ pub fn read_snapshot<S: ConditionalStore>(
                     version: state.version.expect("Found always carries a version"),
                     next_row_id: state.next_row_id,
                     segments: state.segments,
+                    committed_at_millis: state.committed_at_millis,
                 }));
             }
             Ok(ReadAttempt::Expired) => continue,
@@ -376,6 +398,23 @@ pub struct SnapshotMetadata {
     pub version: u64,
     pub next_row_id: u64,
     pub segments: Vec<SegmentRef>,
+    /// Milliseconds since the Unix epoch, stamped by the proposing writer
+    /// right before this snapshot is written (`propose_snapshot`'s callers,
+    /// via [`now_millis`]). Added by RFC 0001's Discussion section
+    /// (2026-08-19, M3-4) to give `table_metadata::retained_snapshots` a
+    /// real per-snapshot age to compare against a duration-based retention
+    /// policy — the original approved shape had no notion of wall-clock
+    /// time anywhere in the manifest. Additive only: it does not change
+    /// either CAS action's shape (`spec/manifest.md` §2's "second commit
+    /// path, same protocol, different transform" still holds), so
+    /// `verification/manifest.tla`'s abstract `SnapshotRec` — which already
+    /// omits `path`/`checksum`/`byte_length` as content the protocol's
+    /// safety properties don't depend on — needs no change either. Not
+    /// subject to invariant 11's byte-determinism pins: like
+    /// `writer_nonce`, this is real wall-clock time, not derived from the
+    /// logical input two independent implementations must agree on, so
+    /// it is never a golden-file comparison target.
+    pub committed_at_millis: u64,
 }
 
 #[cfg(test)]
@@ -396,6 +435,7 @@ mod tests {
                 checksum: 0xdead_beef,
                 deletion_vector: None,
             }],
+            committed_at_millis: 1_700_000_000_000,
         };
 
         let json = serde_json::to_vec(&snapshot).unwrap();
