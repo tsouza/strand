@@ -205,11 +205,26 @@ Total file size: 102 bytes.
 
 ## 8. Open questions
 
-- Hotcache size ceiling and the default speculative tail-read size `N` are
-  not pinned by this chapter, pending M0 benchmark data (`bench/results/`).
+- ~~Hotcache size ceiling and the default speculative tail-read size `N` are
+  not pinned by this chapter, pending M0 benchmark data (`bench/results/`).~~
+  **Resolved 2026-08-19** against real MinIO measurement
+  (`bench/src/hotcache_tail_read.rs`, `bench/results/hotcache-tail-
+  read.json`): the recommended reader default is **`N = 16384` bytes
+  (16 KiB)**, still a reader-side tuning parameter rather than a format
+  constant, implying a hotcache-size ceiling of **16,344 bytes (≈480 blob
+  entries)** before an open degrades from one RTT to two — roughly 40x
+  today's real 12-blob-entry maximum. Full methodology:
+  `rfcs/0001-container-rowid-manifest.md` Discussion.
 - GCS/Azure conditional-write and range-request header semantics are R5,
   open (`docs/ledger.md`); this chapter's open protocol is written and
   verified against S3/MinIO only.
+- Suffix-range (`bytes=-N`) support is now confirmed for MinIO specifically
+  (`crates/strand-core/tests/s3_store.rs`'s
+  `suffix_range_get_is_honored_by_minio`, 2026-08-19) — real S3 remains
+  untested. This chapter's own open protocol (§3) does not depend on the
+  answer either way; the practical payoff is a future `strand-tools inspect`
+  path opening a bare segment in one RTT, still gated on a real-S3
+  confirmation.
 
 ## 9. Blob-type registry
 

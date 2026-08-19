@@ -530,17 +530,23 @@ opens any segment, there was no reason to depend on the unconfirmed server behav
 
 ## Open questions / follow-on RFCs
 
-- Hotcache size ceiling and the default speculative tail-read size — needs M0 MinIO
-  benchmark data before either is stated as more than provisional.
-- The reader 404-refresh retry bound — this RFC requires one to exist but does not
-  pin a number; M0's crash tests should produce a recommended default.
+- ~~Hotcache size ceiling and the default speculative tail-read size — needs M0 MinIO
+  benchmark data before either is stated as more than provisional.~~ **Resolved
+  2026-08-19** — see Discussion below (`bench/src/hotcache_tail_read.rs`).
+- ~~The reader 404-refresh retry bound — this RFC requires one to exist but does not
+  pin a number; M0's crash tests should produce a recommended default.~~ **Resolved
+  2026-08-19** — see Discussion below (`bench/src/reader_refresh_contention.rs`).
 - GCS/Azure conditional-write header semantics and the external-catalog fallback
   protocol (R5) — follow-on RFC once a non-S3 target or catalog is in scope.
-- Whether S3 (or another target store) actually *implements* the suffix-range form
+- ~~Whether S3 (or another target store) actually *implements* the suffix-range form
   RFC 9110 §14.1.2 defines (the protocol question is settled; the server-support
   question is not) is worth confirming empirically — this RFC no longer depends on
   the answer, but a confirmed "yes" would let `strand-tools inspect` open a bare
-  segment file in one RTT without a `HEAD` first.
+  segment file in one RTT without a `HEAD` first.~~ **Resolved for MinIO, 2026-08-19**
+  — see Discussion below (`crates/strand-core/tests/s3_store.rs`'s
+  `suffix_range_get_is_honored_by_minio`); real S3 itself remains unconfirmed (no
+  AWS account credentials available to test against), so the MinIO-only finding
+  should not be over-read as "S3 too."
 - Whether the manifest should eventually carry optional per-segment summary metadata
   for cross-segment pruning is R10 and stays explicitly out of this RFC's scope.
 
@@ -595,3 +601,103 @@ but still affects byte-for-byte golden-file comparison between implementations),
 `cargo clippy -- -D warnings`, both clean. The existing `toy-segment.bin` golden file
 needed no regeneration: its one blob sits at offset 0, trivially aligned regardless of
 padding logic.
+
+**Task X-2: the three remaining Open Questions, closed against real measurement.**
+`docs/roadmap.md`'s X-2 named all three of this RFC's own remaining unresolved
+items — the speculative tail-read size `N` and hotcache ceiling, the reader
+404-refresh retry bound, and the suffix-range server-support question — as owed,
+not just flagged. All three are closed here against real data, not guessed, per
+`CLAUDE.md` §2's rule that a number without a source is deleted rather than
+softened.
+
+*Speculative tail-read size `N` and the hotcache-size ceiling.* Measured with
+`bench/src/hotcache_tail_read.rs`: real segments built across a sweep of blob
+counts (1, 12, 50, 100, 250, 500, 1000 — 12 is today's actual maximum for one
+field spanning every currently-registered family, `spec/container.md` §9; the
+rest stand in for the multi-field growth X-1, `docs/roadmap.md`, will eventually
+allow, since the container format itself places no cap on blob count), each
+committed to real MinIO, then opened via this RFC's own two-phase protocol —
+`S3Store::get_range` for the tail read, a real `Footer`/`Hotcache` decode, and a
+conditional second range GET — across a sweep of candidate `N` values (512
+B–16 KB). The measured transition from one RTT to two tracks the arithmetic
+exactly (`hotcache_length + 40 <= N`, RFC 0001 §1's own check): at `N = 512`–
+`1024` bytes only `blob_count <= 12` stays at one RTT; by `N = 4096` bytes,
+segments up to 100 blob entries (hotcache 3,420 bytes) still open in one RTT;
+by `N = 16384` bytes, 250 blob entries (hotcache 8,520 bytes) opens in one RTT,
+while 500 and 1,000 blob entries (17,020 and 34,020 bytes) still need the
+second GET at every tested `N`. Real per-open latency was also measured at each
+point (`bench/results/hotcache-tail-read.json`); the two-RTT cases were
+consistently slower, as expected, though the local-MinIO, no-injected-latency
+measurement (the same standing caveat every `bench/` benchmark in this
+repository carries) understates the real gap a network-latency-bearing
+deployment would see.
+
+**`N = 16384` bytes (16 KiB)** is the recommended reader default, carried as
+`strand_core`'s recommended-not-mandated tuning parameter (consistent with §1's
+"reader-side tuning parameter, not a format constant"). The corresponding
+hotcache-size ceiling this implies — `N - 40` bytes of row-ID header plus blob
+registry before an open silently degrades from one RTT to two — is **16,344
+bytes, roughly 480 blob entries** (`(16344 - 20) / 34`). That is comfortably
+above today's real 12-blob-entry maximum (428 bytes) — nearly 40x headroom —
+and covers the 250-blob-entry stress point in this sweep, though not the
+500- or 1,000-blob-entry synthetic points; those remain honestly two-RTT
+until X-1's actual multi-field design lands and its real blob-count
+implications can be measured rather than guessed. 16 KiB was chosen over the
+smaller candidates precisely because the measured per-open latency showed no
+meaningful marginal cost from a larger speculative window at these sizes (the
+`blob_count = 1` case, for example, was not measurably slower at `N = 16384`
+than at `N = 512`) — so there is no real reason to pick a tighter ceiling and
+trade away headroom for it. Full trial data: `bench/results/hotcache-tail-
+read.json`.
+
+*Reader 404-refresh retry bound.* Measured with
+`bench/src/reader_refresh_contention.rs`: 4 concurrent writers committing
+back-to-back against real MinIO with no artificial delay (60 total commits), a
+compactor deleting each snapshot the instant a newer one becomes current (the
+tightest race window the deletion-safety rule, `CLAUDE.md` §6, allows), and 4
+concurrent readers hammering `read_snapshot` throughout — recovering each real
+call's internal retry count from `CountingStore`'s GET count (2 GETs per
+internal attempt once a table has any commits). Across **691 real reads**
+sampled, only **1 read needed a single internal retry**; the other 690 needed
+zero, and none exhausted the bound. `manifest::READER_REFRESH_RETRY_LIMIT`
+therefore stays at **5** — already roughly 5x the observed worst case, so
+measurement confirms this provisional value rather than changing it — and is
+now `pub` so this benchmark and any caller reasoning about the bound reference
+the real constant rather than a duplicated literal. Full data:
+`bench/results/reader-refresh-contention.json`. This benchmark runs against
+MinIO on localhost with no injected network round-trip latency, like every
+other `bench/` cold-path measurement (`docs/ledger.md` R1) — the same caveat
+this RFC's own napkin math (above) already carries, so the observed
+race-window width is a lower bound on what a real, latency-bearing production
+deployment would see, not an upper one; a real deployment's wider race window
+is a reason the 5x headroom matters, not a reason to distrust the
+measurement.
+
+*Suffix-range server support.* AWS's `GetObject` API reference
+(`references/aws-s3-getobject-range-parameter.md`, fetched 2026-08-19) was
+re-checked directly rather than from memory: its only concrete `Range` example
+uses the explicit-end form (`bytes=0-9`), and its prose points a reader at RFC
+9110 §14.2 "Range" generally, neither confirming nor ruling out the suffix
+form — confirming this RFC's original framing exactly, an absent example is not
+evidence either way. The server-support question itself was then closed
+empirically, for MinIO: `crates/strand-core/tests/s3_store.rs`'s
+`suffix_range_get_is_honored_by_minio` issues a raw `Range: bytes=-10` request
+(RFC 9110 §14.1.2's suffix-length form) against a real MinIO instance and
+confirms MinIO both serves the correct trailing 10 bytes and reports the
+resolved absolute range in `Content-Range` (`bytes 16-25/26`), rather than
+rejecting the request or silently returning the whole object. **MinIO honors
+the suffix-range form.** Real S3 itself remains untested — this session has no
+AWS account credentials — so this finding should be read precisely as stated:
+MinIO's server-side implementation supports RFC 9110 §14.1.2's suffix form;
+whether S3 itself does remains open. This RFC's open protocol (§1) is
+unaffected either way, exactly as designed: it was written specifically to not
+depend on the answer, using the explicit-end form because the manifest already
+hands the reader `byte_length` for free. The practical payoff named in the
+original Open Questions entry — letting `strand-tools inspect` open a bare
+segment file in one RTT via a suffix range instead of a `HEAD` first — is now
+confirmed safe for a MinIO target specifically, still open for a real-S3
+target.
+
+Verification: `cargo test --workspace` and `cargo clippy --workspace
+--all-targets -- -D warnings`, both clean, alongside the new tests and
+benchmarks themselves.

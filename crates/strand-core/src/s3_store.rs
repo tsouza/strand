@@ -45,6 +45,62 @@ impl S3Store {
         }
     }
 
+    /// Issues the explicit-end range GET RFC 0001 §1's open protocol
+    /// specifies — `Range: bytes={start}-{end_inclusive}` — and returns the
+    /// bytes actually served. Not part of `ConditionalStore`, same reasoning
+    /// as `delete`: the manifest-driven query path this trait serves opens a
+    /// segment by fetching it wholesale today (`bench/src/cold_open.rs`,
+    /// `bench/src/vector_cold_open.rs`), and promoting a real range-GET
+    /// primitive into the trait every implementer (`InMemoryStore`, every
+    /// test double) must carry is still-open follow-on work
+    /// (`docs/ledger.md` R1: "a Range-GET method on `strand-core`'s
+    /// `ConditionalStore`"), not this method's job. This exists so a
+    /// benchmark can measure RFC 0001 §1's actual two-phase open protocol
+    /// against real object storage (`bench/src/hotcache_tail_read.rs`),
+    /// which is exactly what the RFC's own Open Questions section calls for
+    /// before `N` is pinned to more than a provisional value.
+    ///
+    /// Returns `Ok(None)` for a key that does not exist, matching `get`'s
+    /// convention. `start` is clamped to the tail-window arithmetic RFC
+    /// 0001 §1 itself specifies (`max(0, byte_length - N)`) by the caller,
+    /// not here — this method issues exactly the range it's given.
+    pub fn get_range(
+        &self,
+        key: &str,
+        start: u64,
+        end_inclusive: u64,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        self.runtime.block_on(async {
+            let result = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .range(format!("bytes={start}-{end_inclusive}"))
+                .send()
+                .await;
+            let output = match result {
+                Ok(output) => output,
+                Err(err) => {
+                    if err.as_service_error().is_some_and(|e| e.is_no_such_key()) {
+                        return Ok(None);
+                    }
+                    return Err(StoreError::Io(format!(
+                        "{:#}",
+                        aws_smithy_types::error::display::DisplayErrorContext(&err)
+                    )));
+                }
+            };
+            let body = output.body.collect().await.map_err(|e| {
+                StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&e)
+                ))
+            })?;
+            Ok(Some(body.into_bytes().to_vec()))
+        })
+    }
+
     /// Unconditionally removes `key`. Not part of `ConditionalStore`, same
     /// reasoning as `InMemoryStore::delete`: no reader or writer in the
     /// commit protocol itself ever deletes an object. This exists for

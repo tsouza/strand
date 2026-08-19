@@ -51,6 +51,14 @@ path = "src/tantivy_import_scale.rs"
 name = "vector-cold-open"
 path = "src/vector_cold_open.rs"
 
+[[bin]]
+name = "reader-refresh-contention"
+path = "src/reader_refresh_contention.rs"
+
+[[bin]]
+name = "hotcache-tail-read"
+path = "src/hotcache_tail_read.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }

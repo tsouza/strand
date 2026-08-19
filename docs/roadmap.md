@@ -360,7 +360,14 @@ Non-goals and Open questions still leave genuinely open:
   bound), and empirical confirmation of the explicit-end vs. suffix-range
   request-form choice against real S3 behavior. **Missing from this
   document's first draft — found by the adversarial review.** Source:
-  RFC 0001 Open questions. Status: open, measurement/tuning work. Depends
+  RFC 0001 Open questions. Status: **done (2026-08-19)** — all three
+  resolved against real measurement, not guessed: `N`/hotcache ceiling via
+  `bench/src/hotcache_tail_read.rs`, the retry bound via `bench/src/
+  reader_refresh_contention.rs`, and suffix-range support confirmed for
+  MinIO specifically (real S3 untested, no credentials available) via
+  `crates/strand-core/tests/s3_store.rs`'s
+  `suffix_range_get_is_honored_by_minio`. Full methodology and numbers:
+  RFC 0001's Discussion section and `docs/ledger.md`'s X-2 entry. Depends
   on: nothing.
 - **X-3** — The ~250ms p90 tail-latency figure: currently a flagged
   placeholder (`CLAUDE.md` §7). Replace with a real vendored source

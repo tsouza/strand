@@ -161,7 +161,14 @@ sequence on such a 404, bounded by an implementation-chosen retry limit
 (the exact count is a reader parameter this chapter does not pin, for the
 same reason the container chapter's speculative tail size is unpinned —
 but the bound itself, unlike its value, is not optional). Past the limit,
-a reader MUST surface an error rather than loop forever.
+a reader MUST surface an error rather than loop forever. The reference
+implementation's recommended default, measured against real, sustained
+MinIO contention rather than guessed (`bench/src/reader_refresh_
+contention.rs`, `rfcs/0001-container-rowid-manifest.md` Discussion,
+2026-08-19), is **`READER_REFRESH_RETRY_LIMIT = 5`**
+(`crates/strand-core/src/manifest.rs`) — roughly 5x the worst-case retry
+count (1) observed across 691 real reads under sustained concurrent-writer
+and compactor contention.
 
 ## 4. Safety rules (`CLAUDE.md` §6)
 
