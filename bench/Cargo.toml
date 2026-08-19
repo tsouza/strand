@@ -31,6 +31,10 @@ path = "src/msmarco_index.rs"
 name = "hybrid-codec-pilot"
 path = "src/hybrid_codec_pilot.rs"
 
+[[bin]]
+name = "tantivy-index"
+path = "src/tantivy_index.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }
@@ -44,6 +48,8 @@ rand = "0.9.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sucds = "0.8.3"
+tantivy = "0.26.1"
+tempfile = "3.20.0"
 testcontainers-modules = { version = "0.15.0", features = ["minio"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
 

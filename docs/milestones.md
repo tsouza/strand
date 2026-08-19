@@ -166,21 +166,46 @@ positions without decoding any postings or position block it doesn't need.
 `total_term_freq` (the sum of a term's per-document term frequencies, needed
 to size the position-block region but not recoverable without decoding) is
 stored as a leading field inside the positions blob itself rather than growing
-RFC 0005's already-implemented `TermInfo` record. This RFC's own real
+RFC 0005's already-implemented `TermInfo` record. This RFC's own initial
 napkin-math measurement (extending `bench/src/msmarco_index.rs` to sum total
 term occurrences on the same MS MARCO sample) found positions add roughly
-another 19.3–27.4 MB on top of RFC 0007's ~73.2 MB postings-plus-term-info
-figure — pushing the combined cold-open cost to roughly 92.5–100.6 MB, 92% to
-just past the 100 MB budget, for one field on under 6% of the corpus — the
-concrete reason this RFC states positions should be an opt-in, per-field
-blob, not a default every field pays for. Implementation is a real, separate
-follow-on (`spec/positions.md` §9), not done in this same session. Benchmarks: MS
-MARCO BM25 latency and size vs tantivy; Lucene parity per invariant 5;
-bytes-fetched vs bytes-used across term frequency deciles (the read-amplification
-number, `docs/data-structures.md`). Adapter-based results appear in this
-milestone's report only after R11 verifies the respective extension point and the
-build-equivalence gate passes; until then, harness and published-numbers baselines
-only.
+another 19.3–27.4 MB on top of RFC 0007's originally-reported ~73.2 MB
+postings-plus-term-info figure. Implementation is a real, separate follow-on
+(`spec/positions.md` §9), not done in this same session.
+
+**The MS MARCO-vs-tantivy benchmark this entry named as still owed has now
+run, and it found and corrected a real overestimate.** `bench/src/
+tantivy_index.rs` builds a real tantivy index over the identical corpus
+sample and token stream RFC 0007/0008 measured (every document fed as a
+`PreTokenizedString` from this project's own analyzer output, so tantivy's
+own tokenizer is never invoked — isolating the comparison to on-disk format
+efficiency and query latency): tantivy's real postings file is `≈ 29.50 MB`,
+its real positions file `≈ 18.94 MB`, its real term dictionary `≈ 8.05 MB`,
+total `≈ 59.11 MB` (`bench/results/tantivy-index-benchmark.json`; mean
+term-query latency ~95.7μs, mean phrase-query latency ~414.7μs,
+single-threaded). RFC 0007's `~61.6 MB` postings estimate — a stratified
+4,016-list sample's real ~149-bytes/list mean, linearly extrapolated across
+the full vocabulary — was `2.09×` tantivy's real number. Rather than accept
+that gap, `bench/src/msmarco_index.rs` was extended to build every term's
+*actual* RFC 0007 postings blob (`strand_lexical::postings::build_postings`,
+the real shipped code, not a projection) across the full 413,364-term
+vocabulary and sum real bytes: `≈ 29.49 MB` — a `0.05%` difference from
+tantivy's real number, essentially exact. The extrapolation was wrong; the
+codec was right, and this real cross-check against a battle-tested engine
+confirms it rather than embarrassing it. RFC 0008's own positions bound held
+up independently (`≈ 19.28 MB` vs. tantivy's real `≈ 18.94 MB`, `1.8%` off)
+— it was never built on the flawed extrapolation. Both RFCs now carry this
+correction in their own Discussion sections (`docs/ledger.md`'s R2 entry has
+the full account); the corrected combined cold-open figure for postings +
+term-info + positions is `≈ 60.35 MB` to `≈ 68.46 MB` — 60–68% of the 100 MB
+budget, real headroom, not the `~92.5–100.6 MB` RFC 0008 originally reported
+— though positions remaining an opt-in, per-field blob (§10) is still the
+right default, just less urgent than first stated. Remaining benchmarks:
+Lucene parity per invariant 5; bytes-fetched vs bytes-used across term
+frequency deciles (the read-amplification number, `docs/data-structures.md`).
+Adapter-based results appear in this milestone's report only after R11
+verifies the respective extension point and the build-equivalence gate
+passes; until then, harness and published-numbers baselines only.
 
 **M2 — Vectors, cluster-first.** Flat vector blob; RaBitQ codecs with kernel-per-
 bit-width, the rotation descriptor field, and the rotation-provenance mechanism

@@ -186,6 +186,39 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   codec. Full detail in `docs/research/r2-hybrid-codec-methodology.md` and
   `bench/results/hybrid-codec-pilot.json`. Does not change R2's BP128
   default or require an RFC on its own.
+  **Correction, 2026-08-19: the ~149-bytes/list mean above, real and
+  correctly measured on its own 4,016-list stratified sample, does not
+  generalize by linear extrapolation to the full vocabulary.** Answering
+  the user's own question — "will we be able to validate this is solid
+  work by benchmarking against existing battle-tested software?" — a real
+  tantivy index was built over the identical MS MARCO corpus sample and
+  token stream (`bench/src/tantivy_index.rs`; every document fed as a
+  `PreTokenizedString` from this project's own analyzer output, so
+  tantivy's tokenizer is never invoked, isolating the comparison to format
+  efficiency): tantivy's real `.idx` (postings) file is `29,504,002` bytes
+  (`≈ 29.50 MB`), its real `.pos` (positions) file `18,935,668` bytes
+  (`≈ 18.94 MB`), its real `.term` (term dictionary) file `8,045,330` bytes
+  (`≈ 8.05 MB`), total on-disk `59,107,627` bytes (`≈ 59.11 MB`;
+  `bench/results/tantivy-index-benchmark.json`; mean term-query latency
+  ~95.7μs, mean phrase-query latency ~414.7μs, single-threaded, on this
+  same sample). RFC 0007's own `~61.6 MB` postings estimate (the
+  extrapolation above × the full 413,364-term vocabulary) was `2.09×`
+  tantivy's real number — suspecting the extrapolation rather than the
+  codec, `bench/src/msmarco_index.rs` was extended to call
+  `strand_lexical::postings::build_postings` (the real, shipped RFC 0007
+  implementation, not a projection) across every one of the real 413,364
+  terms and sum actual bytes: `29,489,488` bytes (`≈ 29.49 MB`,
+  `bench/results/msmarco-real-postings-sample.json`'s
+  `stats.real_postings_bytes`) — a `0.05%` difference from tantivy's real
+  number, essentially an exact match. The codec choice is validated, not
+  undermined, by this correction; only the earlier size *estimate* was
+  wrong. RFC 0008's own positions bound (`≈ 19.28 MB` tighter bound) held
+  up well independently against tantivy's real `.pos` (`≈ 18.94 MB`, `1.8%`
+  off) — it was not built on the flawed extrapolation and did not need
+  correcting. Both RFC 0007 and RFC 0008 carry this correction in their own
+  Discussion sections; the corrected combined cold-open figure for postings
+  + term-info + positions is `≈ 60.35 MB` to `≈ 68.46 MB` (60–68% of the
+  100 MB budget), not the `~92.5–100.6 MB` RFC 0008 originally reported.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length

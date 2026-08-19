@@ -511,3 +511,39 @@ to close.
 - The block-max-as-region-not-separate-blob reading of invariant 4 (How this could
   be wrong) is this RFC's own judgment call, flagged precisely for review rather
   than treated as obviously correct.
+
+## Discussion — post-approval amendments
+
+Per `CLAUDE.md` §3, design problems (or, here, measurement problems) revealed
+after approval are recorded here rather than silently rewritten into the
+Napkin math section above, which is left unmodified as the historical record
+of what was approved and why.
+
+**The ~149-bytes/list mean-size projection was a real ~2.09× overestimate,
+corrected 2026-08-19 against a real tantivy index on the same corpus.**
+This RFC's own Napkin math used `bench/src/hybrid_codec_pilot.rs`'s
+stratified 4,016-list sample (~149.1 bytes/list, `docs/ledger.md` R2) and
+linearly extrapolated it across the full 413,364-term vocabulary to get
+`413,364 * 149 ≈ 61.6 MB`. That extrapolation is now known wrong. Building
+a real tantivy index over the identical corpus sample and token stream
+(`bench/src/tantivy_index.rs`, every document fed as a `PreTokenizedString`
+built from this project's own analyzer output, so tantivy's tokenizer is
+never invoked — `bench/results/tantivy-index-benchmark.json`) gave a real
+postings-file size of `29,504,002` bytes (`≈ 29.50 MB`). Suspecting the
+extrapolation rather than the codec, `bench/src/msmarco_index.rs` was
+extended to call `strand_lexical::postings::build_postings` — the actual
+shipped implementation, not a projection — across every one of the real
+413,364 terms and sum real bytes: `29,489,488` bytes (`≈ 29.49 MB`),
+essentially identical to tantivy's real number (a `0.05%` difference,
+`bench/results/msmarco-real-postings-sample.json`'s `stats.real_postings_bytes`).
+The stratified sample's mean was real and correctly measured *on its own
+4,016-list sample*; it simply did not generalize to the full, more
+Zipf-skewed vocabulary via naive linear extrapolation. **The codec choice
+this RFC makes is not merely unaffected by this correction — it is
+strengthened by it**: `BitPacker8x` with a variable-length final block,
+measured for real across the full vocabulary, matches a real, battle-tested
+production engine's own postings size on the same corpus almost exactly.
+Only the *estimate* was wrong, not the design. `rfcs/0008-positions.md`'s
+own combined cold-open budget figure (`~92.5–100.6 MB`, built on this RFC's
+now-corrected `~61.6 MB`) needs the same correction; see that RFC's own
+Discussion section.

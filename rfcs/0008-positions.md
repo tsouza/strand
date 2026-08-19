@@ -252,12 +252,12 @@ are `u32`, inheriting the same `total_term_freq` range assumption (§4).
 
 ### 7. Layout
 
-| region                       | size                                    | notes                                                                    |
-| ----------------------------- | ---------------------------------------- | ------------------------------------------------------------------------- |
-| `total_term_freq`             | 4 bytes                                  | §4; little-endian `u32`                                                   |
-| `postings_block_pos_prefix`   | `4 * postings_block_count` bytes         | §6; `postings_block_count = ceil(doc_freq / 256)`, `doc_freq` external    |
-| `pos_widths`                  | `position_block_count` bytes             | one `u8` per position block; `position_block_count = ceil(total_term_freq / 256)` |
-| position-delta stream          | sum of each block's packed bytes          | full blocks via `BitPacker8x`; final block via the scalar packer, §5      |
+| region                      | size                             | notes                                                                             |
+| --------------------------- | -------------------------------- | --------------------------------------------------------------------------------- |
+| `total_term_freq`           | 4 bytes                          | §4; little-endian `u32`                                                           |
+| `postings_block_pos_prefix` | `4 * postings_block_count` bytes | §6; `postings_block_count = ceil(doc_freq / 256)`, `doc_freq` external            |
+| `pos_widths`                | `position_block_count` bytes     | one `u8` per position block; `position_block_count = ceil(total_term_freq / 256)` |
+| position-delta stream       | sum of each block's packed bytes | full blocks via `BitPacker8x`; final block via the scalar packer, §5              |
 
 A block's packed byte length is `ceil(block_real_len * width / 8)`, where
 `block_real_len` is `256` for every position block except a shorter final
@@ -592,3 +592,35 @@ is not where the byte budget is actually being spent.
   0005/0006/0007, not solved here.
 - Proximity/sloppy-phrase scoring (Non-goals) — real, separate future
   work at the query-layer, not the format layer.
+
+## Discussion — post-approval amendments
+
+Per `CLAUDE.md` §3, corrections revealed after approval are recorded here;
+the Napkin math section above is left unmodified as the historical record.
+
+**This RFC's combined cold-open figure inherited an overestimate from RFC
+0007, now corrected, 2026-08-19.** RFC 0007's own Discussion section
+records that its `~73.2 MB` postings-plus-term-info figure was built on a
+`~149-bytes/list` mean projected from a stratified sub-sample, and that a
+real tantivy index on the same corpus (`bench/src/tantivy_index.rs`)
+combined with a real, non-extrapolated measurement of every term's actual
+`build_postings` output (`bench/src/msmarco_index.rs`'s
+`real_postings_bytes`) found the true figure to be `~29.49 MB`, a `2.09×`
+overestimate — not a codec problem, an extrapolation problem. This RFC's
+own combined figure (Napkin math, above: `~92.5–100.6 MB`) used that same
+`~73.2 MB` as its base and is corrected the same way: `29,489,488`
+(real postings) `+ 11,574,192` (term-info, `413,364 * 28`, always exact,
+never extrapolated) `+ 19,284,381` to `27,392,509.5` (this RFC's own
+positions bound, unchanged) `= 60,348,061` to `68,456,189.5` bytes — **≈
+60.35 MB to ≈ 68.46 MB, 60% to 68% of the 100 MB budget**, not 92% to
+past-100%. The corrected figure is meaningfully more comfortable, and it
+sharpens confidence in this RFC's own positions estimate specifically:
+tantivy's real `.pos` file (`18,935,668` bytes, `≈ 18.94 MB`) landed almost
+exactly on this RFC's independently-derived *tighter* bound (`≈ 19.28 MB`,
+a `1.8%` difference) — the one figure in this RFC's own napkin math that
+was not built on the now-corrected extrapolation, and it held up under
+the same real-tantivy check that caught RFC 0007's error. §10's practical
+conclusion — fields that don't need phrase-query support should omit the
+positions blob — still holds; it is simply less urgent than this RFC
+originally stated, now that the combined budget has real headroom instead
+of none.

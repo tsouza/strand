@@ -56,6 +56,13 @@ struct IndexStats {
     /// magnitude for RFC 0008's napkin math.
     total_doc_len: u64,
     max_doc_len: u64,
+    /// Real (not extrapolated) total bytes of every term's actual RFC 0007
+    /// postings blob, built via `strand_lexical::postings::build_postings`
+    /// across the full vocabulary — ground truth for cross-checking the
+    /// stratified-sample-derived ~149-bytes/list projection
+    /// (`bench/src/hybrid_codec_pilot.rs`, `docs/ledger.md` R2) against a
+    /// real tantivy index on the same corpus.
+    real_postings_bytes: u64,
 }
 
 #[derive(Serialize)]
@@ -156,6 +163,29 @@ fn main() {
          postings, {total_term_occurrences} total term occurrences"
     );
 
+    // Real, not extrapolated: build every term's actual RFC 0007 postings
+    // blob (crates/strand-lexical/src/postings.rs) and sum real bytes,
+    // rather than projecting from a stratified sub-sample
+    // (bench/src/hybrid_codec_pilot.rs's own ~149-bytes/list figure,
+    // docs/ledger.md R2) — a real tantivy comparison found that projection
+    // suspect, so this replaces it with ground truth on the full
+    // 413,364-term vocabulary. Each term's postings are already in
+    // corpus-scan (ascending doc_ordinal) order, satisfying
+    // build_postings's strictly-increasing precondition.
+    let real_postings_bytes: u64 = index
+        .values()
+        .map(|postings| {
+            let ordinals: Vec<u32> = postings.iter().map(|&(o, _)| o).collect();
+            let term_freqs: Vec<u32> = postings.iter().map(|&(_, tf)| tf).collect();
+            strand_lexical::postings::build_postings(&ordinals, &term_freqs).len() as u64
+        })
+        .sum();
+    eprintln!(
+        "Real STRAND postings size (RFC 0007, full vocabulary, ground truth): \
+         {real_postings_bytes} bytes ({:.2} MB)",
+        real_postings_bytes as f64 / 1e6
+    );
+
     // Stratify terms by document frequency into deciles, per
     // CLAUDE.md §7's own "bytes-fetched vs bytes-used across term frequency
     // deciles" framing — sample a bounded number of terms from each decile
@@ -227,6 +257,7 @@ fn main() {
             total_term_occurrences,
             total_doc_len,
             max_doc_len,
+            real_postings_bytes,
         },
         deciles,
     };
