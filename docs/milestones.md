@@ -340,7 +340,24 @@ PQ-FastScan; the cold target to measure against is turbopuffer's published figur
 (`docs/benchmarks.md`), with the asymmetry stated. Adapter-based results appear in this
 milestone's report only after R11 verifies the respective extension point and the
 build-equivalence gate passes; until then, harness and published-numbers baselines
-only.
+only. **RFC 0010 (Approved) opens this milestone**: registers `family_id = 3`
+("vector") with the flat vector blob, the RaBitQ quantization descriptor (rotation
+descriptor field and rotation-provenance mechanism resolved — materialized state for
+both registered rotator types, `spec/vectors.md` §2), and the cluster-family
+cold-native blob (navigation tier + posting lists — the rerank region is the flat
+vector blob itself, `blob_type_id = 0`). **1-bit RaBitQ only**; multi-bit
+Extended-RaBitQ and the warm-tier graph blob family remain unimplemented, both named
+follow-on work (RFC 0010 Non-goals). **Not yet met by RFC 0010 alone**: the
+replication knob this milestone names as a deliverable — RFC 0010's own napkin math
+computes replication's real cost impact (a provisional, explicitly unverified
+~2.27×-the-budget estimate at realistic replica-8-equivalent density) but does not
+add the metadata slot or construction algorithm; a follow-on RFC owns it. RFC 0010's
+own corrected sizing law (~131 MB per million 768d vectors before replication, not
+the previously assumed ~100 MB) is real, grounded arithmetic, not yet a measured
+benchmark — the M0-style cold-open measurement this family still needs is named in
+RFC 0010's own Open questions, and this milestone's gate is not fully met until one
+exists. `crates/strand-vector` and all code implementing RFC 0010 remain to be
+written — this RFC is design-only, per this project's RFC-then-implement workflow.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,

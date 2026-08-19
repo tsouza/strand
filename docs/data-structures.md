@@ -69,7 +69,8 @@ procedural, not a correctness or licensing cloud. PQ-FastScan remains a register
 alternative. Revisit only if independent at-scale reproduction shows a competitor
 materially winning on *embedding* workloads.
 
-**Vector index shape (settled constraint — R1; blob design open, RFC required).** The
+**Vector index shape (settled constraint — R1; blob design settled by RFC 0010, 1-bit
+only — multi-bit still open).** The
 cold-native family is cluster-shaped: a navigation tier (hierarchical centroids,
 SPANN/SPFresh family) small enough to live in or beside the hotcache, then posting
 lists of quantized codes fetched wholesale in large independent reads, then a rerank
@@ -81,10 +82,31 @@ cluster indexes' fetch granularity fits object storage where graph traversal doe
 Note what "one massive roundtrip" assumes and invariant 3 now requires: all cluster
 offsets resolvable from the navigation tier, so the fetches go out as one parallel
 wave — wall time of one round trip, request count of nprobe, both reported. The sizing
-law that binds segment scale: 1-bit codes cost dims/8 bytes per vector — 96 B at
-768d, 128 B at 1024d, 192 B at 1536d — so tier-1 alone runs ~100 MB per million 768d
-vectors, before navigation structure. SPANN-style closure replication (up to 8×) is a
-first-class recall/storage/cost knob in the blob metadata, not a hidden constant.
+law that binds segment scale, corrected by RFC 0010's own napkin math against the
+registered codec's real per-vector correction-factor and row-id overhead (not just the
+raw code bits the earlier figure below counted alone): 1-bit codes cost dims/8 bytes
+per vector for the codes themselves — 96 B at 768d, 128 B at 1024d, 192 B at 1536d —
+but the codec's own per-vector distance-correction factors add another 12 B/vector
+(a full-batch-amortized floor) and STRAND's row-ids add 8 B/vector, so the real
+per-vector floor is dims/8 + 20 B — 116 B at 768d — and, with realistic partial-batch
+padding waste plus navigation-tier overhead at a `4·√N` cluster count, tier-1 runs
+**~131 MB per million 768d vectors**, not ~100 MB, before replication
+(`rfcs/0010-vector-blob-cluster-family.md` Napkin math). SPANN-style closure
+replication (up to 8×) is a first-class recall/storage/cost knob in the blob
+metadata, not a hidden constant, and its cost is real but not yet independently
+grounded here: applying SPANN's cited GIST1M ratio (13.0 GB at replica 8 vs. 7.5 GB
+at replica 2, a 1.73× growth from replica 2 to replica 8 — not a naive 4× linear
+estimate) as a conservative lower bound on this entry's no-replication baseline puts a
+*provisional, explicitly unverified* replica-8-equivalent estimate at ~227 MB per
+million 768d vectors, ~2.27× the provisional 100 MB budget — over half the margin to
+R1's own 4× kill criterion, not a wide one — but this ratio's own source
+(`references/spann-neurips2021.md`) states its own 13.0/7.5 GB figures were read from
+an abstract-only fetch and not independently re-confirmed, so this estimate is owed a
+real fetch of SPANN's body figures before it can be trusted (RFC 0010 Open questions).
+A direct, load-bearing consequence of the corrected law: a segment fitting the 100 MB
+tier-1 budget now holds ~760,000 768d vectors, not ~1,000,000 — the "roughly one
+segment per million 768d vectors" figure `CLAUDE.md` §7 currently states needs
+updating to reflect this (RFC 0010 Open questions).
 **Graph families** (DiskANN/Vamana-layout, one node's vector + adjacency per I/O unit,
 Starling-style block shuffling) are registered as `tier: warm` — legitimate and
 specified, but never the cold-open story; pipelining does not rescue them, because

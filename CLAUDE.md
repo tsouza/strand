@@ -395,8 +395,11 @@ figure with numbers measured in the M0 MinIO benchmarks; until then every cold-p
 RFC computes against 100 MB and says so.
 
 **Segment count is reported, never hidden.** The budget binds per segment, so scale
-forces many segments — at the R1 sizing law, roughly one segment per million 768d
-vectors — and the manifest carries nothing that prunes segments at query time, so
+forces many segments — at the R1 sizing law, corrected by RFC 0010's own grounded
+per-vector and navigation-tier arithmetic against the registered RaBitQ codec
+(`rfcs/0010-vector-blob-cluster-family.md` Napkin math), roughly 760,000, not
+1,000,000, 768d vectors per segment — and the manifest carries nothing that prunes
+segments at query time, so
 query cost grows O(segments). Every benchmark states its segment count; cold metrics
 are reported per-segment and per-index; and M3 runs the multi-segment benchmark (on
 the order of a hundred segments) that makes the amplification a measured curve.

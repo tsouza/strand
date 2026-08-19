@@ -219,7 +219,8 @@ approved RFC has assigned, so future RFCs allocate new IDs without collision.
 Populated incrementally, one RFC at a time — this section started empty at RFC
 0001's approval, gained its first real entries with RFC 0005, its second family
 with RFC 0006, a third `family_id = 1` entry with RFC 0007, a fourth with
-RFC 0008, and a fifth with RFC 0009.
+RFC 0008, a fifth with RFC 0009, and a third family (`family_id = 3`,
+four blob types) with RFC 0010.
 
 `family_id = 0` is reserved: RFC 0001's own worked example (§7 above) uses it for
 an anonymous placeholder blob with no real family meaning, and no RFC may assign it
@@ -234,3 +235,7 @@ a real family.
 | 1           | lexical | 4              | term-info store, no positions | RFC 0009 (`rfcs/0009-per-term-overhead-reduction.md`) |
 | 2           | filter  | 0              | value-dictionary FST          | RFC 0006 (`rfcs/0006-filter-bitmaps.md`)              |
 | 2           | filter  | 1              | filter-bitmap store           | RFC 0006 (`rfcs/0006-filter-bitmaps.md`)              |
+| 3           | vector  | 0              | flat vectors                  | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 3           | vector  | 1              | quantization descriptor       | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 3           | vector  | 2              | cluster navigation tier       | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 3           | vector  | 3              | cluster posting lists         | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |

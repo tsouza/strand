@@ -9,7 +9,11 @@ RFC backed by the research tracks in `docs/research/README.md`.
 **Settled (apply, do not re-litigate):** chunk-shaped cold access with the one-wave
 addressability rule (invariant 3); end-to-end cold accounting from the pointer read
 (`CLAUDE.md` §7); cluster-family as the cold-native vector shape; graph blobs as warm-tier;
-RaBitQ default with kernel-per-bit-width and rotation descriptor; Roaring; FST
+RaBitQ default with kernel-per-bit-width and rotation descriptor; the
+rotation-provenance mechanism (materialized state for both registered rotator
+types, never a seed, RFC 0010); the cluster-family blob wire format (RFC 0010:
+flat vectors, quantization descriptor, navigation tier, posting lists) for
+1-bit RaBitQ specifically — multi-bit still open; Roaring; FST
 default; batch-shaped API shape; scalar-normative kernels with SIMD equivalence
 testing; per-blob storage class with dense wire bytes; persisted node-order
 permutation; per-family merge semantics; the manifest CAS protocol shape with one
@@ -34,12 +38,24 @@ benchmark with the mandatory filter-selectivity sweep, engine numbers context-on
 tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
 
 **Open (RFC required; grounding in `docs/research/README.md`):**
-- **R1** — the cluster blob's concrete layout and tier-1 sizing law vs segment scale
-  and replication (gates M2/M3). Kill criterion, falsifiable: if tier-1 exceeds
-  `CLAUDE.md` §7's provisional 100 MB cold-open byte budget — or its measured M0 replacement — by more
-  than ~4× at target segment scale, cold vector search is narrower and the mission
-  sentence changes again. Also: the graph-blob ordering algorithm (Starling's block
-  shuffling is the literature; pick with evidence).
+- **R1** — the cluster blob's *concrete layout* is now resolved by RFC 0010
+  (`family_id = 3`, four blob types, `spec/vectors.md`); what remains open is the
+  *sizing law's* validation vs segment scale and replication (gates M3), and the
+  graph-blob half untouched by RFC 0010. RFC 0010's own napkin math already moves
+  this forward with real numbers, not just leaves it open: real tier-1 cost is
+  ~131 MB per million 768d vectors before replication (corrected from the
+  previously stated ~100 MB, `docs/data-structures.md`), and a provisional,
+  explicitly-unverified replica-8-equivalent estimate of ~227 MB (~2.27× the
+  budget) — over half the margin to the kill criterion below, not close to
+  tripping it, but real headroom consumed. Kill criterion, falsifiable: if tier-1
+  exceeds `CLAUDE.md` §7's provisional 100 MB cold-open byte budget — or its
+  measured M0 replacement — by more than ~4× at target segment scale, cold vector
+  search is narrower and the mission sentence changes again. Still open: a real
+  fetch of SPANN's body figures to replace the provisional replication estimate; a
+  real M0-style measured byte-open benchmark for this blob family (RFC 0010's own
+  math is arithmetic, not a benchmark); the graph-blob ordering algorithm
+  (Starling's block shuffling is the literature; pick with evidence), entirely
+  untouched by RFC 0010, which is 1-bit cluster-family only.
 - **R2** — postings default confirmation BP128 vs FastPFOR vs FastLanes on real
   corpora, including verifying tantivy's actual current codec (gates M1, load-bearing
   for the data-structure baseline's default argument); the exact d-gap variant to
@@ -219,8 +235,12 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   Discussion sections; the corrected combined cold-open figure for postings
   + term-info + positions is `≈ 60.35 MB` to `≈ 68.46 MB` (60–68% of the
   100 MB budget), not the `~92.5–100.6 MB` RFC 0008 originally reported.
-- **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
-  M2 RFC); TurboQuant revisit condition.
+- **R3** — the rotation-provenance mechanism is now resolved: RFC 0010
+  (Approved) registers materialized rotation state for both registered rotator
+  types (never a seed), grounded in the reference implementation's own
+  `rotator.hpp` source (`references/rabitq-library-rotator-source.md`) — real
+  evidence, not asserted. Still open: the TurboQuant revisit condition (unchanged
+  from before).
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
   definition. The Lucene half is resolved: RFC 0004
   (`rfcs/0004-analyzer-descriptors.md`) grounds `discountOverlaps` byte-exact against
@@ -505,6 +525,99 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   that scale is materially stronger evidence of correctness than the
   spot-check queries above, though it is still bounded to the same
   single-segment, deletion-free, positions-always-on scope stated above.
+- **RFC 0010 (vector blob family, cluster-native cold-open index) —
+  Approved 2026-08-19.** M2's opening RFC, prompted directly by "draft the
+  M2 vector RFC" after M1's gating deliverables (postings, positions, term
+  dictionary, block-max, Roaring, scoring profiles, analyzer descriptor
+  schema, the tantivy importer verified at real scale) were all confirmed
+  complete. Registers `family_id = 3` ("vector") with four blob types —
+  flat vectors, a quantization descriptor, the cluster navigation tier, and
+  the cluster posting lists — implementing R1's already-settled
+  cluster-shaped cold architecture (`docs/data-structures.md`) and
+  resolving R3's own open rotation-provenance question. Adversarial review
+  found **6 Critical, 14 Important, 7 Minor**, all fixed — the largest
+  finding count of any RFC this session, matching the scope of introducing
+  an entire new blob family with real, non-trivial arithmetic. The single
+  most consequential Critical finding: the RFC's own load-bearing sizing
+  formula was cited to a vendored reference file
+  (`references/rabitq-library-compact-code-source.md`) that documents a
+  *different*, non-batched, per-vector code layout — the actual
+  FastScan-batched formula (`BatchDataMap`, `data_layout.hpp`) had been
+  fetched live in-session but never vendored as its own file, and was cited
+  to the wrong one. Fixed by vendoring the real source properly
+  (`references/rabitq-library-ivf-and-batch-layout-source.md`,
+  `references/rabitq-library-index-overview.md`) and correcting every
+  citation — a direct, textbook instance of the exact "sibling fetch, never
+  vendored" failure `CLAUDE.md` §3 exists to prevent, caught by the review
+  it exists to prevent it from surviving. A second Critical finding
+  inverted its own cited precedent: the RFC justified full-precision
+  centroids by citing DiskANN's two-tier model as keeping *routing*
+  structures full-precision, when `docs/lineage.md`'s own text (which the
+  RFC cited) says the opposite — DiskANN quantizes routing and keeps full
+  precision for reranking. Fixed by citing SPANN instead (which does keep
+  centroids full-precision) and removing the inverted DiskANN claim
+  everywhere it appeared. A third recomputed the corrected sizing law
+  properly: the original napkin math used the 108/116-bytes-per-vector
+  *full-batch floor* as if it were a real-world average, missing the
+  partial-batch padding waste its own Design section named two paragraphs
+  earlier; recomputed at a realistic 250-vectors/cluster average and 4,000
+  clusters, real tier-1 cost is **~131 MB per million 768d vectors**
+  (not the RFC's own first-draft ~128.4 MB, and not
+  `docs/data-structures.md`'s pre-RFC ~100 MB figure), ~31% over the
+  provisional 100 MB cold-open byte budget — corrected in
+  `docs/data-structures.md` directly. A fourth found the replication
+  estimate's own arithmetic error (a replica-2→8 ratio applied to a
+  replica-1 baseline, silently omitting the 1→2 step) and its overclaimed
+  grounding (labeled "real, measured" while its own cited source,
+  `references/spann-neurips2021.md`, explicitly flags its 13.0/7.5 GB
+  figures as not independently re-confirmed) — fixed by relabeling the
+  resulting ~227 MB (~2.27× the budget) figure as a provisional,
+  conservative lower-bound estimate throughout, with a real fetch of
+  SPANN's body figures named as owed follow-on work. A fifth found a real
+  byte-determinism gap invariant 11 requires resolved: a partially filled
+  FastScan batch's unused lanes had no specified content — fixed with a
+  new normative zero-fill rule (RFC Design §4, `spec/vectors.md` §4) and a
+  new Invariant-11 checklist item. A sixth found the `cold-fetchable` tier
+  label applied to the posting-list blob without the design actually
+  fetching it wholesale (only `nprobe` of its clusters) — fixed with an
+  explicit clarifying paragraph distinguishing bytes fetched at open
+  (~12.4 MB) from the whole-corpus sizing figure (~131 MB), both now stated
+  side by side. Important findings fixed: invariant 9 (batch-shaped reads,
+  scalar-kernel normativity) was claimed in the header but never engaged —
+  fixed with a new Design §9; `MatrixRotator`'s unpadded dimensionality
+  contradicted the code-region formula's own padding requirement and left
+  the row-id array potentially misaligned — fixed by requiring STRAND's own
+  64-multiple padding for both registered rotator types, resolving the
+  alignment gap as a side effect; no `alignment` field had been declared
+  for any of the four raw-mappable blobs (`spec/container.md` §5's own
+  requirement) — fixed (`alignment = 8` on all four); the round-trip count
+  didn't reproduce from the RFC's own enumerated stages (5–6 stated, 6–7
+  actually enumerated) — fixed; deletion-vector filtering and closure-
+  replication deduplication were absent from query resolution — fixed with
+  two new normative steps; u64 row-ids vs. cheaper u32 local ordinals had
+  no stated rationale — fixed by citing `spec/row-ids.md` §3's own
+  rebalance-merge case directly; the RFC had no prior-art paragraph despite
+  `CLAUDE.md` §4's requirement, and the one precedent that matches this
+  design most closely (Lance's row-ID-linked auxiliary quantized-vector
+  file) was never mentioned — fixed; three files (the spec chapter,
+  `docs/data-structures.md`, `spec/container.md`) asserted RFC 0010 was
+  already Approved while its own Status line read Draft — resolved by this
+  entry itself, now that the review is complete and every finding fixed.
+  Deliberately narrow scope, matching this project's "implement narrow, one
+  coherent slice per session" discipline: 1-bit RaBitQ only (multi-bit
+  Extended-RaBitQ, whose ex-code byte formula this session also fetched but
+  did not wire-format-register, is a named follow-on RFC); the graph-blob
+  warm-tier family (R1's second half) is untouched; SPANN-style closure
+  replication's construction algorithm and metadata slot are named but not
+  designed, and the review's own findings sharpened this into an explicit
+  admission that M2's own milestone deliverable (the replication knob) is
+  not fully met by this RFC alone; cross-segment codebook-sharing/
+  retraining at merge time and the FastScan codec's intra-batch bit/lane
+  order (grounded only at the byte-offset level, not the bit level) are
+  both named as real, load-bearing, unresolved gaps rather than assumed
+  away. `CLAUDE.md` §7's own "roughly one segment per million 768d
+  vectors" line is updated in place to ~760,000, the direct consequence of
+  the corrected sizing law.
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1
