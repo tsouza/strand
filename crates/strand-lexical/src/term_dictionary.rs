@@ -14,12 +14,23 @@
 
 //! The term-dictionary FST and term-info store blobs for the lexical family.
 //! Layout is normative per `spec/term-dictionary.md`, approved by RFC 0005
-//! (`rfcs/0005-term-dictionary.md`).
+//! (`rfcs/0005-term-dictionary.md`) and extended by RFC 0009
+//! (`rfcs/0009-per-term-overhead-reduction.md` Design §2): a second,
+//! 16-byte term-info record shape (`blob_type_id = 4`) for fields that
+//! never carry positions, alongside the original 28-byte record
+//! (`blob_type_id = 1`), which is untouched.
 
 /// Fixed byte length of one term-info record (`spec/term-dictionary.md` §3):
 /// `doc_freq` (u32) + `postings_offset` (u64) + `postings_length` (u32) +
 /// `positions_offset` (u64) + `positions_length` (u32) = 4 + 8 + 4 + 8 + 4.
 pub const TERM_INFO_RECORD_LEN: usize = 28;
+
+/// Fixed byte length of one short term-info record (RFC 0009 Design §2,
+/// `blob_type_id = 4`): `doc_freq` (u32) + `postings_offset` (u64) +
+/// `postings_length` (u32) = 4 + 8 + 4. No `positions_offset`/
+/// `positions_length` — a field using this record shape MUST NOT also
+/// register a positions blob.
+pub const SHORT_TERM_INFO_RECORD_LEN: usize = 16;
 
 /// One term's scoring input and postings/positions location, per
 /// `spec/term-dictionary.md` §3.
@@ -52,6 +63,32 @@ impl TermInfo {
             postings_length: u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
             positions_offset: u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
             positions_length: u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
+        }
+    }
+
+    /// Encodes the short, positions-free record (RFC 0009 Design §2,
+    /// `blob_type_id = 4`): `doc_freq` + `postings_offset` +
+    /// `postings_length` only. `self.positions_offset`/`positions_length`
+    /// are not written — a field adopting this shape never populates them.
+    pub fn encode_short(&self) -> [u8; SHORT_TERM_INFO_RECORD_LEN] {
+        let mut out = [0u8; SHORT_TERM_INFO_RECORD_LEN];
+        out[0..4].copy_from_slice(&self.doc_freq.to_le_bytes());
+        out[4..12].copy_from_slice(&self.postings_offset.to_le_bytes());
+        out[12..16].copy_from_slice(&self.postings_length.to_le_bytes());
+        out
+    }
+
+    /// Decodes the short record. `positions_offset`/`positions_length` on
+    /// the returned `TermInfo` are always `0` — this record shape never
+    /// carries them (`spec/positions.md` §1's "absent" convention applies
+    /// uniformly to every term using this shape).
+    pub fn decode_short(bytes: &[u8; SHORT_TERM_INFO_RECORD_LEN]) -> TermInfo {
+        TermInfo {
+            doc_freq: u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+            postings_offset: u64::from_le_bytes(bytes[4..12].try_into().unwrap()),
+            postings_length: u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+            positions_offset: 0,
+            positions_length: 0,
         }
     }
 }
@@ -95,6 +132,41 @@ impl<'a> TermInfoStore<'a> {
     }
 }
 
+/// A resident short term-info store blob (RFC 0009 Design §2): a flat array
+/// of fixed 16-byte records, directly indexed by ordinal — identical
+/// mechanics to `TermInfoStore`, over the short record shape.
+#[derive(Debug, Clone, Copy)]
+pub struct ShortTermInfoStore<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> ShortTermInfoStore<'a> {
+    pub fn new(bytes: &'a [u8]) -> Result<Self, TermInfoStoreError> {
+        if !bytes.len().is_multiple_of(SHORT_TERM_INFO_RECORD_LEN) {
+            return Err(TermInfoStoreError::Truncated);
+        }
+        Ok(ShortTermInfoStore { bytes })
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len() / SHORT_TERM_INFO_RECORD_LEN
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    /// Direct-indexed read at `ordinal * SHORT_TERM_INFO_RECORD_LEN` — no
+    /// scan. The returned `TermInfo`'s `positions_offset`/`positions_length`
+    /// are always `0` (`TermInfo::decode_short`'s own contract).
+    pub fn get(&self, ordinal: u64) -> Option<TermInfo> {
+        let start = usize::try_from(ordinal).ok()?.checked_mul(SHORT_TERM_INFO_RECORD_LEN)?;
+        let end = start.checked_add(SHORT_TERM_INFO_RECORD_LEN)?;
+        let record: &[u8; SHORT_TERM_INFO_RECORD_LEN] = self.bytes.get(start..end)?.try_into().ok()?;
+        Some(TermInfo::decode_short(record))
+    }
+}
+
 #[derive(Debug)]
 pub enum TermDictionaryError {
     Fst(fst::Error),
@@ -131,6 +203,26 @@ pub fn build_term_dictionary(
     let mut term_info_bytes = Vec::with_capacity(terms.len() * TERM_INFO_RECORD_LEN);
     for (_, info) in terms {
         term_info_bytes.extend_from_slice(&info.encode());
+    }
+    Ok((fst_bytes, term_info_bytes))
+}
+
+/// Builds the term-dictionary FST blob and the *short* term-info store blob
+/// (RFC 0009 Design §2, `blob_type_id = 4`) for a field that opts out of
+/// positions entirely. `terms[i].1.positions_offset`/`positions_length` are
+/// ignored (never written — `TermInfo::encode_short`'s own contract), so a
+/// caller with a real positions blob for this field must use
+/// `build_term_dictionary` (the 28-byte record) instead; mixing the two
+/// shapes for one field is a caller bug this function does not detect
+/// (`spec/container.md` §5's registry has no per-field identity yet to
+/// check it against, RFC 0009's own Non-goals).
+pub fn build_term_dictionary_short(
+    terms: &[(&[u8], TermInfo)],
+) -> Result<(Vec<u8>, Vec<u8>), TermDictionaryError> {
+    let fst_bytes = build_ordinal_fst(terms.iter().map(|(term, _)| *term))?;
+    let mut term_info_bytes = Vec::with_capacity(terms.len() * SHORT_TERM_INFO_RECORD_LEN);
+    for (_, info) in terms {
+        term_info_bytes.extend_from_slice(&info.encode_short());
     }
     Ok((fst_bytes, term_info_bytes))
 }

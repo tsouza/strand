@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Reproduces RFC 0008's worked example (the same 3-posting term RFC 0007
-//! used — local ordinals 5, 12, 47; term frequencies 2, 1, 3 — extended
-//! with within-document positions) and checks it against the pinned
-//! conformance golden file.
+//! Reproduces RFC 0009's worked example (the same 3-posting term RFC 0007/
+//! 0008 used — local ordinals 5, 12, 47; term frequencies 2, 1, 3 —
+//! extended with within-document positions), the current, RFC-0009-amended
+//! 8-byte layout (RFC 0008's original 12-byte layout is retired, not kept
+//! alongside this one, per RFC 0009 Design §1), and checks it against the
+//! pinned conformance golden file.
 
 use strand_lexical::positions::{build_positions, PositionsReader};
 
@@ -41,11 +43,13 @@ fn worked_example_matches_conformance_golden_file() {
     ))
     .expect("golden file conformance/positions/toy-positions.bin must exist");
 
-    assert_eq!(bytes, golden, "must match RFC 0008's pinned 12 bytes exactly");
+    assert_eq!(bytes, golden, "must match RFC 0009's pinned 8 bytes exactly");
     assert_eq!(
         bytes,
-        vec![0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x33, 0x32, 0x03],
-        "must match RFC 0008's worked example bytes exactly"
+        vec![0x06, 0x00, 0x00, 0x00, 0x03, 0x33, 0x32, 0x03],
+        "must match RFC 0009's worked example bytes exactly \
+         (total_term_freq, no postings_block_pos_prefix entries since \
+         index 0 is never stored, pos_widths, stream)"
     );
 }
 
@@ -58,7 +62,9 @@ fn worked_example_decodes_and_resolves_targeted_lookups_correctly() {
     let decoded = reader.decode_all(&toy_term_freqs());
     assert_eq!(decoded, toy_doc_positions());
 
-    // Postings block 0 is the only block; postings_block_pos_prefix[0] = 0.
+    // Postings block 0 is the only block; postings_block_pos_prefix[0] is
+    // always 0 and is never stored (RFC 0009 Design §1) — the accessor
+    // still returns 0 for it.
     assert_eq!(reader.postings_block_pos_prefix(0), 0);
 
     // Document at ordinal 5 (first in the block, local_prefix_tf = 0, tf = 2).

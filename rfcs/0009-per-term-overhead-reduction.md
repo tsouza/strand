@@ -38,7 +38,17 @@
   directly; and an incomplete self-critique that called fix 1 "essentially
   free" without separating the mechanical change (genuinely free) from the
   format-evolution cost (retiring a golden file, not free) — fixed by
-  splitting the claim in How this could be wrong.
+  splitting the claim in How this could be wrong. **Implemented**
+  (`crates/strand-lexical/src/positions.rs`,
+  `crates/strand-lexical/src/term_dictionary.rs`): both fixes' predicted
+  napkin-math figures were confirmed exactly against re-run real MS MARCO
+  data — positions shrank from `620,503` to `493,359` bytes at 10,003
+  documents and from `4,678,608` to `4,135,112` at 100,476, both matching
+  this RFC's own prediction to the byte
+  (`bench/results/field-end-to-end-10003.json`, `-100476.json`,
+  regenerated post-implementation). RFC 0008's original 12-byte positions
+  golden file is retired, replaced by this RFC's 8-byte one, exactly as
+  Design §1 stated it would be.
 - **Milestone:** M1 — Lexical (`docs/milestones.md`)
 - **Spec chapters produced:** amends `spec/term-dictionary.md` §3 (new short
   term-info record, RFC 0005) and `spec/positions.md` §4–§5 (trims

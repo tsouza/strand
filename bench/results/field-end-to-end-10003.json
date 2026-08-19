@@ -4,9 +4,9 @@
   "term_dict_bytes": 213641,
   "term_info_bytes": 890008,
   "postings_bytes": 684248,
-  "positions_bytes": 620503,
-  "segment_bytes": 2408603,
-  "build_field_seconds": 0.53358064,
-  "commit_seconds": 0.002375893,
-  "cold_open_ms": 0.839479
+  "positions_bytes": 493359,
+  "segment_bytes": 2281459,
+  "build_field_seconds": 0.64280919,
+  "commit_seconds": 0.002391405,
+  "cold_open_ms": 0.921145
 }

@@ -15,10 +15,13 @@
 //! The positions blob for the lexical family: per-term, within-document
 //! token-position delta-gaps, enabling phrase queries. Layout is normative
 //! per `spec/positions.md`, approved by RFC 0008
-//! (`rfcs/0008-positions.md`). Reuses `postings.rs`'s block-codec building
-//! blocks (`scalar_pack`/`scalar_unpack`/`block_count_for`/
-//! `block_real_len`) directly, per that RFC's own stated plan, rather than
-//! duplicating them.
+//! (`rfcs/0008-positions.md`) and amended by RFC 0009
+//! (`rfcs/0009-per-term-overhead-reduction.md` Design §1: the
+//! `postings_block_pos_prefix` region omits its always-`0` index-`0` entry
+//! — a breaking, in-place change to this blob's layout, not an additive
+//! one). Reuses `postings.rs`'s block-codec building blocks
+//! (`scalar_pack`/`scalar_unpack`/`block_count_for`/`block_real_len`)
+//! directly, per RFC 0008's own stated plan, rather than duplicating them.
 
 use bitpacking::{BitPacker, BitPacker8x};
 
@@ -48,12 +51,15 @@ pub fn build_positions(doc_positions: &[Vec<u32>]) -> Vec<u8> {
     let doc_freq = doc_positions.len();
     let postings_block_count = block_count_for(doc_freq);
 
-    // §5: postings_block_pos_prefix[i] = total positions preceding postings
-    // block i's first document.
-    let mut postings_block_pos_prefix = Vec::with_capacity(postings_block_count);
+    // RFC 0009 Design §1: postings_block_pos_prefix[0] is always 0 (nothing
+    // precedes the first postings block) and is never stored — only
+    // entries for blocks 1..postings_block_count are kept.
+    let mut postings_block_pos_prefix = Vec::with_capacity(postings_block_count.saturating_sub(1));
     let mut running: u32 = 0;
     for b in 0..postings_block_count {
-        postings_block_pos_prefix.push(running);
+        if b > 0 {
+            postings_block_pos_prefix.push(running);
+        }
         let start = b * BLOCK_LEN;
         let end = start + block_real_len(doc_freq, b);
         for positions in &doc_positions[start..end] {
@@ -98,7 +104,9 @@ pub fn build_positions(doc_positions: &[Vec<u32>]) -> Vec<u8> {
         }
     }
 
-    let mut out = Vec::with_capacity(4 + 4 * postings_block_count + position_block_count + stream.len());
+    let mut out = Vec::with_capacity(
+        4 + 4 * postings_block_pos_prefix.len() + position_block_count + stream.len(),
+    );
     out.extend_from_slice(&total_term_freq.to_le_bytes());
     for &prefix in &postings_block_pos_prefix {
         out.extend_from_slice(&prefix.to_le_bytes());
@@ -134,7 +142,9 @@ impl<'a> PositionsReader<'a> {
         let total_term_freq = u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
         let postings_block_count = block_count_for(doc_freq);
         let position_block_count = block_count_for(total_term_freq);
-        let min_len = 4 + 4 * postings_block_count + position_block_count;
+        // RFC 0009 Design §1: postings_block_pos_prefix stores only
+        // postings_block_count - 1 entries (index 0 is never stored).
+        let min_len = 4 + 4 * postings_block_count.saturating_sub(1) + position_block_count;
         if bytes.len() < min_len {
             return Err(PositionsError::Truncated);
         }
@@ -142,24 +152,30 @@ impl<'a> PositionsReader<'a> {
     }
 
     fn postings_block_pos_prefix_region(&self) -> &'a [u8] {
-        &self.bytes[4..4 + 4 * self.postings_block_count]
+        let len = 4 * self.postings_block_count.saturating_sub(1);
+        &self.bytes[4..4 + len]
     }
 
     /// The total count of positions preceding postings block `i`'s first
     /// document (`spec/positions.md` §5) — an `O(1)` indexed read, no
-    /// decode.
+    /// decode. Index `0` is always `0` by definition (RFC 0009 Design §1)
+    /// and is never stored; every other index reads from the region.
     pub fn postings_block_pos_prefix(&self, block_idx: usize) -> u32 {
+        if block_idx == 0 {
+            return 0;
+        }
         let region = self.postings_block_pos_prefix_region();
-        u32::from_le_bytes(region[block_idx * 4..block_idx * 4 + 4].try_into().unwrap())
+        let start = (block_idx - 1) * 4;
+        u32::from_le_bytes(region[start..start + 4].try_into().unwrap())
     }
 
     fn pos_widths_region(&self) -> &'a [u8] {
-        let start = 4 + 4 * self.postings_block_count;
+        let start = 4 + 4 * self.postings_block_count.saturating_sub(1);
         &self.bytes[start..start + self.position_block_count]
     }
 
     fn stream(&self) -> &'a [u8] {
-        &self.bytes[4 + 4 * self.postings_block_count + self.position_block_count..]
+        &self.bytes[4 + 4 * self.postings_block_count.saturating_sub(1) + self.position_block_count..]
     }
 
     fn packed_len(&self, block_idx: usize, width: u8) -> usize {

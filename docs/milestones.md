@@ -273,6 +273,27 @@ ledger.md` has the full numbers, including the honest caveat that MinIO
 on `localhost` confirms the GET-count half of the claim, not the
 real-network tail-latency figure `CLAUDE.md` §7 still lists as open.
 
+**RFC 0009 narrows the total-size gap the previous paragraph names, with
+real, confirmed numbers, not just a predicted fix.** Two per-term
+fixed-overhead reductions (`rfcs/0009-per-term-overhead-reduction.md`,
+Approved and implemented): omitting `postings_block_pos_prefix[0]` (always
+`0` by construction, stored anyway until now) shrinks every term's
+positions blob by 4 bytes unconditionally; a new 16-byte short term-info
+record removes `TermInfo`'s 12-byte-per-term dead weight for fields that
+opt out of positions entirely (registered but not yet exercised — `field.rs`
+still builds every field with positions). Re-running the same real MS
+MARCO comparison confirmed the first fix's predicted numbers exactly:
+positions shrank from `620,503` to `493,359` bytes at 10,003 documents and
+from `4,678,608` to `4,135,112` at 100,476, narrowing the positions-blob
+gap against tantivy's real `.pos` from `33.2%` to `5.9%`, and from `16.8%`
+to `3.3%`, respectively — and the total-segment gap from `22.5%` to
+`16.0%`, and from `9.0%` to `5.1%`. The gap is smaller, real, and
+honestly reported either way; `docs/ledger.md` has the full account,
+including the one real design cost this RFC accepted: its fix to an
+already-shipped, already-golden-filed blob layout is a breaking, in-place
+change, not an additive one — RFC 0008's original positions golden file
+is retired, not kept alongside the new one.
+
 **M2 — Vectors, cluster-first.** Flat vector blob; RaBitQ codecs with kernel-per-
 bit-width, the rotation descriptor field, and the rotation-provenance mechanism
 (invariant 11); the **cluster-family cold-native blob** (navigation tier + wholesale

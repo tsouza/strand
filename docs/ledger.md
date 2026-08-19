@@ -424,6 +424,35 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   precisely, matching M0's own already-recorded caveat that the real-network
   tail-latency figure remains a separate, open measurement
   (`CLAUDE.md` §7's placeholder).
+- **RFC 0009 (per-term overhead reduction) implemented — resolved
+  2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
+  and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1
+  (`postings_block_pos_prefix[0]` omission) is a breaking, in-place change
+  to the positions blob's already-shipped layout (`blob_type_id = 3`
+  unchanged, but its bytes now mean something different) — RFC 0008's
+  original 12-byte worked example and golden file are retired, replaced by
+  RFC 0009's 8-byte ones (`conformance/positions/toy-positions.bin`).
+  Fix 2 (the 16-byte short term-info record) is additive — a new
+  `blob_type_id = 4`, `ShortTermInfoStore`, `TermInfo::encode_short`/
+  `decode_short`, and `build_term_dictionary_short`, alongside the
+  untouched 28-byte record. Both worked examples confirmed byte-exact
+  against new golden files and property-tested (`crates/strand-lexical/
+  tests/positions_worked_example.rs`, `positions_round_trip.rs` — updated
+  in place for the new layout; `short_term_info_worked_example.rs`,
+  `short_term_info_round_trip.rs` — new). **Fix 1's real-world payoff
+  confirmed exactly, not just predicted**: re-running `bench/src/
+  field_end_to_end.rs` against the same real MS MARCO samples the RFC's
+  own napkin math used, the positions blob shrank from `620,503` to
+  `493,359` bytes at 10,003 documents and from `4,678,608` to `4,135,112`
+  at 100,476 — both matching the RFC's predicted figures to the byte
+  (`bench/results/field-end-to-end-10003.json`, `-100476.json`,
+  regenerated post-implementation, superseding the pre-fix numbers the RFC
+  itself cites as history). Fix 2 remains unexercised by
+  `crates/strand-lexical/src/field.rs` (still builds every field with
+  positions unconditionally, per its own doc comment) — the format
+  capability is real and tested in isolation, but no committed comparison
+  number reflects it yet, exactly as RFC 0009 itself said would be true at
+  approval time.
 - **RFC 0008 (positions) implemented — resolved 2026-08-19.**
   `crates/strand-lexical/src/positions.rs` builds and reads the positions
   blob exactly as `spec/positions.md` specifies: `build_positions` takes a
