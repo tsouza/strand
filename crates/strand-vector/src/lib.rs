@@ -26,5 +26,6 @@ pub mod navigation;
 pub mod orthogonal;
 pub mod posting_list;
 pub mod quantize;
+pub mod quantize_ex;
 pub mod query;
 pub mod rotate;

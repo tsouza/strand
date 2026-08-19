@@ -43,7 +43,7 @@ fn scans_a_real_cluster_and_ranks_the_nearest_neighbor_correctly() {
     let padded_dims = descriptor::padded_dims_for(dims) as usize;
 
     let mut rng = StdRng::seed_from_u64(4_242);
-    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, &mut rng);
+    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, 1, &mut rng);
     let reader = DescriptorReader::new(&descriptor_bytes).unwrap();
     let flip = reader.rotation_payload();
 
@@ -92,6 +92,7 @@ fn scans_a_real_cluster_and_ranks_the_nearest_neighbor_correctly() {
         f_rescale: &f_rescale,
         f_error: &f_error,
         row_ids: &row_ids,
+        ex_region: None,
     };
     let (blob, dirs) = build_posting_lists(&[input], padded_dims);
 
@@ -99,7 +100,7 @@ fn scans_a_real_cluster_and_ranks_the_nearest_neighbor_correctly() {
     // already-fetched cluster region — no further rotation, no further
     // I/O, matching RFC 0010 Design §6.
     let rotated_query = rotate_fht_kac(&raw_query, padded_dims, flip);
-    let query_factors = QueryFactors::new(&rotated_query);
+    let query_factors = QueryFactors::new(&rotated_query, 1);
 
     let posting_reader = PostingListReader::new(&blob);
     let cluster_dir = &dirs[0];
@@ -112,7 +113,7 @@ fn scans_a_real_cluster_and_ranks_the_nearest_neighbor_correctly() {
         }
     );
     let region = posting_reader
-        .read_cluster(cluster_dir, padded_dims)
+        .read_cluster(cluster_dir, padded_dims, 0)
         .unwrap();
 
     let cols = padded_dims / 8;

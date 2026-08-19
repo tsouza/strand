@@ -50,7 +50,7 @@ proptest! {
         let metric = if use_ip { MetricType::InnerProduct } else { MetricType::L2 };
 
         let quantized = quantize_one_bit(&data, &centroid, metric);
-        let qf = QueryFactors::new(&query);
+        let qf = QueryFactors::new(&query, 1);
         let est = estimate_distance(&quantized, &query, &centroid, &qf, metric);
 
         prop_assert!(est.estimate.is_finite());
@@ -92,7 +92,7 @@ fn true_distance_falls_within_bounds_for_the_large_majority_of_random_cases() {
             continue;
         }
 
-        let qf = QueryFactors::new(&query);
+        let qf = QueryFactors::new(&query, 1);
 
         let q_l2 = quantize_one_bit(&data, &centroid, MetricType::L2);
         let est_l2 = estimate_distance(&q_l2, &query, &centroid, &qf, MetricType::L2);

@@ -421,10 +421,30 @@ against the three properties that define a valid QR decomposition directly (`Q`
 orthogonal, `R` upper triangular, `QR` reconstructs the input), at sizes up to a real
 768-dimension embedding scale. `tests/matrix_rotator_pipeline.rs` carries a freshly
 generated (not caller-supplied) matrix through descriptor serialization, rotation
-application, quantization, and the posting-list wire format, bit-exact. **Still
-deliberately out of scope**: the multi-bit Extended-RaBitQ path; deletion-vector
-filtering and reranking against the flat-vector blob (Design §6 steps 4–5). All real,
-separate, unwritten work.
+application, quantization, and the posting-list wire format, bit-exact. **Multi-bit
+Extended-RaBitQ (RaBitQ+) is registered and implemented too**, via a follow-on RFC 0011
+(`rfcs/0011-multibit-extended-rabitq.md`) — unlike every other module this session, this
+one genuinely needed a new RFC before any code, since RFC 0010's own Non-goals required
+it and `docs/data-structures.md` already commits the multi-bit path to a different
+kernel (classical scalar-quantization distance, not FastScan LUT). `bit_width` widens
+from a fixed `1` to `1..=8`; a new ex-code region (`spec/vectors.md` §4.1) is appended
+inside the existing cluster posting-list blob, packed STRAND's own plain,
+bit-contiguous way rather than the reference's AVX-only SIMD-shuffled layout (no
+portable scalar source exists for it — adopting it verbatim would have repeated the
+Optane-era formats' mistake, `docs/lineage.md`). `quantize_ex.rs` (new) implements the
+encode side (`best_rescale_factor`'s greedy search plus the RaBitQ+ factor formulas),
+cross-checked against a compiled C++ reimplementation; `estimate.rs` gained
+`estimate_distance_boosted`; `query.rs`'s `scan_selected_clusters` uses the boosted
+estimate whenever `ex_bits > 0`. The RFC's own adversarial review caught a real
+Critical bug before any code existed — an unaddressed zero-residual `NaN` case, the
+same class of bug the 1-bit path's own ACPR found — fixed with the same degenerate-value
+substitution the 1-bit path already uses. Verified against the real property the
+feature exists for: on a real 50-vector cluster, the boosted estimate's mean-squared
+error against true (unquantized) distance measurably beats the 1-bit-only estimate's,
+confirming the extra bytes buy real accuracy. **Still deliberately out of scope**:
+`faster_quantize_ex`'s construction-time speedup (unregistered, real writer-side
+optimization); deletion-vector filtering and reranking against the flat-vector blob
+(Design §6 steps 4–5). All real, separate, unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,

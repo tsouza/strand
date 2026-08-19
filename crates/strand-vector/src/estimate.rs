@@ -52,8 +52,19 @@
 //! matching — **the true distance fell inside `[lb, ub]` in both cases**,
 //! the actual theoretical guarantee this estimator exists to provide, not
 //! merely "produces a similar-looking number."
+//!
+//! **Multi-bit boosting (RFC 0011, `rfcs/0011-multibit-extended-
+//! rabitq.md`).** [`estimate_distance_boosted`] extends the estimate above
+//! with a cluster's ex-code region (`crate::quantize_ex`), when present,
+//! for a tighter bound — the query-side half of `split_distance_boosting`
+//! (`references/rabitq-library-multibit-quantization-source.md`),
+//! reusing this module's own `code_query_ip` for the boosted formula's
+//! `ip_x0_qr` term and the 1-bit region's already-stored `f_error` for the
+//! boosted error bound (no separate `f_error_ex` is ever stored,
+//! `spec/vectors.md` §4.1).
 
 use crate::quantize::{MetricType, QuantizedVector};
+use crate::quantize_ex::ExQuantizedVector;
 
 /// `c_1 = -((1 << 1) - 1) / 2`, the same bit-width-1 constant
 /// `crate::quantize`'s `cb` specializes — shared between the encode and
@@ -67,15 +78,32 @@ pub struct QueryFactors {
     /// `c_1 * sum(rotated_query)` — independent of any particular
     /// database vector or centroid.
     g_k1x_sumq: f32,
+    /// `c_b * sum(rotated_query)`, where `c_b = -((1 << bit_width) - 1) /
+    /// 2` — the `bit_width`-generalized constant `SplitBatchQuery`/
+    /// `SplitSingleQuery` precompute unconditionally (`references/
+    /// rabitq-library-multibit-quantization-source.md`), read only by
+    /// [`estimate_distance_boosted`]. At `bit_width = 1` this is
+    /// numerically identical to `g_k1x_sumq` and simply unused.
+    g_kbx_sumq: f32,
 }
 
 impl QueryFactors {
     /// Precomputes the query-side factors that don't depend on which
     /// centroid or database vector is being compared against.
-    pub fn new(rotated_query: &[f32]) -> Self {
+    ///
+    /// `bit_width` MUST match the descriptor's own `bit_width` (`1` for a
+    /// field with no ex-code region).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bit_width` is not in `1..=8`.
+    pub fn new(rotated_query: &[f32], bit_width: u8) -> Self {
+        assert!((1..=8).contains(&bit_width), "bit_width must be in 1..=8");
         let sumq: f32 = rotated_query.iter().sum();
+        let c_b = -((1i32 << bit_width) - 1) as f32 / 2.0;
         QueryFactors {
             g_k1x_sumq: sumq * C_1,
+            g_kbx_sumq: sumq * c_b,
         }
     }
 }
@@ -169,6 +197,94 @@ pub fn estimate_distance(
     }
 }
 
+/// The dot product between an ex-code region's per-dimension unpacked
+/// integer codes and the rotated query — `split_distance_boosting`'s
+/// `ip_func_(rotated_query, ex_code, padded_dim)` (`references/
+/// rabitq-library-multibit-quantization-source.md`), a plain dot product
+/// over the codes read as integers, no bit-unpacking (unlike
+/// `code_query_ip`, which does unpack — the ex-code region is stored as
+/// per-dimension integers, not individual bits, `spec/vectors.md` §4.1).
+///
+/// # Panics
+///
+/// Panics if `ex_code.len() != rotated_query.len()`.
+fn ex_code_query_ip(ex_code: &[u8], rotated_query: &[f32]) -> f32 {
+    assert_eq!(
+        ex_code.len(),
+        rotated_query.len(),
+        "ex_code and rotated_query must have equal length"
+    );
+    ex_code
+        .iter()
+        .zip(rotated_query)
+        .map(|(&c, &q)| c as f32 * q)
+        .sum()
+}
+
+/// Estimates the distance between an already-rotated `query` and one
+/// database vector, boosted by that vector's ex-code region
+/// (`crate::quantize_ex::quantize_ex`) on top of its 1-bit `quantized`
+/// code and factors — RFC 0011 Design §4's `ex_dist` formula, the
+/// query-side half of `split_distance_boosting` (`references/
+/// rabitq-library-multibit-quantization-source.md`). Reuses `quantized.
+/// f_error` for the error bound (scaled by `1 / 2^ex_bits`); no separate
+/// `f_error_ex` is ever stored (`spec/vectors.md` §4.1).
+///
+/// `query_factors` MUST have been constructed with `bit_width = ex_bits +
+/// 1` (`QueryFactors::new`) — the same `bit_width` as `ex.ex_code`'s
+/// descriptor.
+///
+/// # Panics
+///
+/// Panics if `query.len() != centroid.len()`, if `ex.ex_code.len() !=
+/// query.len()`, if `ex_bits` is not in `1..=7`, or if
+/// `quantized.compact_code.len() * 8 < query.len()`.
+pub fn estimate_distance_boosted(
+    quantized: &QuantizedVector,
+    ex: &ExQuantizedVector,
+    ex_bits: u8,
+    query: &[f32],
+    centroid: &[f32],
+    query_factors: &QueryFactors,
+    metric: MetricType,
+) -> DistanceEstimate {
+    assert_eq!(
+        query.len(),
+        centroid.len(),
+        "query and centroid must have equal length"
+    );
+    assert!((1..=7).contains(&ex_bits), "ex_bits must be in 1..=7");
+
+    let qc_residual_norm_sqr: f32 = query
+        .iter()
+        .zip(centroid)
+        .map(|(&q, &c)| (q - c) * (q - c))
+        .sum();
+    let qc_residual_norm = qc_residual_norm_sqr.sqrt();
+
+    let (g_add, g_error) = match metric {
+        MetricType::L2 => (qc_residual_norm_sqr, qc_residual_norm),
+        MetricType::InnerProduct => {
+            let dot_qc: f32 = query.iter().zip(centroid).map(|(&q, &c)| q * c).sum();
+            (-dot_qc, qc_residual_norm)
+        }
+    };
+
+    let ip_x0_qr = code_query_ip(&quantized.compact_code, query);
+    let ex_ip = ex_code_query_ip(&ex.ex_code, query);
+    let scale = (1u32 << ex_bits) as f32;
+    let estimate = ex.f_add_ex
+        + g_add
+        + ex.f_rescale_ex * (scale * ip_x0_qr + ex_ip + query_factors.g_kbx_sumq);
+    let bound = quantized.f_error * g_error / scale;
+
+    DistanceEstimate {
+        estimate,
+        lower_bound: estimate - bound,
+        upper_bound: estimate + bound,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,7 +325,7 @@ mod tests {
             quantized.f_error
         );
 
-        let qf = QueryFactors::new(&query);
+        let qf = QueryFactors::new(&query, 1);
         let est = estimate_distance(&quantized, &query, &centroid, &qf, MetricType::L2);
         assert!(
             (est.estimate - 8.331_818).abs() < 1e-2,
@@ -266,7 +382,7 @@ mod tests {
             quantized.f_error
         );
 
-        let qf = QueryFactors::new(&query);
+        let qf = QueryFactors::new(&query, 1);
         let est = estimate_distance(&quantized, &query, &centroid, &qf, MetricType::InnerProduct);
         assert!(
             (est.estimate - (-273.164_7)).abs() < 1e-1,

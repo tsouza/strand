@@ -15,15 +15,25 @@
 //! The quantization descriptor blob for the vector family: dimensionality,
 //! distance metric, bit width, and rotation provenance. Layout is
 //! normative per `spec/vectors.md` §2, approved by RFC 0010
-//! (`rfcs/0010-vector-blob-cluster-family.md`).
+//! (`rfcs/0010-vector-blob-cluster-family.md`) and extended by RFC 0011
+//! (`rfcs/0011-multibit-extended-rabitq.md`) to widen `bit_width` from a
+//! fixed `1` to the range `1..=8`.
 
 use rand::RngCore;
 
 /// Fixed header length; `rotation_payload` follows.
 pub const HEADER_LEN: usize = 16;
 
-/// v0.1 registers 1-bit RaBitQ only (`spec/vectors.md`'s own opening line).
+/// The original v0.1 1-bit-only path (`spec/vectors.md`'s original
+/// registration, RFC 0010). `bit_width` values in `2..=8` additionally
+/// register an ex-code region (RFC 0011); values above `8` remain
+/// unregistered.
 pub const BIT_WIDTH: u8 = 1;
+
+/// `bit_width`'s registered range: `1` (RFC 0010, no ex-code region) through
+/// `8` (RFC 0011, `ex_bits = bit_width - 1` extra magnitude bits per
+/// dimension).
+pub const MAX_BIT_WIDTH: u8 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DistanceMetric {
@@ -80,10 +90,12 @@ fn rotation_payload_len(dims: u32, padded_dims: u32, rotator_type: RotatorType) 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode(
     dims: u32,
     padded_dims: u32,
     distance_metric: DistanceMetric,
+    bit_width: u8,
     rotator_type: RotatorType,
     rotation_payload: &[u8],
 ) -> Vec<u8> {
@@ -93,11 +105,15 @@ fn encode(
         expected_len,
         "rotation_payload must be exactly the formula-computed length"
     );
+    assert!(
+        (1..=MAX_BIT_WIDTH).contains(&bit_width),
+        "bit_width must be in 1..={MAX_BIT_WIDTH}"
+    );
     let mut out = Vec::with_capacity(HEADER_LEN + rotation_payload.len());
     out.extend_from_slice(&dims.to_le_bytes());
     out.extend_from_slice(&padded_dims.to_le_bytes());
     out.push(distance_metric as u8);
-    out.push(BIT_WIDTH);
+    out.push(bit_width);
     out.push(rotator_type as u8);
     out.push(0); // reserved
     out.extend_from_slice(&(rotation_payload.len() as u32).to_le_bytes());
@@ -109,9 +125,14 @@ fn encode(
 /// registered default, `spec/vectors.md` §2.1): `padded_dims` is `dims`
 /// rounded up to a multiple of 64, and the rotation payload is
 /// `4 * padded_dims / 8` real random sign bytes, drawn from `rng`.
+///
+/// # Panics
+///
+/// Panics if `bit_width` is not in `1..=8` (RFC 0011).
 pub fn build_fht_kac(
     dims: u32,
     distance_metric: DistanceMetric,
+    bit_width: u8,
     rng: &mut impl RngCore,
 ) -> Vec<u8> {
     let padded_dims = padded_dims_for(dims);
@@ -122,6 +143,7 @@ pub fn build_fht_kac(
         dims,
         padded_dims,
         distance_metric,
+        bit_width,
         RotatorType::FhtKac,
         &rotation_payload,
     )
@@ -134,10 +156,12 @@ pub fn build_fht_kac(
 ///
 /// # Panics
 ///
-/// Panics if `rotation_payload.len() != 4 * padded_dims_for(dims) / 8`.
+/// Panics if `rotation_payload.len() != 4 * padded_dims_for(dims) / 8`, or
+/// if `bit_width` is not in `1..=8` (RFC 0011).
 pub fn build_fht_kac_with_payload(
     dims: u32,
     distance_metric: DistanceMetric,
+    bit_width: u8,
     rotation_payload: &[u8],
 ) -> Vec<u8> {
     let padded_dims = padded_dims_for(dims);
@@ -145,6 +169,7 @@ pub fn build_fht_kac_with_payload(
         dims,
         padded_dims,
         distance_metric,
+        bit_width,
         RotatorType::FhtKac,
         rotation_payload,
     )
@@ -158,10 +183,12 @@ pub fn build_fht_kac_with_payload(
 ///
 /// # Panics
 ///
-/// Panics if `rotation_payload.len() != dims * padded_dims_for(dims) * 4`.
+/// Panics if `rotation_payload.len() != dims * padded_dims_for(dims) * 4`,
+/// or if `bit_width` is not in `1..=8` (RFC 0011).
 pub fn build_matrix(
     dims: u32,
     distance_metric: DistanceMetric,
+    bit_width: u8,
     rotation_payload: &[u8],
 ) -> Vec<u8> {
     let padded_dims = padded_dims_for(dims);
@@ -169,6 +196,7 @@ pub fn build_matrix(
         dims,
         padded_dims,
         distance_metric,
+        bit_width,
         RotatorType::Matrix,
         rotation_payload,
     )
@@ -179,9 +207,14 @@ pub fn build_matrix(
 /// random Gaussian sampling plus Householder QR orthogonalization,
 /// matching the reference implementation's own algorithm), serialized in
 /// one call — the `MatrixRotator` counterpart to [`build_fht_kac`].
+///
+/// # Panics
+///
+/// Panics if `bit_width` is not in `1..=8` (RFC 0011).
 pub fn build_matrix_generated(
     dims: u32,
     distance_metric: DistanceMetric,
+    bit_width: u8,
     rng: &mut impl rand::Rng,
 ) -> Vec<u8> {
     let padded_dims = padded_dims_for(dims);
@@ -195,6 +228,7 @@ pub fn build_matrix_generated(
         dims,
         padded_dims,
         distance_metric,
+        bit_width,
         RotatorType::Matrix,
         &payload_bytes,
     )
@@ -222,7 +256,7 @@ impl<'a> DescriptorReader<'a> {
         }
         let reader = DescriptorReader { bytes };
         let bit_width = reader.bit_width();
-        if bit_width != BIT_WIDTH {
+        if !(1..=MAX_BIT_WIDTH).contains(&bit_width) {
             return Err(DescriptorError::UnsupportedBitWidth(bit_width));
         }
         DistanceMetric::from_u8(bytes[8])
@@ -279,7 +313,7 @@ mod tests {
     #[test]
     fn fht_kac_round_trips() {
         let mut rng = StdRng::seed_from_u64(42);
-        let bytes = build_fht_kac(768, DistanceMetric::L2, &mut rng);
+        let bytes = build_fht_kac(768, DistanceMetric::L2, 1, &mut rng);
         let reader = DescriptorReader::new(&bytes).expect("valid descriptor");
         assert_eq!(reader.dims(), 768);
         assert_eq!(reader.padded_dims(), 768);
@@ -303,7 +337,7 @@ mod tests {
         let dims = 4u32;
         let padded_dims = padded_dims_for(dims);
         let payload = vec![0u8; (dims * padded_dims * 4) as usize];
-        let bytes = build_matrix(dims, DistanceMetric::Cosine, &payload);
+        let bytes = build_matrix(dims, DistanceMetric::Cosine, 1, &payload);
         let reader = DescriptorReader::new(&bytes).expect("valid descriptor");
         assert_eq!(reader.rotator_type(), RotatorType::Matrix);
         assert_eq!(reader.distance_metric(), DistanceMetric::Cosine);
@@ -315,7 +349,7 @@ mod tests {
         let dims = 5u32;
         let padded_dims = padded_dims_for(dims);
         let mut rng = StdRng::seed_from_u64(9);
-        let bytes = build_matrix_generated(dims, DistanceMetric::L2, &mut rng);
+        let bytes = build_matrix_generated(dims, DistanceMetric::L2, 1, &mut rng);
 
         let reader = DescriptorReader::new(&bytes).expect("valid descriptor");
         assert_eq!(reader.rotator_type(), RotatorType::Matrix);
@@ -356,7 +390,7 @@ mod tests {
     fn rejects_a_mismatched_rotation_payload_length() {
         let mut bytes = {
             let mut rng = StdRng::seed_from_u64(1);
-            build_fht_kac(64, DistanceMetric::L2, &mut rng)
+            build_fht_kac(64, DistanceMetric::L2, 1, &mut rng)
         };
         // Corrupt the declared length field (offset 12..16).
         bytes[12] = 0xFF;

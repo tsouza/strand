@@ -77,7 +77,7 @@ fn build_real_index(
     }
 
     let mut rng2 = StdRng::seed_from_u64(seed + 1);
-    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, &mut rng2);
+    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, 1, &mut rng2);
     let flip = DescriptorReader::new(&descriptor_bytes)
         .unwrap()
         .rotation_payload()
@@ -122,6 +122,7 @@ fn build_real_index(
             f_rescale,
             f_error,
             row_ids,
+            ex_region: None,
         })
         .collect();
     let (posting_list_bytes, dirs) = build_posting_lists(&cluster_inputs, padded_dims);
@@ -172,7 +173,7 @@ fn a_small_bounded_nprobe_finds_the_nearest_neighbor_when_the_query_is_near_its_
     let navigation = NavigationTierReader::new(&index.navigation_bytes, index.padded_dims).unwrap();
     let posting_reader = PostingListReader::new(&index.posting_list_bytes);
     let rotated_query = rotate_fht_kac(&raw_query, index.padded_dims, &index.flip);
-    let query_factors = QueryFactors::new(&rotated_query);
+    let query_factors = QueryFactors::new(&rotated_query, 1);
 
     // nprobe well below num_clusters: a genuinely bounded query.
     let nprobe = 3.min(index.num_clusters);
@@ -187,6 +188,7 @@ fn a_small_bounded_nprobe_finds_the_nearest_neighbor_when_the_query_is_near_its_
         &query_factors,
         MetricType::L2,
         index.padded_dims,
+        0,
     )
     .unwrap();
     assert!(!candidates.is_empty());
@@ -209,7 +211,7 @@ fn nprobe_covering_every_cluster_matches_an_exhaustive_scan() {
     let navigation = NavigationTierReader::new(&index.navigation_bytes, index.padded_dims).unwrap();
     let posting_reader = PostingListReader::new(&index.posting_list_bytes);
     let rotated_query = rotate_fht_kac(&index.raw_vectors[0], index.padded_dims, &index.flip);
-    let query_factors = QueryFactors::new(&rotated_query);
+    let query_factors = QueryFactors::new(&rotated_query, 1);
 
     let all_clusters: Vec<usize> = (0..index.num_clusters).collect();
     let exhaustive = scan_selected_clusters(
@@ -220,6 +222,7 @@ fn nprobe_covering_every_cluster_matches_an_exhaustive_scan() {
         &query_factors,
         MetricType::L2,
         index.padded_dims,
+        0,
     )
     .unwrap();
 
@@ -237,6 +240,7 @@ fn nprobe_covering_every_cluster_matches_an_exhaustive_scan() {
         &query_factors,
         MetricType::L2,
         index.padded_dims,
+        0,
     )
     .unwrap();
 
@@ -304,7 +308,7 @@ fn recall_at_the_true_nearest_neighbor_is_monotonically_non_decreasing_in_nprobe
         let true_nearest = exact[0].0 as u64;
 
         let rotated_query = rotate_fht_kac(&raw_query, index.padded_dims, &index.flip);
-        let query_factors = QueryFactors::new(&rotated_query);
+        let query_factors = QueryFactors::new(&rotated_query, 1);
 
         let mut found_once = false;
         for nprobe in 1..=index.num_clusters {
@@ -318,6 +322,7 @@ fn recall_at_the_true_nearest_neighbor_is_monotonically_non_decreasing_in_nprobe
                 &query_factors,
                 MetricType::L2,
                 index.padded_dims,
+                0,
             )
             .unwrap();
             let found = candidates.iter().any(|c| c.row_id == true_nearest);

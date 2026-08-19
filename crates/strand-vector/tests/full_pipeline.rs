@@ -44,7 +44,7 @@ fn raw_vectors_flow_through_rotation_quantization_and_the_wire_format() {
 
     // A real quantization descriptor with a real random rotation.
     let mut rng = StdRng::seed_from_u64(20_260_819);
-    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, &mut rng);
+    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, 1, &mut rng);
     let reader = DescriptorReader::new(&descriptor_bytes).expect("valid descriptor");
     assert_eq!(reader.dims(), dims);
     assert_eq!(reader.padded_dims() as usize, padded_dims);
@@ -84,6 +84,7 @@ fn raw_vectors_flow_through_rotation_quantization_and_the_wire_format() {
         f_rescale: &f_rescale,
         f_error: &f_error,
         row_ids: &row_ids,
+        ex_region: None,
     };
     let (blob, dirs) = build_posting_lists(&[input], padded_dims);
     assert_eq!(dirs.len(), 1);
@@ -98,7 +99,7 @@ fn raw_vectors_flow_through_rotation_quantization_and_the_wire_format() {
 
     let posting_reader = PostingListReader::new(&blob);
     let region = posting_reader
-        .read_cluster(&dirs[0], padded_dims)
+        .read_cluster(&dirs[0], padded_dims, 0)
         .expect("valid cluster region");
 
     assert_eq!(region.compact_codes, all_compact_codes);

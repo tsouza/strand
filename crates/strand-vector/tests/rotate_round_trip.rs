@@ -46,7 +46,7 @@ proptest! {
         let padded_dims = padded_dims_for(dims as u32) as usize;
 
         let mut rng = StdRng::seed_from_u64(seed);
-        let descriptor_bytes = descriptor::build_fht_kac(dims as u32, DistanceMetric::L2, &mut rng);
+        let descriptor_bytes = descriptor::build_fht_kac(dims as u32, DistanceMetric::L2, 1, &mut rng);
         let reader = descriptor::DescriptorReader::new(&descriptor_bytes).unwrap();
 
         let rotated = rotate_fht_kac(data, padded_dims, reader.rotation_payload());

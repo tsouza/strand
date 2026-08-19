@@ -60,7 +60,7 @@ fn assembles_and_reopens_all_four_vector_blob_types() {
 
     // 1. Quantization descriptor.
     let mut rng = StdRng::seed_from_u64(7);
-    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, &mut rng);
+    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, 1, &mut rng);
 
     // 2. Cluster navigation tier: 2 clusters.
     let centroid0 = vec![1.0f32; padded_dims];
@@ -98,6 +98,7 @@ fn assembles_and_reopens_all_four_vector_blob_types() {
             f_rescale: &c0_factors,
             f_error: &c0_factors,
             row_ids: &c0_ids,
+            ex_region: None,
         },
         ClusterInput {
             compact_codes: &c1_codes,
@@ -105,6 +106,7 @@ fn assembles_and_reopens_all_four_vector_blob_types() {
             f_rescale: &c1_factors,
             f_error: &c1_factors,
             row_ids: &c1_ids,
+            ex_region: None,
         },
     ];
     let (posting_list_bytes, built_dirs) = build_posting_lists(&clusters, padded_dims);
@@ -205,7 +207,7 @@ fn assembles_and_reopens_all_four_vector_blob_types() {
     for cluster_idx in 0..navigation_reader.num_clusters() {
         let dir = navigation_reader.cluster_dir(cluster_idx);
         let region = posting_list_reader
-            .read_cluster(&dir, padded_dims)
+            .read_cluster(&dir, padded_dims, 0)
             .expect("valid cluster region");
         if cluster_idx == 0 {
             assert_eq!(region.compact_codes, c0_codes);

@@ -99,6 +99,7 @@ proptest! {
             f_rescale: &f_rescale,
             f_error: &f_error,
             row_ids: &row_ids,
+            ex_region: None,
         };
         let (blob, dirs) = build_posting_lists(&[input], padded_dims);
         prop_assert_eq!(dirs.len(), 1);
@@ -109,7 +110,7 @@ proptest! {
         });
 
         let reader = PostingListReader::new(&blob);
-        let region = reader.read_cluster(&dirs[0], padded_dims).unwrap();
+        let region = reader.read_cluster(&dirs[0], padded_dims, 0).unwrap();
 
         prop_assert_eq!(region.compact_codes, compact_codes);
         prop_assert_eq!(

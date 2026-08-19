@@ -121,7 +121,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
 
     // 2. A real quantization descriptor + rotation.
     let mut rng2 = StdRng::seed_from_u64(100);
-    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, &mut rng2);
+    let descriptor_bytes = descriptor::build_fht_kac(dims, DistanceMetric::L2, 1, &mut rng2);
     let reader = DescriptorReader::new(&descriptor_bytes).unwrap();
     let flip = reader.rotation_payload();
 
@@ -165,6 +165,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
             f_rescale,
             f_error,
             row_ids,
+            ex_region: None,
         })
         .collect();
     let (posting_list_bytes, dirs) = build_posting_lists(&cluster_inputs, padded_dims);
@@ -238,7 +239,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
     let posting_reader = PostingListReader::new(&segment_bytes[offset..offset + length]);
 
     let rotated_query = rotate_fht_kac(&raw_query, padded_dims, flip);
-    let query_factors = QueryFactors::new(&rotated_query);
+    let query_factors = QueryFactors::new(&rotated_query, 1);
 
     // nprobe = all clusters, for this test's own exhaustive correctness check.
     let mut ranked: Vec<(u64, f32)> = Vec::new();
@@ -247,7 +248,7 @@ fn builds_a_real_index_from_raw_vectors_and_answers_a_query_correctly() {
         if dir.vector_count == 0 {
             continue;
         }
-        let region = posting_reader.read_cluster(&dir, padded_dims).unwrap();
+        let region = posting_reader.read_cluster(&dir, padded_dims, 0).unwrap();
         let cols = padded_dims / 8;
         let centroid = navigation_reader.centroid(c);
         for i in 0..dir.vector_count as usize {

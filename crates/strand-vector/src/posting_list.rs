@@ -14,20 +14,24 @@
 
 //! The cluster posting-list blob for the vector family: per-cluster
 //! FastScan-batched 1-bit codes plus distance-correction factors,
-//! immediately followed by that cluster's row-id array. Layout is
-//! normative per `spec/vectors.md` §4, approved by RFC 0010
-//! (`rfcs/0010-vector-blob-cluster-family.md`).
+//! optionally followed by a multi-bit ex-code region, immediately followed
+//! by that cluster's row-id array. Layout is normative per `spec/
+//! vectors.md` §4, approved by RFC 0010
+//! (`rfcs/0010-vector-blob-cluster-family.md`) and extended by RFC 0011
+//! (`rfcs/0011-multibit-extended-rabitq.md`, `spec/vectors.md` §4.1) to
+//! register the ex-code region.
 //!
 //! Quantization itself (rotation application, sign-based bit selection,
-//! and the `f_add`/`f_rescale`/`f_error` factor formulas) is RaBitQ's own
-//! algorithm, out of this container-layer crate's scope (RFC 0010 Design
-//! §4) — this module packs and unpacks already-quantized codes and
-//! factors, however they were produced.
+//! and the `f_add`/`f_rescale`/`f_error`/`f_add_ex`/`f_rescale_ex` factor
+//! formulas) is RaBitQ's own algorithm, out of this container-layer
+//! crate's scope (RFC 0010 Design §4) — this module packs and unpacks
+//! already-quantized codes and factors, however they were produced.
 
 use crate::fastscan;
 use crate::navigation::ClusterDirEntry;
 
 const FACTORS_PER_BATCH_LEN: usize = 3 * fastscan::BATCH_SIZE * 4; // f_add, f_rescale, f_error
+const EX_FACTORS_LEN: usize = 8; // f_add_ex, f_rescale_ex (spec/vectors.md §4.1: no f_error_ex)
 
 /// Byte length of one FastScan batch's code region plus its three factor
 /// arrays (`BatchDataMap::data_bytes`, `spec/vectors.md` §4).
@@ -35,23 +39,114 @@ pub fn batch_data_len(padded_dims: usize) -> usize {
     padded_dims * fastscan::BATCH_SIZE / 8 + FACTORS_PER_BATCH_LEN
 }
 
-/// Byte length of a cluster's quantized-code region for `vector_count`
-/// vectors at `padded_dims` (`spec/vectors.md` §4's `code_bytes_length`).
-pub fn code_bytes_length_for(vector_count: usize, padded_dims: usize) -> usize {
+/// Byte length of one vector's ex-code region entry: `padded_dims *
+/// ex_bits / 8` packed code bytes plus `f_add_ex`/`f_rescale_ex`
+/// (`spec/vectors.md` §4.1). `ex_bits = 0` (the `bit_width = 1` case, no
+/// ex-code region) yields `0`.
+pub fn ex_entry_len(padded_dims: usize, ex_bits: u8) -> usize {
+    if ex_bits == 0 {
+        0
+    } else {
+        padded_dims * ex_bits as usize / 8 + EX_FACTORS_LEN
+    }
+}
+
+/// Byte length of a cluster's quantized-code region (1-bit region plus,
+/// when `ex_bits > 0`, the ex-code region) for `vector_count` vectors at
+/// `padded_dims` (`spec/vectors.md` §4's `code_bytes_length`).
+pub fn code_bytes_length_for(vector_count: usize, padded_dims: usize, ex_bits: u8) -> usize {
     vector_count.div_ceil(fastscan::BATCH_SIZE) * batch_data_len(padded_dims)
+        + vector_count * ex_entry_len(padded_dims, ex_bits)
+}
+
+/// Packs `dim` per-dimension `ex_bits`-wide unsigned integer codes (each a
+/// `u8` in range `0..2^ex_bits`) into a bit-contiguous stream, MSB-first
+/// within each byte, dimensions in ascending order (`spec/vectors.md`
+/// §4.1 — a STRAND-defined convention, matching `quantize.rs`'s
+/// `pack_binary`, not the reference implementation's own SIMD-shuffled
+/// layout, RFC 0011 Alternatives considered).
+///
+/// # Panics
+///
+/// Panics if `dim * ex_bits` is not a multiple of 8, or if any code
+/// exceeds `2^ex_bits - 1`.
+fn pack_ex_code(codes: &[u8], ex_bits: u8) -> Vec<u8> {
+    let dim = codes.len();
+    let total_bits = dim * ex_bits as usize;
+    assert!(
+        total_bits.is_multiple_of(8),
+        "dim * ex_bits must be a multiple of 8"
+    );
+    let max = (1u16 << ex_bits) - 1;
+    let mut out = vec![0u8; total_bits / 8];
+    let mut bit_pos = 0usize;
+    for &c in codes {
+        assert!(
+            (c as u16) <= max,
+            "code {c} exceeds max {max} for ex_bits={ex_bits}"
+        );
+        for b in (0..ex_bits).rev() {
+            let bit = (c >> b) & 1;
+            if bit == 1 {
+                out[bit_pos / 8] |= 1 << (7 - (bit_pos % 8));
+            }
+            bit_pos += 1;
+        }
+    }
+    out
+}
+
+/// Inverse of [`pack_ex_code`]: unpacks `dim` `ex_bits`-wide codes from a
+/// bit-contiguous, MSB-first-per-byte stream.
+///
+/// # Panics
+///
+/// Panics if `packed.len() * 8 < dim * ex_bits as usize`.
+fn unpack_ex_code(packed: &[u8], dim: usize, ex_bits: u8) -> Vec<u8> {
+    assert!(
+        packed.len() * 8 >= dim * ex_bits as usize,
+        "packed must have at least dim*ex_bits bits"
+    );
+    let mut out = vec![0u8; dim];
+    let mut bit_pos = 0usize;
+    for slot in out.iter_mut() {
+        let mut c = 0u8;
+        for _ in 0..ex_bits {
+            let byte = packed[bit_pos / 8];
+            let bit = (byte >> (7 - (bit_pos % 8))) & 1;
+            c = (c << 1) | bit;
+            bit_pos += 1;
+        }
+        *slot = c;
+    }
+    out
+}
+
+/// One cluster's ex-code region input (`spec/vectors.md` §4.1) — present
+/// iff the field's `bit_width > 1`. `ex_code` is `row_ids.len() *
+/// padded_dims` **unpacked** per-dimension codes, row-major (packing is
+/// this module's concern); `f_add_ex`/`f_rescale_ex` are each
+/// `row_ids.len()` long.
+pub struct ExRegionInput<'a> {
+    pub ex_bits: u8,
+    pub ex_code: &'a [u8],
+    pub f_add_ex: &'a [f32],
+    pub f_rescale_ex: &'a [f32],
 }
 
 /// One cluster's already-quantized input: `compact_codes` is
 /// `row_ids.len() * (padded_dims/8)` bytes of plain, sequential
 /// one-bit-per-dimension codes (row-major); `f_add`/`f_rescale`/`f_error`
 /// and `row_ids` are each `row_ids.len()` long. `row_ids` MUST be strictly
-/// ascending (`spec/vectors.md` §4).
+/// ascending (`spec/vectors.md` §4). `ex_region` is `Some` iff the field's
+/// `bit_width > 1` (`spec/vectors.md` §4.1, RFC 0011).
 pub struct ClusterInput<'a> {
     pub compact_codes: &'a [u8],
     pub f_add: &'a [f32],
     pub f_rescale: &'a [f32],
     pub f_error: &'a [f32],
     pub row_ids: &'a [u64],
+    pub ex_region: Option<ExRegionInput<'a>>,
 }
 
 fn build_code_region(input: &ClusterInput, padded_dims: usize) -> Vec<u8> {
@@ -74,6 +169,14 @@ fn build_code_region(input: &ClusterInput, padded_dims: usize) -> Vec<u8> {
             for v in &lane {
                 out.extend_from_slice(&v.to_le_bytes());
             }
+        }
+    }
+    if let Some(ex) = &input.ex_region {
+        for v in 0..num {
+            let dim_codes = &ex.ex_code[v * padded_dims..(v + 1) * padded_dims];
+            out.extend(pack_ex_code(dim_codes, ex.ex_bits));
+            out.extend_from_slice(&ex.f_add_ex[v].to_le_bytes());
+            out.extend_from_slice(&ex.f_rescale_ex[v].to_le_bytes());
         }
     }
     out
@@ -139,6 +242,31 @@ pub fn build_posting_lists(
             input.row_ids.windows(2).all(|w| w[0] < w[1]),
             "row_ids must be strictly ascending"
         );
+        if let Some(ex) = &input.ex_region {
+            assert!((1..=7).contains(&ex.ex_bits), "ex_bits must be in 1..=7");
+            assert_eq!(
+                ex.ex_code.len(),
+                vector_count * padded_dims,
+                "ex_region.ex_code length must match row_ids.len()*padded_dims"
+            );
+            assert_eq!(
+                ex.f_add_ex.len(),
+                vector_count,
+                "ex_region.f_add_ex length must match row_ids.len()"
+            );
+            assert_eq!(
+                ex.f_rescale_ex.len(),
+                vector_count,
+                "ex_region.f_rescale_ex length must match row_ids.len()"
+            );
+            assert!(
+                ex.f_add_ex
+                    .iter()
+                    .chain(ex.f_rescale_ex)
+                    .all(|v| v.is_finite()),
+                "ex_region distance-correction factors must all be finite"
+            );
+        }
 
         let region_offset = out.len() as u64;
         let code_region = build_code_region(input, padded_dims);
@@ -157,7 +285,9 @@ pub fn build_posting_lists(
 }
 
 /// One cluster's decoded content, recovered from its region of the
-/// posting-list blob.
+/// posting-list blob. `ex_code`/`f_add_ex`/`f_rescale_ex` are empty when
+/// `ex_bits == 0` (`spec/vectors.md` §4.1); otherwise `ex_code` is
+/// `row_ids.len() * padded_dims` unpacked per-dimension codes, row-major.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClusterRegion {
     pub compact_codes: Vec<u8>,
@@ -165,6 +295,9 @@ pub struct ClusterRegion {
     pub f_rescale: Vec<f32>,
     pub f_error: Vec<f32>,
     pub row_ids: Vec<u64>,
+    pub ex_code: Vec<u8>,
+    pub f_add_ex: Vec<f32>,
+    pub f_rescale_ex: Vec<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,16 +318,18 @@ impl<'a> PostingListReader<'a> {
     }
 
     /// Reads and fully decodes one cluster's region, given its directory
-    /// entry (from `NavigationTierReader::cluster_dir`) and the field's
-    /// `padded_dims`.
+    /// entry (from `NavigationTierReader::cluster_dir`), the field's
+    /// `padded_dims`, and its `ex_bits` (`0` for `bit_width = 1`, no
+    /// ex-code region; `bit_width - 1` otherwise, `spec/vectors.md` §4.1).
     pub fn read_cluster(
         &self,
         dir: &ClusterDirEntry,
         padded_dims: usize,
+        ex_bits: u8,
     ) -> Result<ClusterRegion, PostingListError> {
         let cols = padded_dims / 8;
         let vector_count = dir.vector_count as usize;
-        let expected_code_bytes = code_bytes_length_for(vector_count, padded_dims) as u64;
+        let expected_code_bytes = code_bytes_length_for(vector_count, padded_dims, ex_bits) as u64;
         if dir.code_bytes_length != expected_code_bytes {
             return Err(PostingListError::CodeBytesLengthMismatch {
                 declared: dir.code_bytes_length,
@@ -213,19 +348,21 @@ impl<'a> PostingListReader<'a> {
 
         let batch_len = batch_data_len(padded_dims);
         let num_batches = vector_count.div_ceil(fastscan::BATCH_SIZE);
+        let bin_region_len = num_batches * batch_len;
+        let bin_bytes = &code_bytes[..bin_region_len];
         let mut packed_codes_only = Vec::with_capacity(num_batches * fastscan::BATCH_SIZE * cols);
         let mut f_add = Vec::with_capacity(vector_count);
         let mut f_rescale = Vec::with_capacity(vector_count);
         let mut f_error = Vec::with_capacity(vector_count);
         for b in 0..num_batches {
             let start = b * batch_len;
-            let code_part = &code_bytes[start..start + fastscan::BATCH_SIZE * cols];
+            let code_part = &bin_bytes[start..start + fastscan::BATCH_SIZE * cols];
             packed_codes_only.extend_from_slice(code_part);
 
             let real = (vector_count - b * fastscan::BATCH_SIZE).min(fastscan::BATCH_SIZE);
             let factors_start = start + fastscan::BATCH_SIZE * cols;
             let read_lane = |offset: usize, out: &mut Vec<f32>| {
-                let lane = &code_bytes
+                let lane = &bin_bytes
                     [factors_start + offset..factors_start + offset + fastscan::BATCH_SIZE * 4];
                 for i in 0..real {
                     out.push(f32::from_le_bytes(
@@ -242,12 +379,36 @@ impl<'a> PostingListReader<'a> {
             .map(|i| u64::from_le_bytes(row_id_bytes[i * 8..i * 8 + 8].try_into().unwrap()))
             .collect();
 
+        let mut ex_code = Vec::new();
+        let mut f_add_ex = Vec::with_capacity(if ex_bits > 0 { vector_count } else { 0 });
+        let mut f_rescale_ex = Vec::with_capacity(if ex_bits > 0 { vector_count } else { 0 });
+        if ex_bits > 0 {
+            let entry_len = ex_entry_len(padded_dims, ex_bits);
+            let ex_bytes_len = padded_dims * ex_bits as usize / 8;
+            let ex_region = &code_bytes[bin_region_len..];
+            for v in 0..vector_count {
+                let start = v * entry_len;
+                let packed = &ex_region[start..start + ex_bytes_len];
+                ex_code.extend(unpack_ex_code(packed, padded_dims, ex_bits));
+                let fstart = start + ex_bytes_len;
+                f_add_ex.push(f32::from_le_bytes(
+                    ex_region[fstart..fstart + 4].try_into().unwrap(),
+                ));
+                f_rescale_ex.push(f32::from_le_bytes(
+                    ex_region[fstart + 4..fstart + 8].try_into().unwrap(),
+                ));
+            }
+        }
+
         Ok(ClusterRegion {
             compact_codes,
             f_add,
             f_rescale,
             f_error,
             row_ids,
+            ex_code,
+            f_add_ex,
+            f_rescale_ex,
         })
     }
 }
@@ -282,6 +443,7 @@ mod tests {
             f_rescale: &f_rescale,
             f_error: &f_error,
             row_ids: &row_ids,
+            ex_region: None,
         };
         let (blob, dirs) = build_posting_lists(&[input], padded_dims);
 
@@ -293,7 +455,7 @@ mod tests {
 
         let reader = PostingListReader::new(&blob);
         let region = reader
-            .read_cluster(&dirs[0], padded_dims)
+            .read_cluster(&dirs[0], padded_dims, 0)
             .expect("valid cluster region");
         assert_eq!(region.compact_codes, compact_codes);
         assert_eq!(region.f_add, f_add);
@@ -324,6 +486,7 @@ mod tests {
                 f_rescale: &c0_rescale,
                 f_error: &c0_error,
                 row_ids: &c0_ids,
+                ex_region: None,
             },
             ClusterInput {
                 compact_codes: &c1_codes,
@@ -331,6 +494,7 @@ mod tests {
                 f_rescale: &c1_rescale,
                 f_error: &c1_error,
                 row_ids: &c1_ids,
+                ex_region: None,
             },
         ];
         let (blob, dirs) = build_posting_lists(&clusters, padded_dims);
@@ -362,12 +526,13 @@ mod tests {
             f_rescale: &f_rescale,
             f_error: &f_error,
             row_ids: &row_ids,
+            ex_region: None,
         };
         let (blob, dirs) = build_posting_lists(&[input], padded_dims);
 
         let reader = PostingListReader::new(&blob);
         let region = reader
-            .read_cluster(&dirs[0], padded_dims)
+            .read_cluster(&dirs[0], padded_dims, 0)
             .expect("valid cluster region");
         assert_eq!(region.compact_codes, compact_codes);
         assert_eq!(region.f_add, f_add);
@@ -389,6 +554,7 @@ mod tests {
             f_rescale: &f_rescale,
             f_error: &f_error,
             row_ids: &row_ids,
+            ex_region: None,
         };
         build_posting_lists(&[input], padded_dims);
     }
@@ -407,6 +573,7 @@ mod tests {
             f_rescale: &f_rescale,
             f_error: &f_error,
             row_ids: &row_ids,
+            ex_region: None,
         };
         build_posting_lists(&[input], padded_dims);
     }

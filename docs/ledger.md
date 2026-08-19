@@ -1297,3 +1297,114 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   multi-bit Extended-RaBitQ path, deletion-vector integration, and
   reranking against the flat-vector blob (Design §6 steps 4–5) — unchanged
   from the prior entry, narrower by exactly this one item.
+- **Multi-bit Extended-RaBitQ (RaBitQ+) registered and implemented —
+  2026-08-19, same day, prompted by "implement multi-bit Extended-RaBitQ
+  next."** Unlike every other module built this session, this genuinely
+  needed a follow-on RFC before any code: `spec/vectors.md`'s own opening
+  line and RFC 0010's Non-goals explicitly required "its own follow-on RFC
+  before any `bit_width` other than `1` is valid," since
+  `docs/data-structures.md` already commits the multi-bit path to a
+  *different* kernel (classical scalar-quantization distance, not FastScan
+  LUT) — a real wire-format design decision, not a container-layer
+  extension. **RFC 0011** (`rfcs/0011-multibit-extended-rabitq.md`)
+  registers it: `bit_width` widens from a fixed `1` to `1..=8`, and a new
+  ex-code region (`spec/vectors.md` §4.1) is appended inside the existing
+  cluster posting-list blob — no new blob type, since the region is always
+  fetched in the same Range GET as its cluster's 1-bit region (invariant 3
+  unaffected).
+
+  **A new primary source was fetched and vendored**
+  (`references/rabitq-library-multibit-quantization-source.md`:
+  `rabitq_impl.hpp`'s `ex_bits` namespace, `estimator.hpp`, `query.hpp`,
+  `pack_excode.hpp`, `pack_excode_dispatch.hpp`) — grounding the
+  encode-side `best_rescale_factor`/`ex_bits_code_with_factor` algorithm
+  and the query-side `split_distance_boosting` formula, and confirming a
+  genuinely surprising, real finding: the reference encoder computes an
+  `f_error_ex` factor that its own query path *never reads* — the boosted
+  estimate reuses the 1-bit region's already-stored `f_error`, scaled by
+  `1 / 2^ex_bits`, instead. `spec/vectors.md` §4.1 registers only the two
+  factors actually read (`f_add_ex`, `f_rescale_ex`), matching
+  `ExDataMap<T>::data_bytes()`'s own real byte budget.
+
+  **The RFC's own adversarial review found a real Critical bug before any
+  code existed**: the reference's `ex_bits_code` normalizes the residual
+  before quantizing (`abs_res = abs(residual / ||residual||)`), and a
+  zero residual (`data == centroid` exactly — real for any singleton
+  k-means cluster, the identical scenario `quantize.rs`'s own ACPR found
+  Critical for the 1-bit path) makes this a `0.0 / 0.0` division,
+  producing `NaN` in every dimension *before* the reference's own
+  `ip_resi_xucb == 0 → infinity` guard ever runs (`NaN == 0.0` is false,
+  so the guard is silently bypassed). Fixed, in both the RFC and
+  `quantize_ex.rs`, with an explicit pre-normalization zero-norm guard
+  producing `ex_code = [0; dim]`, `f_add_ex = 0.0`, `f_rescale_ex = -0.0`
+  — bit-for-bit the same degenerate values the 1-bit path's own existing
+  fix already established, and provably correct here too (substituting
+  them into the boosted formula gives `ex_dist = G_add` exactly, the true
+  answer when the database vector *is* the centroid). The review also
+  found 4 Important gaps (concrete `QueryFactors`/`posting_list.rs`/
+  `query.rs` signatures the first draft left too abstract to implement
+  against directly) and 2 Minor findings, all fixed — see RFC 0011's own
+  Status line for the full itemization.
+
+  **A genuinely different byte-determinism situation from every other
+  module this session, reasoned through in the RFC itself.**
+  `best_rescale_factor` is an event-driven greedy numerical search, not a
+  closed-form formula — two independent, conforming implementations may
+  legitimately converge on different, equally valid ex-codes for the same
+  input, because floating-point tie-breaking order isn't pinned. `spec/
+  vectors.md` §4.1 extends the existing factor-only non-normativity
+  carve-out to cover ex-code *values* too, justified because the format's
+  error-bound guarantee is self-consistent for whichever valid
+  quantization a writer's search actually produces — the same reasoning
+  that already let `kmeans.rs`'s clustering go unstandardized. A second,
+  real design decision: the reference's own ex-code packing
+  (`packing_2bit_excode` through `packing_7bit_excode`) has no portable
+  scalar source anywhere in the fetched repository, only AVX2/AVX512
+  intrinsics — adopting it verbatim would have repeated the Optane-era
+  formats' mistake (`docs/lineage.md`, baking a vendor's SIMD
+  register-shuffle pattern into wire bytes) for a kernel STRAND's own
+  design already routes through a scalar path. `spec/vectors.md` §4.1
+  instead registers a plain, bit-contiguous, MSB-first-per-byte packing —
+  STRAND's own convention, matching `quantize.rs`'s `pack_binary`.
+
+  **Implementation**: `crates/strand-vector/src/quantize_ex.rs` (new)
+  transcribes the encode algorithm, cross-checked against the same
+  standalone-compiled-C++-reimplementation discipline every other
+  RaBitQ-specific module this session used — real executed reference
+  values for dim=8/ex_bits=2 (both metrics) and dim=16/ex_bits=3, all
+  matching to 9 significant figures. `posting_list.rs` gained the ex-code
+  region's pack/unpack (`ExRegionInput`, `ex_entry_len`,
+  `code_bytes_length_for`/`read_cluster` widened with an `ex_bits`
+  parameter). `estimate.rs` gained `estimate_distance_boosted` and
+  widened `QueryFactors::new` with a required `bit_width` parameter
+  (`g_kbx_sumq`, alongside the existing `g_k1x_sumq`). `descriptor.rs`'s
+  `encode`/`build_*` functions gained a `bit_width` parameter with a
+  `1..=8` range assertion, replacing the old fixed constant. `query.rs`'s
+  `scan_selected_clusters` — the actual integration point, named
+  explicitly in the RFC rather than left to spec prose — gained an
+  `ex_bits` parameter and now calls the boosted estimator whenever
+  `ex_bits > 0`, per `spec/vectors.md` §6 step 3's new normative
+  requirement (a reader MUST use the boosted estimate when available, not
+  silently fall back to the cheaper 1-bit-only one).
+
+  **The real property this feature exists for, tested directly**
+  (`tests/multibit_query.rs`): a real 50-vector cluster is quantized with
+  both the 1-bit code and a `bit_width = 4` (`ex_bits = 3`) ex-code
+  region, written into a real posting-list blob, and queried through
+  `scan_selected_clusters` (the actual crate integration point, not a
+  hand-rolled loop). The deliberately-nearest vector ranks first, and —
+  the load-bearing check, not just "it ranks correctly" — the boosted
+  estimate's mean-squared error against the true (unquantized) distance
+  is measurably smaller than the 1-bit-only estimate's mean-squared error
+  over the same 50 vectors, confirming the extra bytes bought real
+  accuracy, not just extra wire weight. A second test confirms
+  `read_cluster` rejects a wrong `ex_bits` as a length mismatch rather
+  than silently misparsing. 8 new tests total (6 in `quantize_ex.rs`, 2 in
+  `multibit_query.rs`), all passing; workspace total now 177, clippy
+  clean.
+
+  This closes RFC 0010's Non-goals' single largest remaining item. What
+  remains from the original list: `t_const`/`faster_quantize_ex`'s
+  construction-time speedup (unregistered, real writer-side optimization
+  work), deletion-vector integration, and reranking against the
+  flat-vector blob (Design §6 steps 4–5).

@@ -51,7 +51,8 @@ fn generates_serializes_and_applies_a_real_matrix_rotation_end_to_end() {
     // 1. Generate a real MatrixRotator descriptor (fresh QR-orthogonalized
     // matrix, not a caller-supplied one).
     let mut rng = StdRng::seed_from_u64(20_260_819);
-    let descriptor_bytes = descriptor::build_matrix_generated(dims, DistanceMetric::L2, &mut rng);
+    let descriptor_bytes =
+        descriptor::build_matrix_generated(dims, DistanceMetric::L2, 1, &mut rng);
     let reader = DescriptorReader::new(&descriptor_bytes).expect("valid descriptor");
     assert_eq!(reader.dims(), dims);
     assert_eq!(reader.padded_dims() as usize, padded_dims);
@@ -102,6 +103,7 @@ fn generates_serializes_and_applies_a_real_matrix_rotation_end_to_end() {
         f_rescale: &f_rescale,
         f_error: &f_error,
         row_ids: &row_ids,
+        ex_region: None,
     };
     let (blob, dirs) = build_posting_lists(&[input], padded_dims);
     assert_eq!(
@@ -116,7 +118,7 @@ fn generates_serializes_and_applies_a_real_matrix_rotation_end_to_end() {
     // 4. Real read-back round trip.
     let reader = PostingListReader::new(&blob);
     let region = reader
-        .read_cluster(&dirs[0], padded_dims)
+        .read_cluster(&dirs[0], padded_dims, 0)
         .expect("valid cluster region");
     assert_eq!(region.compact_codes, compact_codes);
     assert_eq!(region.row_ids, row_ids);

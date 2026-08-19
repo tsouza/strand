@@ -71,6 +71,7 @@ fn quantizes_real_vectors_and_round_trips_them_through_the_posting_list_blob() {
         f_rescale: &f_rescale,
         f_error: &f_error,
         row_ids: &row_ids,
+        ex_region: None,
     };
     let (blob, dirs) = build_posting_lists(&[input], padded_dims);
     assert_eq!(dirs.len(), 1);
@@ -85,7 +86,7 @@ fn quantizes_real_vectors_and_round_trips_them_through_the_posting_list_blob() {
 
     let reader = PostingListReader::new(&blob);
     let region = reader
-        .read_cluster(&dirs[0], padded_dims)
+        .read_cluster(&dirs[0], padded_dims, 0)
         .expect("valid cluster region");
 
     // Every real quantized code and factor round-trips through the wire

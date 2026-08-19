@@ -43,10 +43,13 @@
 //! from `flat::FlatVectorsReader` directly once they have a surviving
 //! candidate set.
 
-use crate::estimate::{DistanceEstimate, QueryFactors, estimate_distance};
+use crate::estimate::{
+    DistanceEstimate, QueryFactors, estimate_distance, estimate_distance_boosted,
+};
 use crate::navigation::NavigationTierReader;
 use crate::posting_list::{PostingListError, PostingListReader};
 use crate::quantize::{MetricType, QuantizedVector};
+use crate::quantize_ex::ExQuantizedVector;
 
 /// The query's distance to one centroid, for cluster selection — `spec/
 /// vectors.md` §6 step 1. For `MetricType::L2`, plain squared Euclidean
@@ -109,6 +112,17 @@ pub struct Candidate {
 /// `rotated_query` and `query_factors` are computed once per query
 /// (`crate::rotate::rotate_fht_kac`, `QueryFactors::new`) and reused
 /// across every candidate, matching `estimate_distance`'s own design.
+/// `query_factors` MUST have been constructed with the same `bit_width`
+/// this call's `ex_bits` implies (`bit_width = ex_bits + 1`, or `1` when
+/// `ex_bits = 0`).
+///
+/// `ex_bits` is `0` for a `bit_width = 1` field (no ex-code region; the
+/// unmodified 1-bit `estimate_distance` is used for every candidate) or
+/// `bit_width - 1` for a `bit_width > 1` field, in which case every
+/// candidate's ranked distance is the boosted `estimate_distance_boosted`
+/// estimate, not the 1-bit-only one (`spec/vectors.md` §6 step 3, RFC
+/// 0011 Design §5 — the whole reason a writer pays the extra bytes is a
+/// tighter estimate).
 ///
 /// # Errors
 ///
@@ -117,6 +131,7 @@ pub struct Candidate {
 /// the navigation tier and posting-list blob bytes are inconsistent
 /// (truncated or corrupt input), not a caller precondition this function
 /// can validate in advance.
+#[allow(clippy::too_many_arguments)]
 pub fn scan_selected_clusters(
     navigation: &NavigationTierReader,
     posting_reader: &PostingListReader,
@@ -125,6 +140,7 @@ pub fn scan_selected_clusters(
     query_factors: &QueryFactors,
     metric: MetricType,
     padded_dims: usize,
+    ex_bits: u8,
 ) -> Result<Vec<Candidate>, PostingListError> {
     let cols = padded_dims / 8;
     // Deduplication per spec/vectors.md §6 step 3: keyed by row-id, kept
@@ -139,7 +155,7 @@ pub fn scan_selected_clusters(
         if dir.vector_count == 0 {
             continue;
         }
-        let region = posting_reader.read_cluster(&dir, padded_dims)?;
+        let region = posting_reader.read_cluster(&dir, padded_dims, ex_bits)?;
         let centroid = navigation.centroid(cluster_idx);
 
         for i in 0..dir.vector_count as usize {
@@ -150,8 +166,24 @@ pub fn scan_selected_clusters(
                 f_rescale: region.f_rescale[i],
                 f_error: region.f_error[i],
             };
-            let est =
-                estimate_distance(&quantized, rotated_query, &centroid, query_factors, metric);
+            let est = if ex_bits > 0 {
+                let ex = ExQuantizedVector {
+                    ex_code: region.ex_code[i * padded_dims..(i + 1) * padded_dims].to_vec(),
+                    f_add_ex: region.f_add_ex[i],
+                    f_rescale_ex: region.f_rescale_ex[i],
+                };
+                estimate_distance_boosted(
+                    &quantized,
+                    &ex,
+                    ex_bits,
+                    rotated_query,
+                    &centroid,
+                    query_factors,
+                    metric,
+                )
+            } else {
+                estimate_distance(&quantized, rotated_query, &centroid, query_factors, metric)
+            };
             let row_id = region.row_ids[i];
 
             match best_index.get(&row_id) {
@@ -283,6 +315,7 @@ mod tests {
                 f_rescale: &c0_factors_rescale,
                 f_error: &c0_factors_error,
                 row_ids: &c0_ids,
+                ex_region: None,
             },
             ClusterInput {
                 compact_codes: &c1_codes,
@@ -290,6 +323,7 @@ mod tests {
                 f_rescale: &c1_factors_rescale,
                 f_error: &c1_factors_error,
                 row_ids: &c1_ids,
+                ex_region: None,
             },
         ];
         let (blob, dirs) = build_posting_lists(&clusters, padded_dims);
@@ -301,7 +335,7 @@ mod tests {
         let posting_reader = PostingListReader::new(&blob);
 
         let rotated_query = vec![1.0f32; padded_dims];
-        let query_factors = QueryFactors::new(&rotated_query);
+        let query_factors = QueryFactors::new(&rotated_query, 1);
 
         let candidates = scan_selected_clusters(
             &navigation,
@@ -311,6 +345,7 @@ mod tests {
             &query_factors,
             MetricType::L2,
             padded_dims,
+            0,
         )
         .unwrap();
 
@@ -364,7 +399,7 @@ mod tests {
         let posting_reader = PostingListReader::new(&[]);
 
         let rotated_query = vec![1.0f32; padded_dims];
-        let query_factors = QueryFactors::new(&rotated_query);
+        let query_factors = QueryFactors::new(&rotated_query, 1);
         let candidates = scan_selected_clusters(
             &navigation,
             &posting_reader,
@@ -373,6 +408,7 @@ mod tests {
             &query_factors,
             MetricType::L2,
             padded_dims,
+            0,
         )
         .unwrap();
         assert!(candidates.is_empty());

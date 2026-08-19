@@ -34,7 +34,7 @@ fn descriptor_matches_conformance_golden_file() {
     // RFC 0010's own illustrative, exactly-reproducible rotation payload:
     // the ascending byte sequence 0x00..0x1F, not real randomness.
     let payload: Vec<u8> = (0u8..32).collect();
-    let bytes = build_fht_kac_with_payload(64, DistanceMetric::L2, &payload);
+    let bytes = build_fht_kac_with_payload(64, DistanceMetric::L2, 1, &payload);
 
     assert_eq!(
         bytes,
@@ -116,6 +116,7 @@ fn posting_list_directory_and_row_ids_match_the_worked_example() {
             f_rescale: &c0_factors,
             f_error: &c0_factors,
             row_ids: &c0_ids,
+            ex_region: None,
         },
         ClusterInput {
             compact_codes: &c1_codes,
@@ -123,6 +124,7 @@ fn posting_list_directory_and_row_ids_match_the_worked_example() {
             f_rescale: &c1_factors,
             f_error: &c1_factors,
             row_ids: &c1_ids,
+            ex_region: None,
         },
     ];
     let (blob, dirs) = build_posting_lists(&clusters, padded_dims);
