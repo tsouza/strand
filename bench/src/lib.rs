@@ -200,10 +200,7 @@ pub fn inject_netem_delay(container_id: &str, delay_ms: u64) {
 /// before running `body`, simulating S3-like round-trip latency instead of
 /// bare localhost. Used by `bench/src/cold_open_injected_latency.rs`
 /// (roadmap X-4).
-pub fn with_minio_latency(
-    delay_ms: u64,
-    body: impl FnOnce(&str, &str) + std::panic::UnwindSafe,
-) {
+pub fn with_minio_latency(delay_ms: u64, body: impl FnOnce(&str, &str) + std::panic::UnwindSafe) {
     let setup_runtime = tokio::runtime::Runtime::new().unwrap();
     let (endpoint, bucket, container) = setup_runtime.block_on(start_minio());
 

@@ -66,6 +66,7 @@ fn main() {
             let mut builder = SegmentBuilder::new(2);
             builder.add_blob(BlobSpec {
                 family_id: 0,
+                field_id: 0,
                 blob_type_id: 0,
                 storage_class: StorageClass::RawMappable,
                 tier: Tier::NotApplicable,
