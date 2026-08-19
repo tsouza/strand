@@ -579,11 +579,72 @@ inherit rather than rediscover.
 - **`bit_width` beyond 8** (`ex_bits` beyond 7). The reference library's
   own packing dispatch supports `ex_bits` up to 8; this RFC registers only
   up to 7, per Design §1's stated recall-driven rationale.
-- **`faster_quantize_ex`/`get_const_scaling_factors`'s precomputed-`t_const`
-  construction-time speedup.** A real, legitimate writer-side performance
-  optimization this RFC does not standardize (Design §3) — any writer
-  wanting it can implement it without a format change, since it only
-  affects which valid `t` a writer's search converges to.
+- ~~**`faster_quantize_ex`/`get_const_scaling_factors`'s precomputed-`t_const`
+  construction-time speedup.**~~ **Closed 2026-08-19 (M2-6, `docs/
+  roadmap.md`), writer-side only, no RFC amendment needed.** This item was
+  always scoped by this RFC's own Design §3 as "a writer's choice, not a
+  format concern" — implementing it confirmed that framing rather than
+  overturning it, so it closes as ordinary implementation work, not a
+  Discussion-section design change. `crates/strand-vector/src/quantize_ex.
+  rs` gained `calibrate_rescale_factor` (transcribes `get_const_scaling_
+  factors`: 100 random unit-norm Gaussian direction samples, `best_rescale_
+  factor` run on each, averaged) and `quantize_ex_fast` (transcribes
+  `faster_quantize_ex`: the same per-dimension clamp-and-round arithmetic
+  as the registered `quantize_ex`, but against a caller-supplied `t_const`
+  instead of running the per-vector search). Both entry points share one
+  factor-computation function (`finish_quantization`); the *only*
+  difference between them is how the magnitude code and `ipnorm_inv` are
+  obtained, mirroring the reference's own `ex_bits_code(..., t_const =
+  -1)` branch structure (`references/rabitq-library-multibit-quantization-
+  source.md`, function bodies added the same day this item closed, since
+  the RFC's original excerpt named these two functions but did not
+  transcribe them).
+
+  **Confirmed, not assumed, before implementing: this is genuinely
+  writer-side and reader-invisible.** `quantize_ex_fast`'s output is a
+  *different, equally valid* quantization of the same vector in general —
+  a different `t`, not a different algorithm shape — which is exactly the
+  degree of freedom this RFC's own byte-determinism carve-out (Design §3)
+  already grants every conforming writer. No wire-format field, byte
+  layout, or reader-visible behavior changes; the stored `f_add_ex`/
+  `f_rescale_ex` factors remain self-consistent with whichever code a
+  writer picked, so the query-side error-bound guarantee (Design §3's
+  "Alternatives considered") holds unchanged. This is why the work
+  qualified as ordinary implementation rather than a Discussion-section
+  design change requiring fresh adversarial review under `CLAUDE.md` §3 —
+  the design question ("is a writer free to use a different, cheaper `t`
+  than the per-vector optimum?") was already asked and answered yes, in
+  this RFC's own approved text, before any code existed.
+
+  **Proof of equivalence, not just assertion (`CLAUDE.md` §5 invariant 9's
+  discipline extended to a non-SIMD writer optimization, per M2-6's own
+  task framing).** Bit-for-bit equivalence between `quantize_ex_fast` and
+  `quantize_ex` for the *same input* does not hold, and is not claimed —
+  the module doc says so plainly, since it would contradict this RFC's own
+  Non-goals framing of "a different valid `t`." What is proved bit-exact
+  instead: given the *identical* `t` (extracted from `best_rescale_
+  factor`'s own search result for a specific vector, then fed to
+  `quantize_ex_fast` as `t_const`), the two entry points produce identical
+  `ExQuantizedVector` output — proving the shared downstream arithmetic is
+  one correct implementation, not two independently-drifting ones, and
+  that the fast path really is "the same formula, a different `t`,"
+  mechanically checked rather than merely stated. A second test proves
+  `calibrate_rescale_factor` is deterministic given the same seed (and
+  differs across seeds, ruling out a constant-output bug). A third
+  measures reconstruction error against the true residual across a batch
+  of synthetic vectors and confirms the calibrated `t_const` is a genuinely
+  useful approximation (mean-squared error within 5x of the full
+  per-vector search's), not merely a value that avoids crashing.
+
+  **Measured speedup, real numbers, not a plausibility claim.** At
+  `dim = 768`, `ex_bits = 7` (the widest registered `ex_bits`, the worst
+  case for the full search's heap-refill cost), 2,000 vectors, `cargo test
+  --release`: the full per-vector search took 5.947s (2,973 µs/vector);
+  `quantize_ex_fast` against a pre-calibrated `t_const` took 0.259s
+  (129 µs/vector) — a **23.0x** measured speedup. The test asserting this
+  is `#[ignore]`d by default (timing-based, following `orthogonal.rs`'s own
+  convention for scale-dependent checks), run explicitly with `cargo test
+  -p strand-vector --release -- --ignored`.
 - **SIMD kernels for the classical scalar-quantization distance
   computation.** Per invariant 9, the scalar reference (`estimate.rs`'s
   extended formula, Design §4) is normative; a future SIMD path is a

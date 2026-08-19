@@ -151,8 +151,15 @@ Non-goals and Open questions still leave genuinely open:
   Algorithm-shaped, confirmed. Depends on: nothing.
 - **M2-6** — `faster_quantize_ex`'s construction-time speedup
   (unregistered writer-side optimization). Source: RFC 0011 Non-goals.
-  Status: open, real but low-priority performance work. Depends on:
-  nothing.
+  Status: **done** (2026-08-19) — `crates/strand-vector/src/quantize_ex.rs`
+  gained `calibrate_rescale_factor`/`quantize_ex_fast`, confirmed
+  writer-side-only and reader-invisible (already licensed by RFC 0011
+  Design §3's byte-determinism carve-out, so no RFC amendment was needed),
+  proved equivalent to the registered `quantize_ex` given the same `t`
+  (bit-for-bit, not just plausibly), and measured at 23.0x faster at
+  `dim = 768, ex_bits = 7` (2,973 µs/vector to 129 µs/vector, `cargo test
+  --release`). Full writeup: `docs/ledger.md`, `rfcs/0011-multibit-
+  extended-rabitq.md` Non-goals. Depends on: nothing.
 - **M2-7** — ARM/SIMD kernel validation for the FastScan decode path
   (distinct from M1-3's `fst` determinism question and X-4's postings-
   specific ARM gap — this one is the vector family's own decode kernel).

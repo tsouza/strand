@@ -1814,3 +1814,97 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   the new numbers (RFC 0010 Discussion, 2026-08-19); `docs/milestones.md`'s
   M2 entry and this file's own R1 entry above are updated in place rather
   than left stale.
+- **`faster_quantize_ex`'s construction-time speedup implemented — M2-6,
+  `docs/roadmap.md`, 2026-08-19.** RFC 0011's Non-goals named this as "a
+  real, legitimate writer-side performance optimization this RFC does not
+  standardize... any writer wanting it can implement it without a format
+  change" — closing it therefore started with confirming that framing
+  actually held, before writing any code, per `CLAUDE.md` §3: does this
+  optimization change wire bytes, the quantization codec's output shape,
+  or anything a reader needs to know? No. `quantize_ex_fast`'s output is a
+  *different, equally valid* quantization of the same vector in general —
+  a different rescale factor `t`, chosen once and shared across many
+  vectors instead of searched per-vector — which is exactly the writer
+  degree of freedom RFC 0011 Design §3's own byte-determinism carve-out
+  already grants ("a reader MUST NOT assume two independent, conforming
+  writers produce identical ex-code region bytes for the same logical
+  vectors"). No RFC Discussion amendment was needed: the design question
+  was already asked and answered, in RFC 0011's own approved text, before
+  this session began.
+
+  **Grounded against the reference's real function bodies, not the RFC's
+  own paraphrase of them** — the vendored excerpt
+  (`references/rabitq-library-multibit-quantization-source.md`) named
+  `faster_quantize_ex`/`get_const_scaling_factors` by name but had not
+  transcribed either function; both were re-fetched live from `include/
+  rabitqlib/quantization/rabitq_impl.hpp` on the `RaBitQ-Library`
+  repository's `main` branch (2026-08-19) and added to that reference file
+  verbatim before any Rust was written, per `CLAUDE.md` §3's "never
+  implement against a remembered spec" rule — the RFC's own Non-goals
+  prose was a correct summary, but summarizing is not the same as having
+  the actual source in the session.
+
+  **Implementation**: `crates/strand-vector/src/quantize_ex.rs` gained
+  `calibrate_rescale_factor` (100 random unit-norm Gaussian direction
+  samples, `best_rescale_factor` run on each, averaged — `get_const_
+  scaling_factors`, transcribed, with a caller-supplied seeded `rand::Rng`
+  in place of the reference's own hardcoded seed, matching this crate's
+  established RNG-plumbing convention from `kmeans.rs`/`orthogonal.rs`;
+  inconsequential for byte-determinism since `t_const` is never itself
+  wire-visible) and `quantize_ex_fast` (`faster_quantize_ex`, transcribed:
+  the identical per-dimension clamp-and-round arithmetic `quantize_ex`
+  already used, against a caller-supplied `t_const` instead of a fresh
+  per-vector search). The existing `quantize_ex` was refactored — behavior-
+  preserving, confirmed by the existing dim8/dim16 worked-example tests
+  passing unchanged — to extract the shared downstream factor computation
+  (sign complement, `total_code`/`xu_cb` reconstruction, `f_add_ex`/
+  `f_rescale_ex` formulas) into `finish_quantization`, called by both entry
+  points, so the only place the two functions' output can possibly differ
+  is in how the magnitude code and `ipnorm_inv` are obtained — mirroring
+  the reference's own `ex_bits_code(..., t_const = -1)` branch structure.
+  `orthogonal.rs`'s `sample_standard_normal` widened from private to
+  `pub(crate)` so `calibrate_rescale_factor` reuses the crate's one
+  existing Box-Muller transcription rather than adding a second.
+
+  **Proof of equivalence, not just assertion — invariant 9's discipline
+  extended to a non-SIMD writer optimization, as the task itself framed
+  it.** Bit-for-bit equality between `quantize_ex_fast` and `quantize_ex`
+  for the *same input* does not hold in general and is not claimed — that
+  would contradict RFC 0011's own "changes which valid `t` a writer
+  converges to" framing. What is proved bit-exact instead: given the
+  *identical* `t` (the exact value `best_rescale_factor` finds for a
+  specific vector, fed to `quantize_ex_fast` as `t_const`), the two entry
+  points produce identical `ExQuantizedVector` output, over three real
+  worked-example vectors at `ex_bits` 2 and 3, both metrics
+  (`fast_path_matches_the_full_search_path_given_the_same_t`) — proving
+  the shared downstream arithmetic is one correct implementation shared by
+  both callers, not two independently drifting ones. A second test
+  confirms the zero-residual guard fires identically on both entry points
+  regardless of `t_const`. A third confirms `calibrate_rescale_factor` is
+  deterministic given the same seed and differs across seeds (ruling out a
+  constant-output bug). A fourth measures reconstruction error against the
+  true residual across a batch of synthetic vectors and confirms the
+  calibrated `t_const` stays within 5x of the full search's mean-squared
+  error — a real quality floor, not just "doesn't crash." 6 new tests in
+  `quantize_ex.rs`.
+
+  **Measured speedup, not a plausibility claim**: a 7th test (`#[ignore]`d
+  by default, timing-based, following `orthogonal.rs`'s own convention for
+  scale-dependent checks — run explicitly with `cargo test -p strand-vector
+  --release -- --ignored`) quantizes 2,000 synthetic vectors at
+  `dim = 768, ex_bits = 7` (the widest registered `ex_bits`, the worst case
+  for the full search's heap-refill cost) with both paths. Real, executed,
+  `--release` result: full per-vector search 5.947s (2,973 µs/vector);
+  `quantize_ex_fast` against a pre-calibrated `t_const` 0.259s
+  (129 µs/vector) — **23.0x measured speedup**. `rfcs/0011-multibit-
+  extended-rabitq.md` Non-goals carries the same numbers in place, marked
+  closed rather than left stale; `docs/roadmap.md`'s M2-6 entry likewise.
+
+  This item was writer-side-only exactly as RFC 0011 predicted, and did
+  not touch `posting_list.rs`, `estimate.rs`, `query.rs`, or `spec/
+  vectors.md` — no production call site wires `quantize_ex_fast` into a
+  default construction path yet, since no such end-to-end segment-building
+  writer pipeline exists in this crate today (`quantize_ex` itself is
+  presently exercised only by its own tests, not by any orchestrating
+  writer); wiring either quantization strategy into a real writer pipeline
+  remains future work, unblocked by this closure.

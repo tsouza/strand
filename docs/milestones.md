@@ -506,9 +506,13 @@ and two new invariants (`SegmentCountNeverDecreases`,
 `DeletionVectorCommitsOnlyReviseOneEntry`) are both confirmed load-bearing by real
 mutation tests, not merely holding by construction. TLC re-verified clean at 5,943
 states (up from 591), all nine invariants holding. **Still deliberately out of
-scope**: `faster_quantize_ex`'s construction-time speedup (unregistered, real
-writer-side optimization); and, named in RFC 0012's own Non-goals, compaction-time
-physical removal and deletion-vector merge semantics — pulled forward to M3.
+scope at this point in the session**: `faster_quantize_ex`'s construction-time
+speedup (unregistered, real writer-side optimization — closed the same day, M2-6,
+`docs/roadmap.md`/`docs/ledger.md`: `quantize_ex_fast`/`calibrate_rescale_factor`,
+confirmed writer-side-only and reader-invisible per RFC 0011 Design §3's own
+byte-determinism carve-out, measured 23.0x faster at `dim = 768, ex_bits = 7`);
+and, named in RFC 0012's own Non-goals, compaction-time physical removal and
+deletion-vector merge semantics — pulled forward to M3.
 
 **M3 — Hybrid + deletes + merge.** The deletion-vector *mechanism* now exists (pulled
 forward via RFC 0012, above); M3's own scope narrows to what that RFC named as

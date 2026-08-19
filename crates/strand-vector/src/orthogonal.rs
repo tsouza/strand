@@ -68,8 +68,12 @@ use rand::Rng;
 /// Box-Muller transform (Box & Muller, "A Note on the Generation of
 /// Random Normal Deviates," 1958) — the standard, textbook method,
 /// avoiding an extra dependency (`rand_distr`) for a single distribution
-/// this crate uses in exactly one place.
-fn sample_standard_normal(rng: &mut impl Rng) -> f64 {
+/// this crate uses in more than one place (`quantize_ex::calibrate_rescale_
+/// factor`, RFC 0011 Non-goals' `faster_quantize_ex` construction-time
+/// speedup, reuses this exact sampler rather than a second Box-Muller
+/// transcription — same reasoning as this module's own single-distribution
+/// note, generalized to a second caller).
+pub(crate) fn sample_standard_normal(rng: &mut impl Rng) -> f64 {
     // u1 in (0, 1], never exactly 0, to keep ln(u1) finite.
     let u1: f64 = 1.0 - rng.random::<f64>();
     let u2: f64 = rng.random();
