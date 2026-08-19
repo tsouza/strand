@@ -259,25 +259,57 @@ Non-goals and Open questions still leave genuinely open:
   category as M1-3/M1-4. Depends on: nothing.
 - **M2-8** — Cross-segment codebook-sharing policy and a cheap pre-merge
   compatibility check. Source: RFC 0010 Open questions ("so a writer is
-  not surprised by an expensive `rebuild` only at merge time"). **A real
-  scoping tension, not a one-sided call — stated both ways rather than
-  resolved here**, per the adversarial review's own finding that this
-  document's first draft argued only one side: RFC 0010's own text (Design
-  §7, "How this could be wrong" item 4, Open questions) frames codebook
-  identity as a *construction-side* concern most naturally settled
-  alongside M2's own writer/clustering work (the codebook is fixed at
-  write time, by the same writer that runs k-means) — arguing for keeping
-  this under M2. Against that: the actual *cost* of getting it wrong (an
-  expensive, surprise `rebuild`) is only paid at merge time, which is M3
-  — arguing for treating it as an M3-1 design input instead. Both
-  readings are defensible; this document does not adjudicate between
-  them. Status: **blocked** — on M2's own remaining design bandwidth if
-  kept under M2, or on M3-1's design work starting if re-homed there;
-  either way it is not simply "open" today. M2-1 (above) is now done,
-  which removes the "shares design attention with M2-1" reason for the
-  M2 reading specifically — if kept under M2, this item is now genuinely
-  open rather than blocked; the M3-1 reading is unaffected, since M3-1
-  itself has not started. Depends on: M3-1 if re-homed there.
+  not surprised by an expensive `rebuild` only at merge time"). **The
+  scoping tension this entry originally stated both ways rather than
+  resolved — construction-side (M2, the codebook is fixed at write time)
+  vs. merge-time (M3-1, the cost of getting it wrong is only paid at
+  merge) — is resolved by doing the construction-side half now and
+  naming the merge-time half precisely as still M3-1's, rather than by
+  arguing either reading was wrong.** The half that does not depend on a
+  real merge/compaction code path existing — a codebook **identity**
+  mechanism and a **compatibility check function** a future merge planner
+  can call — is real, self-contained, construction-adjacent work
+  (`crates/strand-vector` already holds every type this touches), so it
+  does not need to wait on M3-1 starting. The half that genuinely does
+  depend on M3-1 — codebook-sharing *policy* (one codebook per table by
+  convention vs. an explicit requantization path), cluster-assignment
+  compatibility with a merged, rebalanced navigation tier (RFC 0010
+  Design §7's own second `concatenate + remap` clause), and the actual
+  merge-planner code that would call this check — still does, and is not
+  claimed done here.
+
+  **Status: done (2026-08-19) for the identity mechanism and compatibility
+  check; open, and re-homed to M3-1, for the policy and merge-planner
+  halves.** `crates/strand-vector/src/codebook.rs` adds `CodebookIdentity`
+  (four scalar fields plus an XxHash3-64 content hash over the descriptor's
+  own byte-identity criterion, RFC 0010 Design §7 — invariant 11's
+  registered default checksum algorithm, reused rather than adding a
+  second one, invariant 8) and `check_compatibility`/
+  `check_descriptor_compatibility`, returning `Compatible` or
+  `Incompatible(CodebookMismatch)` with the first disagreeing field named.
+  No wire-format change: the identity is computed from the existing
+  quantization-descriptor blob's bytes (Design §2, unchanged), not
+  serialized as new bytes. Building one identity is `O(n)` in
+  `rotation_payload`'s length (the same bytes a reader already fetches
+  wholesale to use the codebook at all, invariant 7 — no new I/O);
+  comparing two built identities is `O(1)`, touching neither segment's
+  payload again — the concrete cheap-check mechanism this entry's Source
+  citation asked for. Three pairs of real, independently-committed,
+  footer/hotcache-decodable segments (`strand-core`'s actual
+  `SegmentBuilder`) — one pair sharing one real codebook, one pair with
+  independently-trained codebooks (same knobs, different RNG draw), and
+  one pair with genuinely different `dims` — and the check is proven to
+  distinguish all three cases correctly
+  (`crates/strand-vector/tests/codebook_compatibility_across_segments.rs`).
+  Full adversarial review (does it catch every real incompatibility,
+  hash-collision risk, is the check itself cheap enough) in RFC 0010
+  Discussion — post-approval amendments, below `docs/roadmap.md`'s own
+  citation there. `cargo test --workspace` and `cargo clippy --workspace
+  --all-targets -- -D warnings` both clean. Depends on: nothing —
+  done. **M3-1 still owns**: the sharing/requantization policy decision,
+  cluster-assignment compatibility, and wiring this check into a real
+  merge-planning code path — M3-1's own entry, below, is unchanged by
+  this resolution and should not be read as narrowed by it.
 
 ## M3 — Hybrid + deletes + merge
 
@@ -289,7 +321,14 @@ Non-goals and Open questions still leave genuinely open:
   deletion-vector merge semantics specifically — a merged segment needs a
   freshly built deletion vector from the union of its source segments'
   surviving row-IDs, re-encoded against the new segment's own
-  local-ordinal space (`spec/deletion.md` §2, `rfcs/0012` Non-goals).
+  local-ordinal space (`spec/deletion.md` §2, `rfcs/0012` Non-goals). For
+  the cluster-vector family specifically, M2-8 (above, done) already
+  provides the codebook-identity/compatibility-check half of the
+  `concatenate+remap`-vs-`rebuild` decision
+  (`crates/strand-vector::codebook`) — M3-1 still owns calling it from a
+  real merge planner, the codebook-sharing policy question, and cluster-
+  assignment compatibility with a rebalanced navigation tier (RFC 0010
+  Design §7, Open questions).
   Source: `docs/milestones.md` M3 entry; invariant 1. Status: **blocked**
   on M3-2 and M3-3.
 
