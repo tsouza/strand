@@ -24,9 +24,18 @@
 //! (`references/unicode-segmentation-crate-license.md`) for tokenization,
 //! and `rust-stemmers` (a Rust port of the Snowball project's own generated
 //! code, `references/snowball-porter2-english-stemmer.md`) for stemming.
+//!
+//! Also implements `segmentation_dictionary` (`spec/analyzer-descriptors.md`
+//! §5) for CJK/Thai/Lao content: ICU4X's `icu_segmenter` crate
+//! (`references/icu4x-icu-segmenter-crate.md`,
+//! `references/icu-license-word-break-dictionaries.md`), the default RFC
+//! 0004's Discussion — post-approval amendments recommends.
 
+use icu_segmenter::options::WordBreakInvariantOptions;
+use icu_segmenter::{WordSegmenter, WordSegmenterBorrowed};
 use rust_stemmers::{Algorithm, Stemmer};
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Apache Lucene 10.5.1's default English stopword list, exactly as declared
@@ -88,6 +97,73 @@ pub fn analyze_lucene_en_word_only(text: &str) -> Vec<String> {
     stem_en(&filtered)
 }
 
+/// The `identity` this crate names in a `segmentation_dictionary` descriptor
+/// (`spec/analyzer-descriptors.md` §5) when it segments with
+/// [`tokenize_dictionary_segmented`].
+pub const ICU4X_DICTIONARY_IDENTITY: &str = "icu4x-dictionary";
+
+/// The `version` this crate names in a `segmentation_dictionary` descriptor.
+/// Pins both the `icu_segmenter` crate's own semver and the
+/// `icu_segmenter_data` crate's semver that actually carries the compiled
+/// dictionary bytes `WordSegmenter::new_dictionary` bakes in at compile
+/// time — the two version independently in principle even though they have
+/// matched at every release fetched for this implementation
+/// (`references/icu4x-icu-segmenter-crate.md`). A crate-semver pin is a
+/// coarser byte-determinism anchor than a content hash of the compiled
+/// dictionary data itself would be (invariant 11, `CLAUDE.md` §5, prefers
+/// checksums where practical) — `spec/analyzer-descriptors.md` §5 records
+/// this as the chosen mechanism and names the content-hash upgrade as
+/// still-open follow-on work, the same way RFC 0004 itself left the
+/// stemmer's commit-hash pinning to a later session.
+pub const ICU4X_DICTIONARY_VERSION: &str = "icu_segmenter 2.3.0 (icu_segmenter_data 2.3.0)";
+
+/// ICU4X's dictionary-based `WordSegmenter`, constructed once and reused.
+///
+/// This calls `WordSegmenter::new_dictionary` — the real, infallible,
+/// `compiled_data`-feature constructor for the dictionary-lookup path
+/// (Chinese, Japanese, Khmer, Lao, Myanmar, Thai) that this crate's
+/// `segmentation_dictionary` field names. It deliberately does **not** call
+/// `new_auto`/`try_new_auto`, which silently substitutes an LSTM model for
+/// Thai, Lao, Khmer, and Myanmar instead of dictionary lookup — the trap
+/// RFC 0004's Discussion — post-approval amendments names explicitly
+/// (`references/icu4x-icu-segmenter-crate.md`). This crate additionally
+/// disables the `icu_segmenter` crate's `auto`/`lstm` Cargo features
+/// entirely (`Cargo.toml`), so `new_auto`/`new_lstm` are not even reachable
+/// from this file — a compile-time guardrail on top of the code-level one.
+static DICTIONARY_WORD_SEGMENTER: LazyLock<WordSegmenterBorrowed<'static>> =
+    LazyLock::new(|| WordSegmenter::new_dictionary(WordBreakInvariantOptions::default()));
+
+/// Tokenizes a single dictionary-segmented script's content (CJK, Thai, Lao)
+/// per `token_retention: "word-only"`: ICU4X dictionary word-boundary
+/// segmentation, retaining only segments containing at least one character
+/// with the Unicode `Alphabetic` property or `General_Category = Number`
+/// (`references/unicode-segmentation-word-filter-criterion.md`) — the same
+/// retention criterion [`tokenize_word_only`] applies via
+/// `unicode_words()`, reimplemented here directly against `char::
+/// is_alphabetic`/`char::is_numeric` because ICU4X's segmenter, unlike
+/// `unicode-segmentation`, does not bundle this filter itself.
+pub fn tokenize_dictionary_segmented(text: &str) -> Vec<&str> {
+    let breaks: Vec<usize> = DICTIONARY_WORD_SEGMENTER.segment_str(text).collect();
+    breaks
+        .windows(2)
+        .map(|w| &text[w[0]..w[1]])
+        .filter(|segment| segment.chars().any(|c| c.is_alphabetic() || c.is_numeric()))
+        .collect()
+}
+
+/// The full chain for a `segmentation_dictionary`-bearing descriptor with no
+/// case folding, stopword removal, or stemming declared (`spec/
+/// analyzer-descriptors.md` §5) — the shape of the conformance vector this
+/// function backs (`conformance/analyzers/icu4x-dictionary-zh-01.json`):
+/// `token_retention: "word-only"` dictionary segmentation only. Per-document
+/// length is the returned vector's length.
+pub fn analyze_dictionary_segmented_word_only(text: &str) -> Vec<String> {
+    tokenize_dictionary_segmented(text)
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +197,27 @@ mod tests {
         // (references/unicode-segmentation-word-filter-criterion.md).
         let words = tokenize_word_only("quickly.");
         assert_eq!(words, vec!["quickly"]);
+    }
+
+    #[test]
+    fn dictionary_segmentation_splits_real_chinese_sentence_and_drops_punctuation() {
+        // Real ICU4X dictionary output for "这是一个中文测试句子。" ("This is a
+        // Chinese test sentence."), captured by running the real segmenter
+        // (not predicted): ["这", "是", "一个", "中文", "测试", "句子", "。"].
+        // "。" (IDEOGRAPHIC FULL STOP) has no Alphabetic/Number character and
+        // fails word-only retention, the same as "." does for the English
+        // chain above.
+        let words = tokenize_dictionary_segmented("这是一个中文测试句子。");
+        assert_eq!(words, vec!["这", "是", "一个", "中文", "测试", "句子"]);
+    }
+
+    #[test]
+    fn dictionary_segmentation_uses_dictionary_lookup_not_lstm_for_thai() {
+        // Real ICU4X dictionary-path output for a Thai sentence containing
+        // no punctuation, so every segment survives word-only retention.
+        // Captured by running the real segmenter, not predicted.
+        let words = tokenize_dictionary_segmented("ฉันรักการเขียนโปรแกรม");
+        assert_eq!(words, vec!["ฉัน", "รัก", "การ", "เขียน", "โปรแกรม"]);
     }
 
     #[test]

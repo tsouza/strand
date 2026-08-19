@@ -124,12 +124,18 @@ reproducing `"The whales swim quickly."` → `["whale", "swim", "quick"]`,
 licensed implementations (`unicode-rs/unicode-segmentation`,
 `CurrySoftware/rust-stemmers`, both Apache-2.0-compatible), not hand-rolled
 algorithms. The full vector suite across languages and scripts is still M1
-execution work, not done by this one vector. The CJK/Thai/Lao segmentation-
-dictionary *default* is now resolved — ICU4X's `icu_segmenter`, RFC 0004 Discussion
-— post-approval amendments, `spec/analyzer-descriptors.md` §5 — but populating
-`segmentation_dictionary` in `crates/strand-lexical/src/analyzer.rs` and adding a
-dictionary-segmented conformance vector remain unimplemented, real M1 execution
-work. **Tantivy importer
+execution work, not done by these two vectors. The CJK/Thai/Lao segmentation-
+dictionary *default* is resolved — ICU4X's `icu_segmenter`, RFC 0004 Discussion
+— post-approval amendments, `spec/analyzer-descriptors.md` §5 — and, as of M1-6
+(`docs/roadmap.md`), implemented for its Han-script path: `crates/strand-lexical/
+src/analyzer.rs` populates `segmentation_dictionary` via `WordSegmenter::
+new_dictionary()` (the `icu_segmenter` crate's real infallible compiled-data
+constructor — correcting a constructor name RFC 0004's own amendment had gotten
+wrong from memory), and `conformance/analyzers/icu4x-dictionary-zh-01.json` pins
+one real, non-predicted Simplified Chinese vector (`"这是一个中文测试句子。"` →
+`["这", "是", "一个", "中文", "测试", "句子"]`, `dl = 6`). Thai, Lao, Hiragana, and
+Katakana remain unvectored, and a real accuracy bake-off against the alternatives
+RFC 0004 considered is still open (M1-7). **Tantivy importer
 is now real**: `strand-tools convert --index-dir <path> --field <name> --output
 <path>` (`crates/strand-tools/src/convert.rs`) opens a real tantivy index via
 tantivy's own reader API (`InvertedIndexReader`, `TermDictionary::stream`,
