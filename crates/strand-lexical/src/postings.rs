@@ -17,6 +17,7 @@
 //! RFC 0007 (`rfcs/0007-postings-codec.md`).
 
 use bitpacking::{BitPacker, BitPacker8x};
+use strand_core::batch::BatchReader;
 
 /// `BitPacker8x`'s native block size (`spec/postings.md` §3).
 pub const BLOCK_LEN: usize = BitPacker8x::BLOCK_LEN;
@@ -305,5 +306,41 @@ impl<'a> PostingsReader<'a> {
             }
         }
         None
+    }
+
+    /// A batch-shaped cursor over this reader's postings (invariant 9,
+    /// `CLAUDE.md` §5), yielding one block's `(ordinal, term_freq)` pairs
+    /// per `next_batch` call — the natural batch unit here, since a block
+    /// is already the reader's unit of independent decode.
+    pub fn batches(&self) -> PostingsBatchReader<'a> {
+        PostingsBatchReader { reader: *self, next_block: 0, prev_ordinal: 0 }
+    }
+}
+
+/// Batch-shaped cursor produced by [`PostingsReader::batches`]. Each
+/// [`BatchReader::next_batch`] call decodes exactly one block.
+#[derive(Debug, Clone, Copy)]
+pub struct PostingsBatchReader<'a> {
+    reader: PostingsReader<'a>,
+    next_block: usize,
+    prev_ordinal: u32,
+}
+
+impl<'a> BatchReader for PostingsBatchReader<'a> {
+    type Item = (u32, u32);
+
+    fn next_batch(&mut self, out: &mut Vec<Self::Item>) -> usize {
+        if self.next_block >= self.reader.block_count {
+            return 0;
+        }
+        let (gaps, tfs) = self.reader.decode_block(self.next_block);
+        let mut count = 0;
+        for (g, tf) in gaps.into_iter().zip(tfs) {
+            self.prev_ordinal += g;
+            out.push((self.prev_ordinal, tf));
+            count += 1;
+        }
+        self.next_block += 1;
+        count
     }
 }

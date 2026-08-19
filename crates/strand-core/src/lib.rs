@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod batch;
 pub mod container;
 pub mod manifest;
 #[cfg(feature = "s3")]

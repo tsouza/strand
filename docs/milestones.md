@@ -39,7 +39,12 @@ beyond this list in one respect: the store abstraction distinguishes definite fr
 ambiguous backend failures (`StoreError::Ambiguous`), `commit()` disambiguates an
 ambiguous pointer CAS with a follow-up read (RFC 0001's Discussion section records
 the amendment), and a `proptest`-based fuzzer drives randomized concurrent-writer
-rounds through the protocol's safety invariants.
+rounds through the protocol's safety invariants. The batch-shaped reader trait
+(invariant 9's frozen `next_batch()` shape), originally listed here as an M0
+deliverable but left unimplemented, is now real: `crates/strand-core/src/batch.rs`
+defines `BatchReader`, and M1's postings kernels are its first consumer
+(`PostingsReader::batches()`, one block per batch), closing the gap this entry used
+to flag (`docs/ledger.md`).
 
 **M1 — Lexical.** BP128 postings + positions + FST term dictionary + block-max
 sibling blob + Roaring filter bitmaps. The **term-dictionary FST and term-info

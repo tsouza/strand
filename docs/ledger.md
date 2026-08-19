@@ -357,11 +357,18 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   inventing a deliverable rather than to any real artifact. Both files were corrected
   to drop the claim (2026-08-18); `docs/research/README.md` is the standing research
   source, full stop.
-- **Batch-shaped reader trait** (invariant 9's frozen `next_batch()` API shape):
-  not yet implemented anywhere in `strand-core`, despite M0's original deliverable
-  list claiming it. Carries forward as an M1 prerequisite — M1's postings kernels
-  are its first real consumer, and the trait should land with them rather than as
-  an unconsumed abstraction (`docs/milestones.md` M0 records the same).
+- **Batch-shaped reader trait — resolved 2026-08-19.** `crates/strand-core/src/
+  batch.rs` now defines `BatchReader` (`next_batch(&mut self, out: &mut Vec<Item>)
+  -> usize`, invariant 9's frozen shape), and `PostingsReader::batches()`
+  (`crates/strand-lexical/src/postings.rs`) is its first real consumer — one block
+  per batch, the natural unit since a block is already the reader's unit of
+  independent decode. Property-tested (`crates/strand-lexical/tests/
+  postings_batch_reader.rs`): batches concatenate to exactly `decode_all`'s output,
+  batch boundaries land on block boundaries (`BLOCK_LEN`, then the remainder), and
+  an exhausted reader returns `0` without appending. Invariant 9's own
+  "recommended batch-size range... settled by benchmark (R2)" remains open — this
+  consumer's per-block batch size is dictated by the postings layout, not a
+  general recommendation, and R2 has not yet settled one.
 - **Raw-mappable blob alignment — resolved 2026-08-18.** `SegmentBuilder::build`
   (`crates/strand-core/src/segment.rs`) now pads a raw-mappable blob's region up to
   its declared `alignment` with zero bytes before placing it, honoring

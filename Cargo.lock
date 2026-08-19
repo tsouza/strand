@@ -3215,6 +3215,7 @@ dependencies = [
  "roaring",
  "rust-stemmers",
  "serde_json",
+ "strand-core",
  "unicode-segmentation",
 ]
 

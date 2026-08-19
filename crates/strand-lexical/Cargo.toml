@@ -11,6 +11,7 @@ bitpacking = "0.9.3"
 fst = "0.4.7"
 roaring = "0.11.5"
 rust-stemmers = "1.2.0"
+strand-core = { path = "../strand-core" }
 unicode-segmentation = "1.13.3"
 
 [lints.clippy]
