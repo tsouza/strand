@@ -82,24 +82,50 @@ Three axes, three different answers — this is not a single GO/NO-GO, it is thr
   variable-length-final-block fix to the encoder could plausibly close most of
   this gap without needing any per-list codec choice at all — worth checking
   before treating this as Phase 2B fuel.
-- **Skip: no signal found, and the measurement itself isn't trustworthy enough
-  to be confident either way.** Held-out lift was ~0.00 on every feature tried.
-  Separately, and worth recording precisely: the per-list skip win/loss
-  *label* itself was not reproducible across identical reruns even at 20,000
-  timed repeats per list on this shared machine — the EF-wins-skip fraction
-  swung from 60.8% to 96.8% across otherwise-identical runs, while the
-  *aggregate mean* (EF ~2× faster, ~40ns vs. ~80ns) stayed consistent. This is
-  a measurement-reliability limit of a script-only pilot on nanosecond-scale
-  operations on shared hardware, not evidence that no signal exists on this
-  axis — Step 4's "necessary but not sufficient" framing applies literally
-  here.
+- **Skip: no signal needed — corrected finding, superseding an earlier bug.**
+  An earlier pass of this pilot reported "no signal found" here, with the
+  underlying win/loss label swinging 60.8%–96.8% across identical reruns. That
+  instability turned out to be a real methodology bug, not hardware noise: the
+  original `bp128_bench` skip timer decoded the whole list *once* and reused
+  that single decode to answer all three per-list targets, amortizing decode
+  cost across queries that arrive independently in `ef_bench`'s (and every
+  other function's) timing — asymmetrically deflating BP128's reported skip
+  cost by up to 3×. Caught only because a later block-max comparison (below)
+  came out implausibly slower than plain decode-then-scan, which made no sense
+  until the asymmetry was found. Fixed to decode fresh per target, matching
+  every other function's methodology, and rerun: **EF wins skip on 100% of
+  lists, every rerun, no swing at all** — not a "sometimes" result requiring a
+  signal, a clean sweep once measured fairly.
+
+**Follow-on measurement, same day: does STRAND's own block-max mechanism
+(invariant 4) close the gap, without needing EF at all?** `bp128_blockmax_bench`
+adds a real block-max sibling array (one `u32` max-value per 256-value block,
+binary-searchable since blocks are monotonically increasing) to the same
+`BitPacker8x` encoding, and measures skip cost via "binary-search the tiny
+block-max array, decode only the one surviving block" rather than
+decode-then-scan. Aggregated over the whole sample (dominated by very short
+lists, consistent with the decode-axis finding above), block-max looks *worse*
+than plain decode-then-scan (mean ~400ns vs. ~250ns) — because most lists fit
+in a single block, where block-max has nothing to skip and only adds its own
+lookup overhead. Restricted to the 177 lists (of 4,016) actually spanning more
+than one block — the only regime block-max is designed for — the story
+reverses completely: block-max beats plain BP128 decode-then-scan on
+essentially all of them (99.4–100% across reruns), cutting mean skip cost from
+~2,560ns to ~350–410ns, a **~7× improvement**, closing most of the gap to EF's
+~45–50ns on those same lists. EF still wins outright by roughly 7–8× even
+after block-max's improvement — block-max narrows the gap, it doesn't close
+it.
 
 **Standing recommendation, not decided here**: the technical GO/NO-GO fired
-(decode found a real signal), but the found signal's likely mundane explanation
-(block-padding overhead on tiny lists) means the cheaper next step is checking
-whether a trivial BP128 encoder fix removes it, before committing to Phase 2B's
-multi-week, harness-building cost on the strength of this specific finding. Full
-numeric detail: `bench/results/hybrid-codec-pilot.json`.
+on the decode axis (a real signal, though its likely mundane explanation —
+block-padding overhead on tiny lists — means the cheaper next step is checking
+a trivial encoder fix before treating it as Phase 2B fuel); skip no longer
+needs a signal, EF simply wins; and block-max, STRAND's own already-designed
+mechanism, real-measured for the first time here, recovers most but not all of
+EF's skip advantage specifically on the long-list minority where it has
+something to skip. None of this commits to Phase 2B's multi-week,
+harness-building cost on its own. Full numeric detail:
+`bench/results/hybrid-codec-pilot.json`.
 
 The plan was produced by generating four independent methodologies from different
 angles (structural/theoretical feasibility, adaptive composition of the two existing

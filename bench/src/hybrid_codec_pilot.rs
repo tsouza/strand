@@ -105,13 +105,17 @@ struct ListRecord {
     density: f64,
     bp128_bytes: usize,
     ef_bytes: usize,
+    blockmax_bytes: usize,
     bp128_decode_ns: f64,
     ef_decode_ns: f64,
     bp128_skip_ns: f64,
     ef_skip_ns: f64,
+    blockmax_skip_ns: f64,
     winner_size_ef: bool,
     winner_skip_ef: bool,
     winner_decode_ef: bool,
+    /// Among {plain BP128, block-max BP128, EF}, which has the fastest skip.
+    skip_winner: &'static str,
 }
 
 fn gaps_of(list: &[u32]) -> Vec<u32> {
@@ -184,10 +188,16 @@ fn bp128_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
     }
     let decode_ns = decode_start.elapsed().as_nanos() as f64 / REPEATS as f64;
 
+    // Decode fresh per target, not once shared across all three — matching
+    // ef_bench's and bp128_blockmax_bench's methodology. Sharing one decode
+    // across targets would amortize decode cost across queries that, in a
+    // real workload, arrive independently; that amortization was a real bug
+    // caught after block-max's skip looked implausibly slower than plain
+    // decode-then-scan, which made no sense until this asymmetry was found.
     let skip_start = Instant::now();
     for _ in 0..REPEATS {
-        let decoded = decode_all();
         for &t in targets {
+            let decoded = decode_all();
             let pos = decoded.partition_point(|&v| v < t);
             std::hint::black_box(pos);
         }
@@ -195,6 +205,105 @@ fn bp128_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
     let skip_ns = skip_start.elapsed().as_nanos() as f64 / (REPEATS * targets.len()) as f64;
 
     (total_bytes, decode_ns, skip_ns)
+}
+
+/// BP128 + block-max (invariant 4): identical encoding to `bp128_bench`, plus
+/// a sibling array of one `u32` per block holding that block's maximum real
+/// doc-ordinal value (monotonically increasing across blocks, since blocks
+/// are consecutive slices of a sorted list — so it's binary-searchable). Skip
+/// = binary search the tiny block-max array (untouched compressed bytes) to
+/// find the one block that can contain the target, decode *only* that block,
+/// then linear-scan within it. This is STRAND's own already-settled
+/// invariant-4 mechanism, not a new design — implemented here to measure it
+/// on the same real lists, not asserted from the spec.
+fn bp128_blockmax_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64) {
+    let gaps = gaps_of(list);
+    let bp = BitPacker8x::new();
+    let block_len = BitPacker8x::BLOCK_LEN;
+    let padded_len = gaps.len().div_ceil(block_len) * block_len;
+    let mut padded = gaps.clone();
+    padded.resize(padded_len, 0);
+    let blocks = padded_len / block_len;
+
+    let mut widths = Vec::with_capacity(blocks);
+    let mut block_offsets = Vec::with_capacity(blocks);
+    let mut compressed = vec![0u8; padded_len * 4];
+    let mut compressed_len = 0;
+    for b in 0..blocks {
+        let block = &padded[b * block_len..(b + 1) * block_len];
+        let width = bp.num_bits(block);
+        widths.push(width);
+        block_offsets.push(compressed_len);
+        let out = &mut compressed[compressed_len..];
+        compressed_len += bp.compress(block, out, width);
+    }
+
+    // Block-max array: the real (post-delta) doc-ordinal value of the last
+    // element each block covers — clamped to the list's real length, since
+    // the final block may be padded with trailing zero-gaps.
+    let mut block_max = Vec::with_capacity(blocks);
+    for b in 0..blocks {
+        let last_real_idx = ((b + 1) * block_len).min(list.len());
+        block_max.push(list[last_real_idx - 1]);
+    }
+    // The real doc-ordinal value immediately preceding each block's start —
+    // precomputed once (not timed), so a single-block decode+skip touches
+    // exactly one block's compressed bytes, never its predecessors'. This is
+    // the whole point of block-max skipping; recomputing it per skip call
+    // would silently decode every preceding block on every query.
+    let block_start_value: Vec<u32> =
+        (0..blocks).map(|b| if b * block_len == 0 { 0 } else { list[b * block_len - 1] }).collect();
+
+    // Sibling metadata bytes: one u32 per block, per invariant 4's "raw
+    // statistics, sibling blob" shape.
+    let total_bytes = compressed_len + blocks * 4;
+
+    let decode_block = |b: usize| -> Vec<u32> {
+        let width = widths[b];
+        let block_bytes = width as usize * block_len / 8;
+        let src = &compressed[block_offsets[b]..block_offsets[b] + block_bytes];
+        let mut decompressed = vec![0u32; block_len];
+        bp.decompress(src, &mut decompressed, width);
+        let mut out = Vec::with_capacity(block_len);
+        let mut prev = block_start_value[b];
+        for g in decompressed {
+            prev += g;
+            out.push(prev);
+        }
+        out
+    };
+
+    // Correctness check once, outside the timing loop: skip must agree with
+    // a full decode-then-search for every target.
+    let full = {
+        let mut all = Vec::new();
+        for b in 0..blocks {
+            all.extend(decode_block(b));
+        }
+        all.truncate(list.len());
+        all
+    };
+    assert_eq!(full, list, "block-max BP128 round-trip mismatch");
+    for &t in targets {
+        let block_idx = block_max.partition_point(|&m| m < t).min(blocks - 1);
+        let decoded_block = decode_block(block_idx);
+        let expected = full.partition_point(|&v| v < t);
+        let found = block_idx * block_len
+            + decoded_block.partition_point(|&v| v < t).min(decoded_block.len());
+        assert_eq!(found.min(list.len()), expected, "block-max skip disagreed with full scan");
+    }
+
+    let skip_start = Instant::now();
+    for _ in 0..REPEATS {
+        for &t in targets {
+            let block_idx = block_max.partition_point(|&m| m < t).min(blocks - 1);
+            let decoded_block = decode_block(block_idx);
+            std::hint::black_box(decoded_block.partition_point(|&v| v < t));
+        }
+    }
+    let skip_ns = skip_start.elapsed().as_nanos() as f64 / (REPEATS * targets.len()) as f64;
+
+    (total_bytes, skip_ns)
 }
 
 /// EF (`sucds::mii_sequences::EliasFano`): built directly over the raw
@@ -237,6 +346,17 @@ fn measure_list(list: &[u32], universe: u32) -> ListRecord {
     let targets = skip_targets(list);
     let (bp128_bytes, bp128_decode_ns, bp128_skip_ns) = bp128_bench(list, &targets);
     let (ef_bytes, ef_decode_ns, ef_skip_ns) = ef_bench(list, universe, &targets);
+    let (blockmax_bytes, blockmax_skip_ns) = bp128_blockmax_bench(list, &targets);
+
+    let skip_winner = [
+        ("bp128", bp128_skip_ns),
+        ("blockmax", blockmax_skip_ns),
+        ("ef", ef_skip_ns),
+    ]
+    .into_iter()
+    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+    .unwrap()
+    .0;
 
     ListRecord {
         n,
@@ -246,13 +366,16 @@ fn measure_list(list: &[u32], universe: u32) -> ListRecord {
         density,
         bp128_bytes,
         ef_bytes,
+        blockmax_bytes,
         bp128_decode_ns,
         ef_decode_ns,
         bp128_skip_ns,
         ef_skip_ns,
+        blockmax_skip_ns,
         winner_size_ef: ef_bytes < bp128_bytes,
         winner_skip_ef: ef_skip_ns < bp128_skip_ns,
         winner_decode_ef: ef_decode_ns < bp128_decode_ns,
+        skip_winner,
     }
 }
 
@@ -333,6 +456,13 @@ struct PilotResults {
     mean_ef_decode_ns: f64,
     mean_bp128_skip_ns: f64,
     mean_ef_skip_ns: f64,
+    mean_blockmax_skip_ns: f64,
+    mean_bp128_bytes: f64,
+    mean_ef_bytes: f64,
+    mean_blockmax_bytes: f64,
+    skip_winner_bp128_fraction: f64,
+    skip_winner_blockmax_fraction: f64,
+    skip_winner_ef_fraction: f64,
     size_signals: Vec<ThresholdSignal>,
     skip_signals: Vec<ThresholdSignal>,
     decode_signals: Vec<ThresholdSignal>,
@@ -480,15 +610,55 @@ fn main() {
     let mean_ef_decode_ns = records.iter().map(|r| r.ef_decode_ns).sum::<f64>() / n;
     let mean_bp128_skip_ns = records.iter().map(|r| r.bp128_skip_ns).sum::<f64>() / n;
     let mean_ef_skip_ns = records.iter().map(|r| r.ef_skip_ns).sum::<f64>() / n;
+    let mean_blockmax_skip_ns = records.iter().map(|r| r.blockmax_skip_ns).sum::<f64>() / n;
+    let mean_bp128_bytes = records.iter().map(|r| r.bp128_bytes as f64).sum::<f64>() / n;
+    let mean_ef_bytes = records.iter().map(|r| r.ef_bytes as f64).sum::<f64>() / n;
+    let mean_blockmax_bytes = records.iter().map(|r| r.blockmax_bytes as f64).sum::<f64>() / n;
+    let skip_winner_bp128_fraction =
+        records.iter().filter(|r| r.skip_winner == "bp128").count() as f64 / n;
+    let skip_winner_blockmax_fraction =
+        records.iter().filter(|r| r.skip_winner == "blockmax").count() as f64 / n;
+    let skip_winner_ef_fraction =
+        records.iter().filter(|r| r.skip_winner == "ef").count() as f64 / n;
     eprintln!(
-        "EF wins on size: {:.1}% of lists; EF wins on skip: {:.1}%; EF wins on full decode: {:.1}%",
+        "EF wins on size: {:.1}% of lists; EF wins on skip (vs plain BP128): {:.1}%; EF wins on full decode: {:.1}%",
         ef_wins_size_fraction * 100.0,
         ef_wins_skip_fraction * 100.0,
         ef_wins_decode_fraction * 100.0
     );
     eprintln!(
-        "mean decode ns/list: BP128={mean_bp128_decode_ns:.1} EF={mean_ef_decode_ns:.1} | mean skip ns/query: BP128={mean_bp128_skip_ns:.1} EF={mean_ef_skip_ns:.1}"
+        "mean decode ns/list: BP128={mean_bp128_decode_ns:.1} EF={mean_ef_decode_ns:.1} | mean skip ns/query: BP128={mean_bp128_skip_ns:.1} blockmax={mean_blockmax_skip_ns:.1} EF={mean_ef_skip_ns:.1}"
     );
+    eprintln!(
+        "three-way skip winner: bp128={:.1}% blockmax={:.1}% ef={:.1}%",
+        skip_winner_bp128_fraction * 100.0,
+        skip_winner_blockmax_fraction * 100.0,
+        skip_winner_ef_fraction * 100.0
+    );
+    eprintln!(
+        "mean bytes/list: BP128={mean_bp128_bytes:.1} blockmax={mean_blockmax_bytes:.1} EF={mean_ef_bytes:.1}"
+    );
+
+    // Block-max only has an opportunity to skip whole blocks on lists
+    // spanning more than one BitPacker8x block (256 values) — report it
+    // separately from the short-list-dominated aggregate above, which would
+    // otherwise hide whatever real advantage it has on long lists.
+    let multi_block: Vec<&ListRecord> = records.iter().filter(|r| r.n > BitPacker8x::BLOCK_LEN).collect();
+    if !multi_block.is_empty() {
+        let m = multi_block.len() as f64;
+        let mean_bp128 = multi_block.iter().map(|r| r.bp128_skip_ns).sum::<f64>() / m;
+        let mean_blockmax = multi_block.iter().map(|r| r.blockmax_skip_ns).sum::<f64>() / m;
+        let mean_ef = multi_block.iter().map(|r| r.ef_skip_ns).sum::<f64>() / m;
+        let blockmax_beats_bp128 =
+            multi_block.iter().filter(|r| r.blockmax_skip_ns < r.bp128_skip_ns).count() as f64 / m;
+        eprintln!(
+            "multi-block lists only (n>{}, {} of {} lists): mean skip ns: BP128={mean_bp128:.1} blockmax={mean_blockmax:.1} EF={mean_ef:.1} | blockmax beats plain BP128 on {:.1}% of these",
+            BitPacker8x::BLOCK_LEN, multi_block.len(), records.len(),
+            blockmax_beats_bp128 * 100.0
+        );
+    } else {
+        eprintln!("no lists longer than one BitPacker8x block ({}) in this sample", BitPacker8x::BLOCK_LEN);
+    }
 
     write_report(
         "hybrid-codec-pilot",
@@ -504,6 +674,13 @@ fn main() {
             mean_ef_decode_ns,
             mean_bp128_skip_ns,
             mean_ef_skip_ns,
+            mean_blockmax_skip_ns,
+            mean_bp128_bytes,
+            mean_ef_bytes,
+            mean_blockmax_bytes,
+            skip_winner_bp128_fraction,
+            skip_winner_blockmax_fraction,
+            skip_winner_ef_fraction,
             size_signals,
             skip_signals,
             decode_signals,

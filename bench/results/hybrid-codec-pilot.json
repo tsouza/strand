@@ -1,19 +1,26 @@
 {
   "name": "hybrid-codec-pilot",
-  "date": "2026-08-18T23:45:32Z",
-  "commit": "5095927c5871d15aee40092ac5f95d3401e12987",
+  "date": "2026-08-19T00:37:57Z",
+  "commit": "13cac86bd63e8fb1f24442434e5c1c420662d846",
   "result": {
     "sampled_passages": 520108,
     "lists_total": 4016,
     "lists_train": 2811,
     "lists_held_out": 1205,
     "ef_wins_size_fraction": 0.9713645418326693,
-    "ef_wins_skip_fraction": 0.8829681274900398,
-    "ef_wins_decode_fraction": 0.68949203187251,
-    "mean_bp128_decode_ns": 275.4401533864538,
-    "mean_ef_decode_ns": 765.5550031872513,
-    "mean_bp128_skip_ns": 95.8590160400065,
-    "mean_ef_skip_ns": 48.693847630312014,
+    "ef_wins_skip_fraction": 1.0,
+    "ef_wins_decode_fraction": 0.6912350597609562,
+    "mean_bp128_decode_ns": 244.85462290836665,
+    "mean_ef_decode_ns": 667.2177149402395,
+    "mean_bp128_skip_ns": 249.30196826859185,
+    "mean_ef_skip_ns": 42.56597475514605,
+    "mean_blockmax_skip_ns": 406.58243935922985,
+    "mean_bp128_bytes": 672.1354581673306,
+    "mean_ef_bytes": 295.19123505976097,
+    "mean_blockmax_bytes": 677.5986055776892,
+    "skip_winner_bp128_fraction": 0.0,
+    "skip_winner_blockmax_fraction": 0.0,
+    "skip_winner_ef_fraction": 1.0,
     "size_signals": [
       {
         "feature": "gap_variance",
@@ -61,83 +68,83 @@
         "feature": "gap_variance",
         "threshold": 61533267481.0,
         "ef_wins_above": false,
-        "train_accuracy": 0.8850942725008893,
-        "held_out_accuracy": 0.8780082987551867,
-        "held_out_majority_baseline": 0.8780082987551867
+        "train_accuracy": 1.0,
+        "held_out_accuracy": 1.0,
+        "held_out_majority_baseline": 1.0
       },
       {
         "feature": "log_gap_variance",
         "threshold": 24.84284380017313,
         "ef_wins_above": false,
-        "train_accuracy": 0.8850942725008893,
-        "held_out_accuracy": 0.8780082987551867,
-        "held_out_majority_baseline": 0.8780082987551867
+        "train_accuracy": 1.0,
+        "held_out_accuracy": 1.0,
+        "held_out_majority_baseline": 1.0
       },
       {
         "feature": "n",
         "threshold": 38015.0,
         "ef_wins_above": false,
-        "train_accuracy": 0.8850942725008893,
-        "held_out_accuracy": 0.8780082987551867,
-        "held_out_majority_baseline": 0.8780082987551867
+        "train_accuracy": 1.0,
+        "held_out_accuracy": 1.0,
+        "held_out_majority_baseline": 1.0
       },
       {
         "feature": "density",
         "threshold": 0.07309058887769464,
         "ef_wins_above": false,
-        "train_accuracy": 0.8850942725008893,
-        "held_out_accuracy": 0.8780082987551867,
-        "held_out_majority_baseline": 0.8780082987551867
+        "train_accuracy": 1.0,
+        "held_out_accuracy": 1.0,
+        "held_out_majority_baseline": 1.0
       },
       {
         "feature": "gap_mean",
         "threshold": 260031.5,
         "ef_wins_above": false,
-        "train_accuracy": 0.8850942725008893,
-        "held_out_accuracy": 0.8780082987551867,
-        "held_out_majority_baseline": 0.8780082987551867
+        "train_accuracy": 1.0,
+        "held_out_accuracy": 1.0,
+        "held_out_majority_baseline": 1.0
       }
     ],
     "decode_signals": [
       {
         "feature": "gap_variance",
-        "threshold": 889255256.8994083,
+        "threshold": 922440669.5371903,
         "ef_wins_above": true,
-        "train_accuracy": 0.8295980078263963,
-        "held_out_accuracy": 0.820746887966805,
-        "held_out_majority_baseline": 0.6871369294605809
+        "train_accuracy": 0.8345784418356457,
+        "held_out_accuracy": 0.8232365145228215,
+        "held_out_majority_baseline": 0.6896265560165975
       },
       {
         "feature": "log_gap_variance",
-        "threshold": 20.605894881510146,
+        "threshold": 20.642533618029912,
         "ef_wins_above": true,
-        "train_accuracy": 0.8295980078263963,
-        "held_out_accuracy": 0.820746887966805,
-        "held_out_majority_baseline": 0.6871369294605809
+        "train_accuracy": 0.8345784418356457,
+        "held_out_accuracy": 0.8232365145228215,
+        "held_out_majority_baseline": 0.6896265560165975
       },
       {
         "feature": "n",
         "threshold": 8.0,
         "ef_wins_above": false,
-        "train_accuracy": 0.9747420846673781,
-        "held_out_accuracy": 0.9883817427385893,
-        "held_out_majority_baseline": 0.6871369294605809
+        "train_accuracy": 0.991817858413376,
+        "held_out_accuracy": 0.9908713692946058,
+        "held_out_majority_baseline": 0.6896265560165975
       },
       {
         "feature": "density",
         "threshold": 0.000015381420781837617,
         "ef_wins_above": false,
-        "train_accuracy": 0.9747420846673781,
-        "held_out_accuracy": 0.9883817427385893,
-        "held_out_majority_baseline": 0.6871369294605809
+        "train_accuracy": 0.991817858413376,
+        "held_out_accuracy": 0.9908713692946058,
+        "held_out_majority_baseline": 0.6896265560165975
       },
       {
         "feature": "gap_mean",
-        "threshold": 51885.0,
+        "threshold": 51969.8,
         "ef_wins_above": true,
-        "train_accuracy": 0.9487726787620064,
-        "held_out_accuracy": 0.9576763485477179,
-        "held_out_majority_baseline": 0.6871369294605809
+        "train_accuracy": 0.95980078263963,
+        "held_out_accuracy": 0.9601659751037345,
+        "held_out_majority_baseline": 0.6896265560165975
       }
     ],
     "size_interaction_signal": {
@@ -150,19 +157,19 @@
     },
     "skip_interaction_signal": {
       "feature": "gap_variance*density",
-      "threshold": 0.004315449868104317,
-      "ef_wins_above": true,
-      "train_accuracy": 0.8854500177872643,
-      "held_out_accuracy": 0.8780082987551867,
-      "held_out_majority_baseline": 0.8780082987551867
+      "threshold": 294344.37451836927,
+      "ef_wins_above": false,
+      "train_accuracy": 1.0,
+      "held_out_accuracy": 1.0,
+      "held_out_majority_baseline": 1.0
     },
     "decode_interaction_signal": {
       "feature": "gap_variance*density",
       "threshold": 294344.37451836927,
       "ef_wins_above": false,
-      "train_accuracy": 0.6905016008537886,
-      "held_out_accuracy": 0.6871369294605809,
-      "held_out_majority_baseline": 0.6871369294605809
+      "train_accuracy": 0.6919245819992885,
+      "held_out_accuracy": 0.6896265560165975,
+      "held_out_majority_baseline": 0.6896265560165975
     },
     "go_no_go": "GO: out-of-sample signal found (size=false via density, skip=false via gap_variance*density, decode=true via density) -> proceed to Phase 2B"
   }
