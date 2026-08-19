@@ -112,41 +112,71 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   Full detail: `references/zhu-etal-2026-lico-learned-inverted-index-compression.md`.
   Per Phase 0's own GO/NO-GO, the investigation now proceeds to the Track A/B fork
   (`docs/research/r2-hybrid-codec-methodology.md`). **Phase 1 executed
-  2026-08-18** (`bench/src/hybrid_codec_pilot.rs`, real MS MARCO postings lists,
-  existing unmodified codecs — `bitpacking`'s `BitPacker8x` and
-  `sucds::mii_sequences::EliasFano`, no new engineering). Size needs no signal
-  (EF wins ~97.1% of lists, near-constant). Decode found a real, stable,
-  out-of-sample signal (list length `n <= 8` predicts EF wins decode at ~99.5%
-  held-out accuracy vs. 69.7% baseline), flagged as possibly explained by
-  `BitPacker8x`'s 256-value block padding on short lists rather than a
-  fundamental property — **checked, not just proposed**: a minimal scalar
-  bit-packer (no SIMD, no forced block size) for the trailing partial block
-  confirms the hypothesis was real but only partial. With padding removed,
-  EF's overall decode-win-rate drops from 68.2% to 55.6%, and on `n <= 8`
-  lists specifically from 98.0% to 79.5% — but a strong signal survives the
-  fair comparison (`n <= 4` predicts the winner at 96.6% held-out accuracy vs.
-  a 57.5% baseline, +39pp, *larger* than the original). Roughly a third of the
-  original signal was padding artifact, worth fixing in any production
-  encoder regardless; the rest is a real, still-unexplained decode-speed
-  difference the pilot can't attribute further (candidate causes: EF's
-  genuine per-value marginal cost, or fixed per-call constant factors neither
-  implementation was tuned to match). Skip's first
-  pass reported no signal with an unreproducible win/loss label (60.8%–96.8%
-  swing across reruns) — traced to a real bug, not hardware noise: the BP128
-  skip timer was decoding once and amortizing that decode across three
-  per-list targets, while every other function's timer paid fresh per query.
-  Fixed: **EF wins skip on 100% of lists, every rerun**, no signal needed.
-  Follow-on same day: a real block-max implementation (invariant 4, one `u32`
-  max-value per block, binary-searchable) added to the same `BitPacker8x`
-  encoding — on the 177-of-4,016 lists actually spanning more than one block
-  (the only regime it can help in), block-max beats plain decode-then-scan on
-  ~99–100% of them, a ~7× cut in skip cost (~2,560ns → ~350–410ns), closing
-  most but not all of the gap to EF's ~45–50ns on those same lists — EF still
-  wins outright by ~7–8×. On the short-list-dominated aggregate, block-max is
-  worse than plain decode-then-scan (nothing to skip, only its own lookup
-  overhead). Full detail in `docs/research/r2-hybrid-codec-methodology.md` and
-  `bench/results/hybrid-codec-pilot.json`. Does not change R2's BP128 default
-  or require an RFC on its own.
+  2026-08-18, Phase 2B checkpoint executed 2026-08-19**
+  (`bench/src/hybrid_codec_pilot.rs`, real MS MARCO postings lists, existing
+  unmodified codecs — `bitpacking`'s `BitPacker8x` and
+  `sucds::mii_sequences::EliasFano`, no new engineering). Three real
+  measurement bugs were found and fixed in the course of this, each caught by
+  an implausible result rather than trusted on first pass — the corrected
+  numbers below supersede everything reported before each fix, including to
+  the project owner mid-session:
+
+  1. Skip timing amortized one decode across three per-list queries for BP128
+     only, deflating its cost — fixed, and **EF wins skip on 100% of lists**,
+     every rerun.
+  2. Decode and size both padded every list to `BitPacker8x`'s 256-value
+     block regardless of real length — inflating BP128 enormously on this
+     short-list-dominated corpus. Fixed with a variable-length final block
+     (`bp128_variable_bench`, scalar, no SIMD, no forced block size).
+  3. No BP128 variant counted the per-block bit-width byte a real decoder
+     needs — understating BP128's true size further. Fixed, one byte per
+     block, in all three BP128 variants.
+
+  **Corrected findings, stable across five reruns after all three fixes:**
+  size needs no signal, but the direction is the *opposite* of what an
+  earlier pass reported — **BP128 (fairly encoded) wins on size for 100% of
+  lists, EF loses on every one** (the earlier "~97.1% EF" figure was the
+  padding bug, not a real result). The mechanism: `sucds::mii_sequences::
+  EliasFano` is plain, un-partitioned EF, and the already-vendored Ottaviano
+  & Venturini paper (`references/ottaviano-venturini-partitioned-elias-fano.md`)
+  states plainly that plain EF "fails to exploit the local clustering that
+  inverted lists usually exhibit" — exactly what a per-block adaptive-width
+  bit-packer does exploit. Decode found a real, stable signal, checked
+  directly against the block-padding hypothesis and found to be only
+  partially explained by it: with padding fairly removed, EF's decode-win
+  rate drops from ~68% to ~55–66% overall (and from ~98% to ~79–94% on
+  `n <= 8` lists specifically), but a strong signal survives (`n <= 4`
+  predicts the winner at ~97% held-out accuracy, a larger lift than the
+  original, uncorrected signal). Skip needs no signal — EF simply wins,
+  always, once measured fairly. A real block-max implementation
+  (invariant 4, one `u32` max-value per block) gives a genuine ~7× skip-cost
+  cut on the 177-of-4,016 lists spanning more than one block — the only
+  regime it applies to — closing most but not all of the gap to EF, which
+  still wins outright by ~7–8× on those same lists.
+
+  **Phase 2B's own intermediate checkpoint then fired its stated stop
+  condition**: computed free from the same corrected data, an oracle
+  per-list chooser gives **0.0% ceiling gain on skip** (EF already wins
+  every list) and **0.0% ceiling gain on size** (BP128 already wins every
+  list) over the better pure baseline — only decode shows a real but modest
+  ~8–9% gain. Per the plan's own off-ramp ("if the achievable ceiling is
+  already collapsing toward one codec's baseline, stop before finishing the
+  full corpus"), **the full Phase 2B harness (alternation-cost and
+  chooser-error-cost studies) was not built** — two of three axes show zero
+  composition opportunity, and the engineering/verification surface cost
+  (doubled conformance surface, a real conflict with invariant 1's
+  per-family merge-semantics contract, a new registry field, doubled M4
+  burden — drafted without needing benchmark numbers) isn't justified by a
+  single-digit gain on the third. **Net recommendation from Phases 0/1/2B
+  together**: no codec swap, no adaptive hybrid. BP128 stays the right
+  default, its encoder should use a variable-length final block (a small,
+  unconditionally good fix, independent of everything else here),
+  block-max is worth keeping as-is, and EF's real advantage (native
+  compressed-domain skip) is a genuine trade, not a free upgrade — nothing
+  measured here shows STRAND should make that trade for its default postings
+  codec. Full detail in `docs/research/r2-hybrid-codec-methodology.md` and
+  `bench/results/hybrid-codec-pilot.json`. Does not change R2's BP128
+  default or require an RFC on its own.
 - **R3** — the rotation-provenance mechanism (materialized matrix vs generator+seed,
   M2 RFC); TurboQuant revisit condition.
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length

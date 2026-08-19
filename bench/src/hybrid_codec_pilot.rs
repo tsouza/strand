@@ -220,7 +220,13 @@ fn bp128_variable_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
         compressed[compressed_len..compressed_len + tail_bytes.len()].copy_from_slice(&tail_bytes);
         compressed_len += tail_bytes.len();
     }
-    let total_bytes = compressed_len;
+    // A real wire format needs the per-block bit width to decode; not
+    // recording it (as an earlier version of this function did) understated
+    // this codec's true size, especially for the single-tail-block lists
+    // that dominate this sample. One byte per full block, one more for the
+    // tail if present — matching bp128_bench and bp128_blockmax_bench.
+    let width_metadata_bytes = full_blocks + usize::from(remainder > 0);
+    let total_bytes = compressed_len + width_metadata_bytes;
 
     let decode_all = || -> Vec<u32> {
         let mut decompressed = vec![0u32; full_blocks * block_len];
@@ -295,7 +301,9 @@ fn bp128_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64, f64) {
         let out = &mut compressed[compressed_len..];
         compressed_len += bp.compress(block, out, width);
     }
-    let total_bytes = compressed_len;
+    // Real wire size includes the per-block width byte needed to decode —
+    // omitting it understated this codec's true size.
+    let total_bytes = compressed_len + blocks;
 
     let decode_all = || -> Vec<u32> {
         let mut decompressed = vec![0u32; padded_len];
@@ -393,9 +401,12 @@ fn bp128_blockmax_bench(list: &[u32], targets: &[u32; 3]) -> (usize, f64) {
     let block_start_value: Vec<u32> =
         (0..blocks).map(|b| if b * block_len == 0 { 0 } else { list[b * block_len - 1] }).collect();
 
-    // Sibling metadata bytes: one u32 per block, per invariant 4's "raw
-    // statistics, sibling blob" shape.
-    let total_bytes = compressed_len + blocks * 4;
+    // Sibling metadata bytes: one u32 per block for the block-max array
+    // (invariant 4's "raw statistics, sibling blob" shape), plus the
+    // per-block width byte needed to decode at all — omitting the latter
+    // understated this codec's true size, the same gap fixed in
+    // bp128_bench and bp128_variable_bench.
+    let total_bytes = compressed_len + blocks * 4 + blocks;
 
     let decode_block = |b: usize| -> Vec<u32> {
         let width = widths[b];
@@ -594,6 +605,7 @@ struct PilotResults {
     lists_train: usize,
     lists_held_out: usize,
     ef_wins_size_fraction: f64,
+    ef_wins_size_vs_var_fraction: f64,
     ef_wins_skip_fraction: f64,
     ef_wins_decode_fraction: f64,
     ef_wins_decode_vs_var_fraction: f64,
@@ -618,6 +630,9 @@ struct PilotResults {
     decode_interaction_signal: ThresholdSignal,
     decode_var_interaction_signal: ThresholdSignal,
     go_no_go: String,
+    phase2b_skip_ceiling_gain: f64,
+    phase2b_decode_ceiling_gain: f64,
+    phase2b_size_ceiling_gain: f64,
 }
 
 fn main() {
@@ -760,6 +775,12 @@ fn main() {
 
     let ef_wins_size_fraction =
         records.iter().filter(|r| r.winner_size_ef).count() as f64 / records.len() as f64;
+    // Fair comparison: winner_size_ef used the padded bp128_bytes. Checking
+    // per-list against bp128var_bytes too, not just the aggregate mean —
+    // the padding bug already inflated one aggregate mean (decode) in a way
+    // a per-list check caught; verify size the same way before trusting it.
+    let ef_wins_size_vs_var_fraction =
+        records.iter().filter(|r| r.ef_bytes < r.bp128var_bytes).count() as f64 / records.len() as f64;
     let ef_wins_skip_fraction =
         records.iter().filter(|r| r.winner_skip_ef).count() as f64 / records.len() as f64;
     let ef_wins_decode_fraction =
@@ -781,8 +802,9 @@ fn main() {
     let skip_winner_ef_fraction =
         records.iter().filter(|r| r.skip_winner == "ef").count() as f64 / n;
     eprintln!(
-        "EF wins on size: {:.1}% of lists; EF wins on skip (vs plain BP128): {:.1}%; EF wins on full decode: {:.1}%",
+        "EF wins on size (vs padded BP128): {:.1}% of lists; EF wins on size (vs variable-block BP128): {:.1}%; EF wins on skip (vs plain BP128): {:.1}%; EF wins on full decode: {:.1}%",
         ef_wins_size_fraction * 100.0,
+        ef_wins_size_vs_var_fraction * 100.0,
         ef_wins_skip_fraction * 100.0,
         ef_wins_decode_fraction * 100.0
     );
@@ -848,6 +870,61 @@ fn main() {
         eprintln!("no lists longer than one BitPacker8x block ({}) in this sample", BitPacker8x::BLOCK_LEN);
     }
 
+    // -----------------------------------------------------------------
+    // Phase 2B intermediate checkpoint (per its own stated off-ramp: "on a
+    // growing corpus subset, if the achievable ceiling is already collapsing
+    // toward one codec's baseline, stop before finishing the full corpus").
+    // Uses only data already collected above — free to compute, and the
+    // plan-sanctioned reason to decide whether the full harness (alternation
+    // cost, chooser error cost, engineering surface) is worth building at
+    // all before building it.
+    // -----------------------------------------------------------------
+    let m = records.len() as f64;
+    // The realistic pure-BP128-family baseline is BP128+block-max together
+    // (invariant 4 is already-designed, not optional) — using block-max only
+    // where it actually helps (a static n>256 check, not an oracle peek).
+    let bp128_family_skip = |r: &ListRecord| {
+        if r.n > BitPacker8x::BLOCK_LEN { r.blockmax_skip_ns } else { r.bp128_skip_ns }
+    };
+    let oracle_skip_mean =
+        records.iter().map(|r| bp128_family_skip(r).min(r.ef_skip_ns)).sum::<f64>() / m;
+    let bp128_family_skip_mean = records.iter().map(bp128_family_skip).sum::<f64>() / m;
+    let ef_only_skip_mean = records.iter().map(|r| r.ef_skip_ns).sum::<f64>() / m;
+    let better_pure_skip = bp128_family_skip_mean.min(ef_only_skip_mean);
+    let skip_ceiling_gain = (better_pure_skip - oracle_skip_mean) / better_pure_skip;
+
+    let oracle_decode_mean =
+        records.iter().map(|r| r.bp128var_decode_ns.min(r.ef_decode_ns)).sum::<f64>() / m;
+    let bp128var_decode_mean = records.iter().map(|r| r.bp128var_decode_ns).sum::<f64>() / m;
+    let ef_only_decode_mean = records.iter().map(|r| r.ef_decode_ns).sum::<f64>() / m;
+    let better_pure_decode = bp128var_decode_mean.min(ef_only_decode_mean);
+    let decode_ceiling_gain = (better_pure_decode - oracle_decode_mean) / better_pure_decode;
+
+    // Fair baseline uses bp128var_bytes (the already-established better BP128
+    // encoding, no padding waste), not the padded bp128_bytes — using the
+    // padded figure here would let the "oracle" silently rediscover the
+    // encoder fix already made rather than measure real chooser value.
+    let oracle_bytes_mean =
+        records.iter().map(|r| (r.bp128var_bytes as f64).min(r.ef_bytes as f64)).sum::<f64>() / m;
+    let bp128var_bytes_mean = records.iter().map(|r| r.bp128var_bytes as f64).sum::<f64>() / m;
+    let ef_bytes_mean = records.iter().map(|r| r.ef_bytes as f64).sum::<f64>() / m;
+    let better_pure_bytes = bp128var_bytes_mean.min(ef_bytes_mean);
+    let size_ceiling_gain = (better_pure_bytes - oracle_bytes_mean) / better_pure_bytes;
+
+    eprintln!("=== Phase 2B checkpoint: oracle ceiling over the better pure baseline ===");
+    eprintln!(
+        "skip:   oracle={oracle_skip_mean:.1}ns  bp128-family={bp128_family_skip_mean:.1}ns  ef={ef_only_skip_mean:.1}ns  ceiling_gain={:.1}%",
+        skip_ceiling_gain * 100.0
+    );
+    eprintln!(
+        "decode: oracle={oracle_decode_mean:.1}ns  bp128-variable={bp128var_decode_mean:.1}ns  ef={ef_only_decode_mean:.1}ns  ceiling_gain={:.1}%",
+        decode_ceiling_gain * 100.0
+    );
+    eprintln!(
+        "size:   oracle={oracle_bytes_mean:.1}B  bp128-variable={bp128var_bytes_mean:.1}B  ef={ef_bytes_mean:.1}B  ceiling_gain={:.1}%",
+        size_ceiling_gain * 100.0
+    );
+
     write_report(
         "hybrid-codec-pilot",
         PilotResults {
@@ -856,6 +933,7 @@ fn main() {
             lists_train: train.len(),
             lists_held_out: held_out.len(),
             ef_wins_size_fraction,
+            ef_wins_size_vs_var_fraction,
             ef_wins_skip_fraction,
             ef_wins_decode_fraction,
             ef_wins_decode_vs_var_fraction,
@@ -880,6 +958,9 @@ fn main() {
             decode_interaction_signal,
             decode_var_interaction_signal,
             go_no_go,
+            phase2b_skip_ceiling_gain: skip_ceiling_gain,
+            phase2b_decode_ceiling_gain: decode_ceiling_gain,
+            phase2b_size_ceiling_gain: size_ceiling_gain,
         },
     );
 }

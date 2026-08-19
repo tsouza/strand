@@ -65,9 +65,32 @@ fitting.
 
 Three axes, three different answers — this is not a single GO/NO-GO, it is three:
 
-- **Size: no signal needed.** EF wins on compressed size for ~97.1% of real
-  lists, consistently across reruns — not a "sometimes A, sometimes B" situation
-  a per-list chooser could exploit, just a near-constant winner on this corpus.
+- **Size: no signal needed — but the original finding was backwards, caught
+  and corrected same-session, before being reported as settled.** The
+  original pass here reported EF winning size on ~97.1% of lists. That number
+  was a measurement bug, not a real result: `bp128_bench` padded every list
+  to `BitPacker8x`'s 256-value block regardless of real length, so a 1-element
+  list needing 19 bits was charged `19*256/8 = 608` bytes instead of a few.
+  On this corpus — dominated by very short lists — that inflated BP128's
+  reported size enormously. Fixed the same way as the decode padding bug: a
+  variable-length final block (the same `bp128_variable_bench`, no new
+  engineering beyond what the decode-signal check already built), plus one
+  more real gap this same check surfaced — the per-block bit-width byte
+  needed to actually decode was never counted in *any* BP128 variant's
+  reported size, fixed by adding it everywhere (`bp128_bench`,
+  `bp128_variable_bench`, `bp128_blockmax_bench` alike). With both fixed and
+  verified stable across five reruns: **`BitPacker8x` (fairly encoded) wins
+  on size for 100% of lists — EF loses on every single one.** The mechanism
+  is exactly the reason partitioned Elias-Fano (PEF) exists rather than plain
+  EF: `sucds::mii_sequences::EliasFano` is plain, un-partitioned EF, and the
+  Ottaviano & Venturini paper already vendored in this project
+  (`references/ottaviano-venturini-partitioned-elias-fano.md`) states plainly
+  that plain EF "fails to exploit the local clustering that inverted lists
+  usually exhibit" — exactly the failure mode a delta-gap bit-packer with a
+  per-block adaptive width doesn't have. This result is a near-constant
+  winner in the *opposite* direction from what was first reported — still no
+  signal needed, because there's no "sometimes A, sometimes B" for a chooser
+  to exploit, just a different constant winner.
 - **Decode: real, stable, out-of-sample signal found — GO. Checked against the
   block-padding hypothesis; the hypothesis was real but only partial.** `n`
   predicts the full-decode winner at ~99.5% held-out accuracy against a 69.7%
@@ -128,20 +151,66 @@ essentially all of them (99.4–100% across reruns), cutting mean skip cost from
 after block-max's improvement — block-max narrows the gap, it doesn't close
 it.
 
-**Standing recommendation, not decided here**: the technical GO/NO-GO fired
-on the decode axis, and the encoder-padding hypothesis that could have
-explained it away has now actually been checked, not just proposed — it
-explains roughly a third of the effect, not all of it, so a real, unexplained
-decode-speed signal remains open; skip no longer needs a signal, EF simply
-wins; and block-max, STRAND's own already-designed mechanism, real-measured
-for the first time here, recovers most but not all of EF's skip advantage
-specifically on the long-list minority where it has something to skip. None
-of this commits to Phase 2B's multi-week, harness-building cost on its own —
-the open question now is narrower and more specific than before (why does EF
-decode short lists faster once padding is controlled for, not whether padding
-explains the whole thing), which is a better-scoped starting point for
-whoever picks this up next. Full numeric detail:
-`bench/results/hybrid-codec-pilot.json`.
+**Phase 2B — intermediate checkpoint executed 2026-08-19, stop condition
+fired.** Phase 2B's own stated off-ramp: "on a growing corpus subset, if the
+achievable ceiling is already collapsing toward one codec's baseline, stop
+before finishing the full corpus." Computed directly from the same real
+per-list data above (free — no new benchmarking): for each axis, an oracle
+that picks per list whichever codec is actually cheapest, compared against
+the better *pure*, always-use-one-codec baseline (BP128+block-max for skip,
+`bp128_variable_bench` for decode and size — the fair encodings, not the
+padded ones). Result, stable across the runs that also confirmed the size
+correction above:
+
+- **Skip: 0.0% ceiling gain.** Oracle mean (40.7ns) exactly equals pure-EF
+  mean — EF wins every single list, so a chooser has nothing to add.
+- **Size: 0.0% ceiling gain.** Oracle mean (149.1B) exactly equals pure-BP128
+  mean — BP128 wins every single list (see the corrected size finding
+  above), so a chooser has nothing to add here either.
+- **Decode: ~7.9–9.0% ceiling gain.** The one axis with a real, if modest,
+  composition opportunity — an oracle chooser beats the better pure baseline
+  by high single digits, consistent with the decode axis being the only one
+  where the two codecs don't have a near-universal winner.
+
+Two of three axes show a *collapsed* ceiling exactly as the off-ramp
+describes — not "marginal," genuinely zero — and the third shows a small,
+real gain on an axis whose absolute per-op cost (nanoseconds, on lists that
+are mostly tiny) is a poor candidate for justifying new engineering surface
+even before weighing it against the costs named below. **Verdict: stop here,
+per the plan's own stated criterion — do not build the full Phase 2B harness
+(alternation-cost measurement, chooser-error-cost study) on this evidence.**
+The one remaining downside study that needed no benchmarking, engineering/
+verification surface cost, was drafted independently and reinforces the same
+conclusion: a per-list adaptive chooser would double the conformance surface,
+conflict with invariant 1's per-family merge-semantics contract (concatenating
+two segments' lists encoded with different codecs for the same term has no
+cheap answer), require a new registry field or sibling blob, and double the
+clean-room implementation burden for M4 — real, concrete costs that a
+collapsed-to-near-zero ceiling on two of three axes doesn't come close to
+justifying.
+
+**What this investigation actually recommends, then, weighing everything
+found across Phase 0, Phase 1, and this checkpoint**: no single codec swap
+and no adaptive hybrid is indicated by what's been measured. The real,
+usable finding is narrower and already actionable without further
+engineering: (1) BP128 stays the right default for size and bulk decode,
+confirmed rather than assumed, and its own encoder should use a
+variable-length final block rather than padding to the block size, a small,
+real, unconditionally-good fix independent of anything else here; (2)
+block-max (invariant 4, already designed) is worth having as-is — it gives
+a real ~7× skip improvement on the long-list minority where it applies, at
+no format cost beyond what's already speced; (3) EF's real, uncontested
+advantage — native compressed-domain skip — is not free (EF loses on size
+against a fairly-measured BP128 on every list in this sample, and loses on
+decode more often than it wins once padding is controlled for), so adopting
+it anywhere in STRAND would be a real trade, not a strict improvement, and
+nothing measured here shows that trade is worth making for the default
+postings codec. The still-open, narrower question from the decode axis (why
+EF decodes very short lists faster even when BP128 is measured fairly) is a
+real curiosity but was explicitly deprioritized as low-impact: those lists
+are numerous but individually cheap (Zipf's law), so they contribute little
+to real aggregate query cost regardless of which codec wins. Full numeric
+detail: `bench/results/hybrid-codec-pilot.json`.
 
 The plan was produced by generating four independent methodologies from different
 angles (structural/theoretical feasibility, adaptive composition of the two existing
