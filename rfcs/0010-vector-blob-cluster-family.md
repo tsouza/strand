@@ -222,19 +222,12 @@ turns out to be a real undercount gets corrected here and in
   §3), but the actual clustering algorithm (k-means or otherwise) that
   produces centroids at segment-build time is construction-side, out of
   scope for a read-side wire-format RFC.
-- **ARM/SIMD kernel validation for the FastScan decode path, and the exact
-  intra-batch bit/lane order within the 1-bit code region.** Kernel
-  performance is out of scope for the same reason RFC 0007 left it open for
-  postings — real, separate, measured work. The intra-batch bit/lane order
-  is a narrower and more load-bearing gap: this session's vendoring
-  (`references/rabitq-library-ivf-and-batch-layout-source.md`) grounds the
-  *byte offsets* of the code region and the three factor arrays within a
-  batch, but not the bit-level layout of the 1-bit codes themselves within
-  that region. This RFC adopts that layout by reference (invariant 8) but
-  does not independently pin it, which means a from-scratch reimplementation
-  cannot currently be written against this chapter alone for the code bits
-  specifically — named as a real, load-bearing gap (How this could be
-  wrong; Open questions), not resolved by this Non-goal.
+- **ARM/SIMD kernel validation for the FastScan decode path.** Out of scope
+  for the same reason RFC 0007 left it open for postings — real, separate,
+  measured work. (The intra-batch bit/lane order itself — a narrower,
+  load-bearing gap at Approval time — is now resolved: Discussion, below,
+  and `spec/vectors.md` §4 pin the complete `pack_codes` algorithm
+  normatively.)
 - **How a reader obtains and applies the deletion vector's own bytes.**
   Design §6 now requires (step 4) that a reader filter the quantized-scan
   candidate set against the segment's deletion vector before reranking —
@@ -424,20 +417,25 @@ first `padded_dims * 32 / 8` bytes are the 1-bit codes for up to 32 vectors
 (`f_add`, `f_rescale`, `f_error` — the codec's own per-vector distance-
 correction factors; their role in RaBitQ's distance estimator is the
 algorithm's concern, not this container-layer RFC's). The exact intra-batch
-bit/lane order **within** the 1-bit code sub-region — which bit of which
-vector's code occupies which position — is **not** resolved by the vendored
-source (Non-goals; How this could be wrong): this RFC adopts it by
-reference to the registered FastScan encoder's own output rather than
-respecifying it, and a from-scratch reimplementation of the code bits
-specifically is not yet possible from this chapter alone. A cluster whose
+bit/lane order **within** the 1-bit code sub-region is now fully resolved
+(Discussion — post-approval amendment, below, closing the gap this RFC
+originally left open at Approval): `spec/vectors.md` §4 pins the complete
+`fastscan::pack_codes` nibble-shuffle algorithm normatively, adopted
+verbatim from the reference implementation (invariant 8), not
+re-derived. A cluster whose
 `vector_count` is not a multiple of 32 still pays the full per-batch cost
 for its last, partially-filled batch — this is the registered codec's own
 behavior (`total_blocks * BatchDataMap::data_bytes`, independent of the
-last batch's real occupancy), inherited rather than fixed here. Unlike the
-intra-batch code-bit order, this RFC **does** pin the partial batch's unused
-lanes normatively, since invariant 11 requires byte determinism and the
-vendored source does not specify their content: **a writer MUST zero-fill
-every unused lane's code bits and all three corresponding `f_add`/
+last batch's real occupancy), inherited rather than fixed here. This RFC
+**also** pins the partial batch's unused lanes normatively, since
+invariant 11 requires byte determinism — the fetch that closed the
+intra-batch bit-order gap (Discussion, below) confirms this rule matches
+the reference implementation's own behavior exactly: `pack_codes`'s own
+`get_column` helper zero-fills any batch slot beyond the real vector count
+before packing, so this is not a STRAND-invented convention layered on top
+of unspecified reference behavior, it is the reference behavior, stated
+normatively: **a writer MUST zero-fill every unused lane's code bits and
+all three corresponding `f_add`/
 `f_rescale`/`f_error` slots in a partially filled batch.** Named honestly
 in How this could be wrong as real, inherited padding waste, not fixed the
 way RFC 0007 fixed the analogous problem for lexical postings.
@@ -770,12 +768,13 @@ decision.
 - **Codec-variant provenance:** this RFC's own precise registration — RaBitQ
   1-bit, `FhtKacRotator` (default) or `MatrixRotator` (registered,
   non-default) rotation, the reference library's own FastScan-batched
-  code-region *byte offsets* for 1-bit codes (`references/rabitq-library-
-  ivf-and-batch-layout-source.md`), cited to the reference implementation's
-  actual source, not re-derived from memory, per `CLAUDE.md` §3. Partial —
-  the intra-batch bit/lane order within the code bits themselves is
-  adopted by reference, not independently pinned (Non-goals, How this could
-  be wrong): a real gap, not a completed registration.
+  code-region byte offsets and now the complete intra-batch bit/lane order
+  (`references/rabitq-library-ivf-and-batch-layout-source.md`,
+  `references/rabitq-library-fastscan-pack-codes-source.md`), cited to the
+  reference implementation's actual source and independently verified by
+  executing it (Discussion), not re-derived from memory alone, per
+  `CLAUDE.md` §3. Complete as of the Discussion amendment — a real gap at
+  Approval time, closed before implementation began.
 - **Padding determinism:** a partially filled final batch's unused lanes
   (both the code bits and the three factor arrays) MUST be zero-filled
   (Design §4) — not left to writer discretion, which invariant 11 would
@@ -815,11 +814,18 @@ width baked in at the wire-byte level (which invariant 10 exists to
 prevent). This RFC states the residual risk honestly rather than asserting
 it away: adopting an external codec's own batch constant as this format's
 own wire bytes is exactly the kind of decision the Optane grave warns
-about, and this RFC's own confidence that 32 is algorithm-shaped rather
-than hardware-shaped is grounded only in the FastScan LUT literature's
-general design (byte-wise nibble lookups, not a specific register width),
-not in a direct read of `fastscan.hpp`'s SIMD dispatch code, which this
-session did not fetch.
+about. The Discussion amendment (below) strengthens, but does not fully
+close, the algorithm-shaped case: `pack_codes`'s own logic (vendored in
+full, `references/rabitq-library-fastscan-pack-codes-source.md`) packs
+strictly in terms of nibbles and a fixed 16-entry permutation, with no
+explicit register-width constant anywhere in the packing code itself —
+`kBatchSize = 32` falls out of "process 32 vectors' worth of nibbles two
+at a time via a 16-entry LUT shuffle," a property of the algorithm's own
+data-parallelism shape, not an adopted SIMD register width. What remains
+genuinely unfetched is `src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp`
+(the `accumulate()` decode kernel's actual SIMD implementation) — until
+that is read directly, this RFC's confidence that 32 carries no residual
+hardware provenance is well-evidenced, not fully proven (Open questions).
 
 **Second, and the more consequential risk: R1's own kill criterion.** This
 RFC's corrected sizing law (Napkin math) runs ~31% over the provisional
@@ -843,20 +849,24 @@ the margin narrows further still — this RFC's own numbers are the first
 real input to that future accounting, not a promise that the margin stays
 wide.
 
-**Third, an unresolved gap in this RFC's own registration: the intra-batch
-bit/lane order.** Design §4 and Non-goals both state it plainly, repeated
-here because it is a real gap in what this RFC claims to register, not a
-minor omission: the byte *offsets* of the code region and the three factor
-arrays within a FastScan batch are grounded
+**Third (resolved by Discussion amendment, below): the intra-batch
+bit/lane order.** At Approval time, this RFC left a real, named gap: the
+byte *offsets* of the code region and the three factor arrays within a
+FastScan batch were grounded
 (`references/rabitq-library-ivf-and-batch-layout-source.md`), but the
-bit-level layout of the 1-bit codes themselves within that region is not.
-A from-scratch, clean-room implementation cannot currently be written
-against this chapter for the code bits specifically — it would need to
-either link the reference kernel directly or reverse-engineer the bit
-order from decode behavior, neither of which is "a registered codec" in
-invariant 8's sense. This is exactly the class of gap the M4 clean-room
-read (`CLAUDE.md` §9) is designed to catch, named here in advance rather
-than left for that milestone to discover.
+bit-level layout of the 1-bit codes themselves within that region was not
+— a from-scratch, clean-room implementation could not have been written
+against this chapter for the code bits specifically. A follow-up fetch
+(prompted by "start with the FastScan grounding fetch," the immediate next
+step this RFC's own Open questions named) closed it: `fastscan::
+pack_codes`'s complete algorithm is now vendored
+(`references/rabitq-library-fastscan-pack-codes-source.md`) and
+independently re-executed against a synthetic input to confirm the
+transcription, not merely copied. Kept here, not deleted, as a record of
+what this RFC's own review correctly flagged as unmitigated at Approval —
+this is exactly the class of gap the M4 clean-room read (`CLAUDE.md` §9)
+is designed to catch, caught and closed before implementation began rather
+than at that milestone.
 
 **Fourth: cross-segment codebook incompatibility (Design §7).** This RFC
 registers `concatenate + remap` as the posting-list merge strategy only
@@ -946,12 +956,14 @@ what the reference implementation's own `save()`/`load()` pair already does
   time.
 - **The graph-blob family (warm tier)** — R1's second half, the node-order
   permutation algorithm question, entirely untouched by this RFC.
-- **FastScan `kBatchSize = 32`'s hardware-vs-algorithm provenance, and the
-  intra-batch bit/lane order** (How this could be wrong) — a direct read of
-  `fastscan.hpp`'s SIMD dispatch source and the actual code-packing
-  function, not yet fetched in this session, would resolve both the
-  residual hardware-provenance risk and the gap that currently prevents a
-  clean-room reimplementation of the code-bit layout.
+- ~~The intra-batch bit/lane order~~ — resolved (Discussion, below; `spec/
+  vectors.md` §4). Still open: **FastScan `kBatchSize = 32`'s hardware-vs-
+  algorithm provenance** (How this could be wrong) — this session fetched
+  `fastscan.hpp` in full (finding `pack_codes` itself, resolving the item
+  above) but not `src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp`, the
+  actual SIMD `accumulate()` implementation whose register-width choices
+  would settle whether 32 is genuinely algorithm-shaped or has residual
+  hardware provenance.
 - **A real M0-style byte-budget measurement** for this blob family, the
   same way `bench/src/cold_open.rs` gave invariant 3 a real measured
   baseline instead of only round-trip-count arithmetic — this RFC's Napkin
@@ -960,4 +972,67 @@ what the reference implementation's own `save()`/`load()` pair already does
 
 ## Discussion — post-approval amendments
 
-(none yet)
+**2026-08-19 — intra-batch bit/lane order resolved.** Prompted by "start
+with the FastScan grounding fetch" — the user directly requesting the
+follow-on work this RFC's own Open questions named as the natural next
+step before implementation. At Approval, the one wire-format-relevant gap
+this RFC left genuinely open was the bit-level layout of 1-bit codes
+*within* a FastScan batch's code region: the byte offsets of that region
+were grounded, but which bit of which vector's code lands at which byte
+was adopted by reference without independent verification.
+
+Fetched live: `include/rabitqlib/fastscan/fastscan.hpp` in full (the
+`pack_codes` function, `kPerm0`, `get_column`) and the confirming call site
+in `include/rabitqlib/quantization/rabitq_impl.hpp` (`one_bit_batch_code`,
+in `namespace ...::one_bit`, calling `fastscan::pack_codes` directly on the
+output of `one_bit_compact_codes` — proving this is genuinely the 1-bit
+RaBitQ path this RFC registers, not an unrelated codec sharing the same
+file). Vendored at `references/rabitq-library-fastscan-pack-codes-source.md`.
+
+The algorithm: for each byte-column of a batch's 32 (zero-padded) vector
+slots, split each byte into hi/lo nibbles, then use a fixed 16-entry
+permutation (`kPerm0`) to interleave pairs of vectors' nibbles into 32
+output bytes — full detail and the exact permutation table in the vendored
+file and now normatively in `spec/vectors.md` §4. This was **independently
+re-executed**, not merely transcribed: a faithful Python port run against a
+synthetic 2-vector input (`padded_dim = 64`, arbitrary illustrative byte
+values `0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0` for vector 0 and
+`0x11 0x22 0x33 0x44 0x55 0x66 0x77 0x88` for vector 1, the rest of the
+32-slot batch zero-padded) produced 256 bytes (`= padded_dim * 4`,
+confirming the byte-count formula unchanged), whose first 32 bytes were
+then checked by hand against the algorithm's own definition, column by
+column — bytes 0–15 are `0x1 0x0 0x1` followed by 13 zero bytes, and bytes
+16–31 are `0x2 0x0 0x1` followed by 13 zero bytes — matching the executed
+output exactly. This is the same "computed with real executed
+code... not hand-derived" discipline RFC 0007's worked example already
+established as this project's standard.
+
+Two secondary findings fell out of the same fetch, both strengthening
+existing RFC decisions rather than requiring new ones: (1)
+`one_bit_batch_code`'s own doc comment requires `padded_dim % 64 == 0` —
+confirming Design §2's STRAND-specific requirement that `MatrixRotator`
+share `FhtKacRotator`'s 64-multiple padding is not merely a STRAND
+alignment convenience layered on a codec that would otherwise tolerate an
+unpadded dimensionality, but a real requirement of the registered codec
+itself. (2) `get_column`'s own zero-fill behavior for batch slots beyond
+the real vector count independently confirms Design §4's padding-
+determinism rule (zero-fill unused lanes) matches the reference
+implementation's actual behavior, not a STRAND-invented compatible
+convention layered on unspecified behavior.
+
+Sections updated: Design §4 (citation and framing, no arithmetic change —
+the byte-count formula was already correct, only the byte *order* was
+missing), Design §2 (strengthened rationale for `MatrixRotator`'s padding
+requirement), Non-goals (removed the now-resolved item, kept ARM/SIMD
+kernel validation as still out of scope), Invariant-11 checklist
+("codec-variant provenance" now reads complete rather than partial), "How
+this could be wrong" (the intra-batch-order paragraph marked resolved; the
+`kBatchSize` hardware-provenance paragraph strengthened with real evidence
+that the packing algorithm itself carries no register-width assumption,
+while noting the SIMD `accumulate()` decode kernel — a separate file, not
+fetched — is what would fully close that adjacent, narrower risk), Open
+questions (struck the resolved item, kept the narrower SIMD-dispatch
+question), and `spec/vectors.md` §4 (gained the complete normative
+algorithm). No arithmetic in this RFC changes as a result of this
+amendment — this closes a specification-completeness gap, not a sizing or
+round-trip correction.

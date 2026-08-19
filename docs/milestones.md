@@ -347,7 +347,11 @@ both registered rotator types, `spec/vectors.md` §2), and the cluster-family
 cold-native blob (navigation tier + posting lists — the rerank region is the flat
 vector blob itself, `blob_type_id = 0`). **1-bit RaBitQ only**; multi-bit
 Extended-RaBitQ and the warm-tier graph blob family remain unimplemented, both named
-follow-on work (RFC 0010 Non-goals). **Not yet met by RFC 0010 alone**: the
+follow-on work (RFC 0010 Non-goals). The FastScan code region's intra-batch
+bit/lane order — the one wire-format gap RFC 0010's own review left open at
+Approval — is now resolved (RFC 0010 Discussion, `spec/vectors.md` §4),
+clearing the way to actually start `crates/strand-vector`. **Not yet met by
+RFC 0010 alone**: the
 replication knob this milestone names as a deliverable — RFC 0010's own napkin math
 computes replication's real cost impact (a provisional, explicitly unverified
 ~2.27×-the-budget estimate at realistic replica-8-equivalent density) but does not

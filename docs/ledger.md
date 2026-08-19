@@ -612,12 +612,34 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   designed, and the review's own findings sharpened this into an explicit
   admission that M2's own milestone deliverable (the replication knob) is
   not fully met by this RFC alone; cross-segment codebook-sharing/
-  retraining at merge time and the FastScan codec's intra-batch bit/lane
-  order (grounded only at the byte-offset level, not the bit level) are
-  both named as real, load-bearing, unresolved gaps rather than assumed
-  away. `CLAUDE.md` §7's own "roughly one segment per million 768d
-  vectors" line is updated in place to ~760,000, the direct consequence of
-  the corrected sizing law.
+  retraining at merge time is named as a real, load-bearing, unresolved gap
+  rather than assumed away. `CLAUDE.md` §7's own "roughly one segment per
+  million 768d vectors" line is updated in place to ~760,000, the direct
+  consequence of the corrected sizing law.
+  **Intra-batch bit/lane order resolved — 2026-08-19, same day, prompted by
+  "start with the FastScan grounding fetch."** The one real gap the review
+  left open at Approval — the FastScan code region's byte *offsets* were
+  grounded but the bit-level layout within them was adopted by reference,
+  unverified — is closed: `fastscan::pack_codes`'s full algorithm (`kPerm0`,
+  the nibble-split-and-interleave logic) is fetched and vendored
+  (`references/rabitq-library-fastscan-pack-codes-source.md`), confirmed as
+  the genuine 1-bit path via its call site in `one_bit_batch_code`, and
+  **independently re-executed** against a synthetic 2-vector input (not
+  merely transcribed) — a Python port produced 256 real bytes at
+  `padded_dim = 64`, hand-verified column by column against the algorithm's
+  own definition. Two findings fell out for free: `one_bit_batch_code`'s
+  own `padded_dim % 64 == 0` requirement confirms RFC 0010 Design §2's
+  `MatrixRotator` padding rule is load-bearing for the codec itself, not
+  merely a STRAND alignment convenience; and `pack_codes`'s own
+  `get_column` helper zero-fills absent batch slots, confirming RFC 0010's
+  zero-fill padding-determinism rule matches the reference implementation's
+  actual behavior exactly, not a STRAND-invented compatible convention.
+  `spec/vectors.md` §4 now states the complete algorithm normatively. Still
+  open, narrower than before: the `kBatchSize = 32` hardware-vs-algorithm
+  question — the packing algorithm itself shows no register-width
+  assumption (evidence, not proof), but the SIMD `accumulate()` decode
+  kernel (`src/simd/fastscan_avx2.cpp`/`fastscan_avx512.cpp`) remains
+  unfetched.
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1

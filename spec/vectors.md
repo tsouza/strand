@@ -65,10 +65,15 @@ by design (RFC 0010 Design §2, Alternatives considered).
 `rotator_type = 0` (`MatrixRotator`, registered, non-default): `padded_dims`
 is `dims` rounded up to the nearest multiple of 64 — the same rule
 `FhtKacRotator` uses, and **not** the reference implementation's own
-(unpadded) convention for this rotator type; STRAND requires this so both
-registered rotator types share one `padded_dims` semantics for §4's code
-region and so every offset this family computes stays a multiple of 8 (§1's
-`alignment = 8`). `rotation_payload` is exactly
+(unpadded) convention for this rotator type. STRAND requires this both so
+both registered rotator types share one `padded_dims` semantics for §4's
+code region and so every offset this family computes stays a multiple of 8
+(§1's `alignment = 8`) — and, independently, because §4's registered
+FastScan code-packing algorithm itself requires a multiple of 64 (the
+reference implementation's own `one_bit_batch_code` is documented
+`padded_dim % 64 == 0`), so this is not a STRAND-only convenience layered
+on top of a codec that would otherwise tolerate an unpadded dimensionality.
+`rotation_payload` is exactly
 `dims * padded_dims * 4` bytes: the realized `dims × padded_dims` row-major
 float32 orthogonal rotation matrix, serialized verbatim. As with
 `FhtKacRotator`, the *realized* matrix is always serialized, never a seed —
@@ -113,18 +118,36 @@ selected cluster suffices (RFC 0010 Design §4).
 **Quantized-code region** (1-bit only, v0.1): `ceil(vector_count / 32)`
 batches, each exactly `padded_dims * 4 + 384` bytes. Within a batch: the
 first `padded_dims * 32 / 8` bytes are the 1-bit codes for up to 32 vectors,
-packed per the registered FastScan-batched layout (the byte *offsets* of
-this region and the three factor arrays below are adopted by reference,
-invariant 8; the intra-batch bit/lane order of the code bits themselves is
-**not** independently specified by this chapter — RFC 0010's own How this
-could be wrong names this a real gap); followed by three arrays of 32
+packed per the registered FastScan `pack_codes` layout (RFC 0010
+Discussion), specified completely below; followed by three arrays of 32
 little-endian f32 values each — `f_add`, `f_rescale`, `f_error`, the
 codec's own per-vector distance-correction factors, in that order. A
 cluster whose `vector_count` is not a multiple of 32 still pays the full
 per-batch cost for its last, partially filled batch (registered-codec
 behavior, not fixed by this format). A writer MUST zero-fill every unused
 lane's code bits and its corresponding `f_add`/`f_rescale`/`f_error` slots
-in a partially filled batch (invariant 11 byte determinism).
+in a partially filled batch (invariant 11 byte determinism) — matching the
+registered codec's own behavior for a partial batch, not a STRAND-only
+convention.
+
+**Intra-batch code layout, normative.** Let `cols = padded_dims / 8`. Think
+of a batch's 32 vector slots (real vectors in ascending order within the
+cluster, zero-filled for any slot beyond `vector_count`) as producing, for
+each slot, a `cols`-byte plain sequential 1-bit-per-dimension code (this
+intermediate form is conceptual only — it is never written to disk). For
+each byte-column `i` in `0..cols`:
+
+1. Let `col[v]` be slot `v`'s `i`-th code byte, for `v` in `0..32`.
+2. Split each into nibbles: `hi[v] = col[v] >> 4`, `lo[v] = col[v] & 0xF`.
+3. Using the fixed permutation `kPerm0 = [0, 8, 1, 9, 2, 10, 3, 11, 4, 12,
+   5, 13, 6, 14, 7, 15]`, for `j` in `0..16`, write into the code region at
+   batch-relative byte offset `i*32 + j`: `hi[kPerm0[j]] | (hi[kPerm0[j]+16]
+   << 4)`; and at `i*32 + 16 + j`: `lo[kPerm0[j]] | (lo[kPerm0[j]+16] << 4)`.
+
+Each column contributes exactly 32 bytes; `cols` columns give
+`cols * 32 = padded_dims * 4` bytes total, matching the code region's
+already-stated size. This is the reference RaBitQ-Library's own
+`fastscan::pack_codes` algorithm, adopted verbatim (invariant 8).
 
 **Row-id array**, per cluster: exactly `vector_count` little-endian u64
 values, in ascending row-id order.
