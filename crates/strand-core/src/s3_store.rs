@@ -22,7 +22,7 @@
 //! complexity trade for now. Revisit if a future async read path needs to
 //! share a runtime instead.
 
-use crate::store::{ConditionalStore, ETag, StoreError};
+use crate::store::{ConditionalStore, ETag, RangeGetStore, StoreError};
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 
@@ -50,21 +50,27 @@ impl S3Store {
     /// bytes actually served. Not part of `ConditionalStore`, same reasoning
     /// as `delete`: the manifest-driven query path this trait serves opens a
     /// segment by fetching it wholesale today (`bench/src/cold_open.rs`,
-    /// `bench/src/vector_cold_open.rs`), and promoting a real range-GET
-    /// primitive into the trait every implementer (`InMemoryStore`, every
-    /// test double) must carry is still-open follow-on work
-    /// (`docs/ledger.md` R1: "a Range-GET method on `strand-core`'s
-    /// `ConditionalStore`"), not this method's job. This exists so a
-    /// benchmark can measure RFC 0001 §1's actual two-phase open protocol
-    /// against real object storage (`bench/src/hotcache_tail_read.rs`),
-    /// which is exactly what the RFC's own Open Questions section calls for
-    /// before `N` is pinned to more than a provisional value.
+    /// `bench/src/vector_cold_open.rs`). This exists so a benchmark can
+    /// measure RFC 0001 §1's actual two-phase open protocol against real
+    /// object storage (`bench/src/hotcache_tail_read.rs`), which is exactly
+    /// what the RFC's own Open Questions section calls for before `N` is
+    /// pinned to more than a provisional value.
+    ///
+    /// Named distinctly from `RangeGetStore::get_range` (below) rather than
+    /// overloading that name on `S3Store`: this method's inclusive-end,
+    /// `Option`-returning signature is shaped around RFC 0001 §1's specific
+    /// tail-read protocol, while `RangeGetStore` is the general-purpose,
+    /// half-open, non-optional abstraction X-5's parallel-fetch benchmark
+    /// depends on — Rust's inherent-method priority would otherwise make an
+    /// `S3Store::get_range` of this shape silently shadow the trait method
+    /// for every caller holding a concrete `S3Store`, a real correctness
+    /// trap this rename avoids.
     ///
     /// Returns `Ok(None)` for a key that does not exist, matching `get`'s
     /// convention. `start` is clamped to the tail-window arithmetic RFC
     /// 0001 §1 itself specifies (`max(0, byte_length - N)`) by the caller,
     /// not here — this method issues exactly the range it's given.
-    pub fn get_range(
+    pub fn get_tail_range(
         &self,
         key: &str,
         start: u64,
@@ -237,6 +243,39 @@ impl ConditionalStore for S3Store {
             result
                 .map(|output| output.e_tag().unwrap_or_default().to_string())
                 .map_err(classify_write_error)
+        })
+    }
+}
+
+impl RangeGetStore for S3Store {
+    fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, StoreError> {
+        assert!(start < end, "empty or inverted range: {start}..{end}");
+        // HTTP `Range` is inclusive on both ends; our own `get_range`
+        // contract is the Rust-style half-open `[start, end)`, so the wire
+        // header's end byte is `end - 1`.
+        let range_header = format!("bytes={start}-{}", end - 1);
+        self.runtime.block_on(async {
+            let result = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .range(range_header)
+                .send()
+                .await;
+            let output = result.map_err(|err| {
+                StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&err)
+                ))
+            })?;
+            let body = output.body.collect().await.map_err(|e| {
+                StoreError::Io(format!(
+                    "{:#}",
+                    aws_smithy_types::error::display::DisplayErrorContext(&e)
+                ))
+            })?;
+            Ok(body.into_bytes().to_vec())
         })
     }
 }

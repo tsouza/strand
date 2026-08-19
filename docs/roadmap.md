@@ -431,9 +431,19 @@ Non-goals and Open questions still leave genuinely open:
   GET-count half of invariant 3 but not the real-network tail. Status:
   open. Depends on: nothing technically.
 - **X-5** — The parallel-wave aggregate throughput measurement behind the
-  100 MB cold-open budget rationale. Source: `CLAUDE.md` §7. Status: now
-  unblocked — it was gated on a `tier: cold-fetchable` vector blob
-  existing, which M2 shipped this session. Depends on: nothing.
+  100 MB cold-open budget rationale. Source: `CLAUDE.md` §7. **Status:
+  done, resolved 2026-08-19.** `bench/src/parallel_range_fetch.rs`
+  measured real N-way parallel byte-range GETs against real MinIO (via
+  `strand-core`'s new `RangeGetStore` trait): one sequential stream over a
+  real 100 MB object measured p50 = 50.6 MB/s; N-way parallel range GETs
+  of the same object peaked at p50 = 159.7 MB/s at 32-way parallelism, a
+  real 3.15x aggregate-throughput speedup — confirming the mechanism the
+  budget depends on. Full numbers and honest caveats (the absolute "low
+  hundreds of milliseconds" figure is not confirmed by a localhost run,
+  and throughput did not scale monotonically past 32-way) are in
+  `CLAUDE.md` §7 and `bench/results/parallel-range-fetch.json`. Depends
+  on: nothing. The real-S3-network half of the question is X-4's, still
+  open.
 - **X-6** — R9's postings-block-size granularity conditional (ALP/GPU
   application-fit assessment, ARM/non-AVX2 hardware). Source: `docs/
   ledger.md` R9. **Corrected by the adversarial review**: the shipped,

@@ -24,7 +24,7 @@
 //! itself imposes no cap and `CLAUDE.md` §7's segment-count discussion
 //! already anticipates multi-field growth via X-1), commits each to real
 //! MinIO, and executes RFC 0001 §1's actual two-phase open protocol —
-//! `S3Store::get_range` for the speculative tail read, a real `Footer`/
+//! `S3Store::get_tail_range` for the speculative tail read, a real `Footer`/
 //! `Hotcache` decode, and a conditional second range GET — against each,
 //! for a sweep of candidate `N` values.
 //!
@@ -111,7 +111,7 @@ fn build_and_commit(
 fn open_with_tail_read(store: &S3Store, path: &str, byte_length: u64, n: u64) -> u32 {
     let tail_start = byte_length.saturating_sub(n);
     let window = store
-        .get_range(path, tail_start, byte_length - 1)
+        .get_tail_range(path, tail_start, byte_length - 1)
         .unwrap()
         .expect("segment must exist");
 
@@ -126,7 +126,7 @@ fn open_with_tail_read(store: &S3Store, path: &str, byte_length: u64, n: u64) ->
         1
     } else {
         let hotcache_bytes = store
-            .get_range(path, footer.hotcache_offset, byte_length - 40 - 1)
+            .get_tail_range(path, footer.hotcache_offset, byte_length - 40 - 1)
             .unwrap()
             .expect("segment must exist");
         Hotcache::decode(&hotcache_bytes).unwrap();

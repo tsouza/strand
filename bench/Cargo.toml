@@ -59,6 +59,10 @@ path = "src/reader_refresh_contention.rs"
 name = "hotcache-tail-read"
 path = "src/hotcache_tail_read.rs"
 
+[[bin]]
+name = "parallel-range-fetch"
+path = "src/parallel_range_fetch.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }

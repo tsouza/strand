@@ -513,9 +513,17 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   and a scoped session should do that work rather than bolt it on as a side effect of
   a documentation fix).
 - **Other pending figures:** the parallel-wave aggregate throughput behind the 100 MB
-  budget rationale — not yet measurable at all until a `tier: cold-fetchable` vector
-  blob exists (M2); tantivy codec-SPI absence — resolved, R11(a) above; FAISS
-  FastScan external-list feasibility (R11(b)). The Quickwit inheritance hypothesis
+  budget rationale — **resolved 2026-08-19, roadmap item X-5.** Real N-way parallel
+  byte-range GETs against real MinIO (`bench/src/parallel_range_fetch.rs`, using
+  `strand-core`'s new `RangeGetStore` trait) measured p50 = 50.6 MB/s for one
+  sequential stream fetching a real 100 MB object versus p50 = 159.7 MB/s at 32-way
+  parallelism — a real 3.15x aggregate-throughput speedup, confirming the mechanism.
+  Full numbers, and what this measurement does *not* confirm (the absolute "low
+  hundreds of milliseconds" figure, and non-monotonic scaling past 32-way), are in
+  `CLAUDE.md` §7 and `bench/results/parallel-range-fetch.json`; the real-S3-network
+  half of the question remains separately gated on X-4. tantivy codec-SPI
+  absence — resolved, R11(a) above; FAISS FastScan external-list feasibility
+  (R11(b)). The Quickwit inheritance hypothesis
   (R11(c)) is no longer pending — resolved above with vendored primary sources. The
   M0 vendoring deliverable is partially
   done — `references/` holds the R2 and RFC-0002 grounding, all four turbopuffer
@@ -1950,7 +1958,7 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   sweep (1, 12, 50, 100, 250, 500, 1000 — 12 is today's real maximum for one
   field spanning every registered family, `spec/container.md` §9), committed
   each to real MinIO, and executed RFC 0001 §1's actual two-phase open
-  protocol (`S3Store::get_range`, a real `Footer`/`Hotcache` decode, a
+  protocol (`S3Store::get_tail_range`, a real `Footer`/`Hotcache` decode, a
   conditional second range GET) across candidate `N` values from 512 B to
   16 KB. The measured one-RTT/two-RTT transition tracked the RFC's own
   `hotcache_length + 40 <= N` check exactly: 100 blob entries (3,420-byte

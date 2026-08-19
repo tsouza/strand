@@ -1,0 +1,76 @@
+{
+  "name": "parallel-range-fetch",
+  "date": "2026-08-19T20:25:16Z",
+  "commit": "163a9f091a48a88cea7e1203111fb8650e2ae523",
+  "result": {
+    "iterations": 5,
+    "object_bytes": 100000000,
+    "cold_open_byte_budget": 100000000,
+    "upload_latency_ms": 41372.964988,
+    "parallelism_levels": [
+      {
+        "parallelism": 1,
+        "latency_ms_p50": 1974.368521,
+        "latency_ms_p90": 2402.179893,
+        "latency_ms_min": 1246.936878,
+        "latency_ms_max": 2402.179893,
+        "aggregate_throughput_mbps_p50": 50.64910574513763
+      },
+      {
+        "parallelism": 2,
+        "latency_ms_p50": 951.2509719999999,
+        "latency_ms_p90": 1597.697099,
+        "latency_ms_min": 881.285708,
+        "latency_ms_max": 1597.697099,
+        "aggregate_throughput_mbps_p50": 105.12472832458772
+      },
+      {
+        "parallelism": 4,
+        "latency_ms_p50": 742.420512,
+        "latency_ms_p90": 986.473618,
+        "latency_ms_min": 705.32982,
+        "latency_ms_max": 986.473618,
+        "aggregate_throughput_mbps_p50": 134.69455434442523
+      },
+      {
+        "parallelism": 8,
+        "latency_ms_p50": 675.917414,
+        "latency_ms_p90": 826.244096,
+        "latency_ms_min": 439.2009,
+        "latency_ms_max": 826.244096,
+        "aggregate_throughput_mbps_p50": 147.94706857485994
+      },
+      {
+        "parallelism": 16,
+        "latency_ms_p50": 756.771556,
+        "latency_ms_p90": 955.576204,
+        "latency_ms_min": 527.20508,
+        "latency_ms_max": 955.576204,
+        "aggregate_throughput_mbps_p50": 132.1402729888014
+      },
+      {
+        "parallelism": 32,
+        "latency_ms_p50": 626.0764439999999,
+        "latency_ms_p90": 990.631358,
+        "latency_ms_min": 565.7872430000001,
+        "latency_ms_max": 990.631358,
+        "aggregate_throughput_mbps_p50": 159.72490413646676
+      },
+      {
+        "parallelism": 64,
+        "latency_ms_p50": 1019.793138,
+        "latency_ms_p90": 1139.808677,
+        "latency_ms_min": 802.552665,
+        "latency_ms_max": 1139.808677,
+        "aggregate_throughput_mbps_p50": 98.05910264911
+      }
+    ],
+    "sequential_throughput_mbps_p50": 50.64910574513763,
+    "best_parallel_throughput_mbps_p50": 159.72490413646676,
+    "best_parallelism": 32,
+    "speedup_factor_best_parallel_over_sequential": 3.153558227467827,
+    "claude_md_single_stream_assumption_mbps_low": 50.0,
+    "claude_md_single_stream_assumption_mbps_high": 100.0,
+    "note": "Real MinIO on localhost, no injected network latency (same caveat as bench/src/cold_open.rs and bench/src/vector_cold_open.rs): the absolute MB/s and millisecond figures here do not reproduce real-S3 network conditions and are not claimed to. What is real: the sequential-vs-parallel comparison against one real, unsimulated backend."
+  }
+}

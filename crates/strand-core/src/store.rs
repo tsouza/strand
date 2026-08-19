@@ -66,6 +66,26 @@ pub trait ConditionalStore {
     fn put_if_match(&self, key: &str, bytes: &[u8], etag: &ETag) -> Result<ETag, StoreError>;
 }
 
+/// A store capable of fetching a byte sub-range of an object without
+/// downloading the whole thing — the capability a conforming cold-open
+/// reader needs for invariant 3's one-wave rule (`CLAUDE.md` §7: "every
+/// byte range a cold query may need MUST be addressable... issue each
+/// fetch stage as one parallel wave"). Kept as a separate trait rather
+/// than a new required method on `ConditionalStore`, deliberately: the
+/// manifest CAS protocol (RFC 0001 §3) never performs a partial read, so
+/// adding it to `ConditionalStore` would force every fault-injection test
+/// double in `manifest.rs` and `tests/s3_store.rs` to grow a range-GET stub
+/// it would never exercise, for no protocol reason.
+pub trait RangeGetStore {
+    /// Fetches bytes `[start, end)` of `key` — a half-open range, matching
+    /// Rust's `Range` convention rather than HTTP's inclusive-end `Range`
+    /// header; implementations translate at the boundary. `start == end` is
+    /// a caller bug (an empty range is never a real fetch stage) and MAY
+    /// panic; `end` past the object's length behaves per the backend's own
+    /// short-read semantics (S3/MinIO clamp to the object's actual end).
+    fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, StoreError>;
+}
+
 /// An in-memory `ConditionalStore`. ETags are a monotonic counter per key,
 /// which is sufficient to detect staleness — the real property CAS depends
 /// on — without imitating any particular backend's ETag format.
@@ -114,6 +134,19 @@ impl ConditionalStore for InMemoryStore {
         let new_rev = current_rev.unwrap() + 1;
         objects.insert(key.to_string(), (bytes.to_vec(), new_rev));
         Ok(new_rev.to_string())
+    }
+}
+
+impl RangeGetStore for InMemoryStore {
+    fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, StoreError> {
+        assert!(start < end, "empty or inverted range: {start}..{end}");
+        let objects = self.objects.lock().unwrap();
+        let (bytes, _) = objects
+            .get(key)
+            .ok_or_else(|| StoreError::Io(format!("no such key: {key}")))?;
+        let start = start as usize;
+        let end = (end as usize).min(bytes.len());
+        Ok(bytes[start..end].to_vec())
     }
 }
 
@@ -177,6 +210,31 @@ mod tests {
 
         assert_ne!(new_etag, etag);
         assert_eq!(store.get("key").unwrap().unwrap().0, b"second");
+    }
+
+    #[test]
+    fn get_range_returns_the_requested_byte_slice() {
+        let store = InMemoryStore::new();
+        store.put_if_absent("key", b"0123456789").unwrap();
+
+        assert_eq!(store.get_range("key", 2, 5).unwrap(), b"234");
+        assert_eq!(store.get_range("key", 0, 1).unwrap(), b"0");
+        assert_eq!(store.get_range("key", 9, 10).unwrap(), b"9");
+    }
+
+    #[test]
+    fn get_range_clamps_an_end_past_the_object_length() {
+        let store = InMemoryStore::new();
+        store.put_if_absent("key", b"hello").unwrap();
+
+        assert_eq!(store.get_range("key", 3, 1_000).unwrap(), b"lo");
+    }
+
+    #[test]
+    fn get_range_of_an_absent_key_is_an_error() {
+        let store = InMemoryStore::new();
+
+        assert!(store.get_range("missing", 0, 1).is_err());
     }
 
     #[test]

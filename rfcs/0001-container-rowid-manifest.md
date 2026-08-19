@@ -617,7 +617,7 @@ field spanning every currently-registered family, `spec/container.md` §9; the
 rest stand in for the multi-field growth X-1, `docs/roadmap.md`, will eventually
 allow, since the container format itself places no cap on blob count), each
 committed to real MinIO, then opened via this RFC's own two-phase protocol —
-`S3Store::get_range` for the tail read, a real `Footer`/`Hotcache` decode, and a
+`S3Store::get_tail_range` for the tail read, a real `Footer`/`Hotcache` decode, and a
 conditional second range GET — across a sweep of candidate `N` values (512
 B–16 KB). The measured transition from one RTT to two tracks the arithmetic
 exactly (`hotcache_length + 40 <= N`, RFC 0001 §1's own check): at `N = 512`–
