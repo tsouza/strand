@@ -52,7 +52,7 @@ in `docs/ledger.md`; not repeated here.
   (`ProposeDeletionVectorCommit`, two new invariants, both mutation-tested;
   RFC 0002 Discussion — post-approval amendments).
 
-## M1 — Lexical (implemented; three real grounding/design gaps remain, plus one open implementation follow-on from M1-1's resolution)
+## M1 — Lexical (implemented; three real grounding/design gaps remain)
 
 M1 shipped (BP128 postings, positions, FST term dictionary, block-max,
 filter bitmaps, analyzer descriptors, RFC 0009's per-term overhead
@@ -61,8 +61,10 @@ were missing from this document's first draft, found by this document's
 own adversarial review. One of the four, M1-1, is now resolved as a
 format-design decision (2026-08-19); its own resolution surfaced two new,
 narrower implementation/verification tasks, M1-6 and M1-7, listed after
-M1-5 below. M1-6 is itself now done (2026-08-19); M1-7 (the
-segmentation-accuracy bake-off) remains open.
+M1-5 below. Both are now done (2026-08-19): M1-6 implemented the default;
+M1-7's Chinese-only bake-off confirmed it without overturning it — Japanese
+and Thai remain untested and are the real residue of this thread, tracked
+in M1-7's own entry, not a fresh open item.
 
 - **M1-1** — ~~Which CJK/Thai/Lao segmentation dictionary STRAND adopts as
   a default~~ — resolved. Source: RFC 0004 Non-goals and Open questions

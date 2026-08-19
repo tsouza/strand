@@ -89,6 +89,20 @@ analysis chain can produce same-position tokens. `docs/ledger.md` R4 is updated 
 record both halves resolved; this paragraph is left in place, unedited above, as the
 honest record of what this RFC itself did and did not ground.
 
+**Addendum, 2026-08-19 (default implemented, M1-6; Chinese bake-off run, M1-7):**
+the "un-started M1 execution work" the paragraph above describes is no longer
+un-started. `crates/strand-lexical/src/analyzer.rs` now populates
+`segmentation_dictionary` for Han-script content via `icu_segmenter` 2.3.0, and
+`conformance/analyzers/icu4x-dictionary-zh-01.json` is a real, non-predicted
+Simplified Chinese dictionary-segmentation vector — both recorded in full in the
+Discussion section below. A real Chinese segmentation-accuracy bake-off (ICU4X vs.
+`jieba-rs`, 0.9154 micro-average boundary agreement) has also run and did not
+overturn the default. What remains genuinely un-started, narrower than the original
+claim: Thai, Lao, Hiragana, and Katakana are still unvectored in
+`conformance/analyzers/`, and the Japanese and Thai halves of the bake-off are still
+untested. This paragraph is left in place, unedited above, for the same reason the
+tantivy addendum gives — an honest record of the RFC's own state at Approval.
+
 **A catalog of every possible UAX #29 deviation** is not enumerated. The descriptor
 carries a `deviations` list (§2 below) as an open-ended, self-describing mechanism;
 this RFC does not attempt to pre-list every deviation a future tokenizer might
