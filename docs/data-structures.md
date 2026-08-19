@@ -104,9 +104,8 @@ R1's own 4× kill criterion, not a wide one — but this ratio's own source
 an abstract-only fetch and not independently re-confirmed, so this estimate is owed a
 real fetch of SPANN's body figures before it can be trusted (RFC 0010 Open questions).
 A direct, load-bearing consequence of the corrected law: a segment fitting the 100 MB
-tier-1 budget now holds ~760,000 768d vectors, not ~1,000,000 — the "roughly one
-segment per million 768d vectors" figure `CLAUDE.md` §7 currently states needs
-updating to reflect this (RFC 0010 Open questions).
+tier-1 budget now holds ~760,000 768d vectors, not ~1,000,000 — `CLAUDE.md` §7 already
+reflects this (~760,000, updated at RFC 0010's Approval).
 **Graph families** (DiskANN/Vamana-layout, one node's vector + adjacency per I/O unit,
 Starling-style block shuffling) are registered as `tier: warm` — legitimate and
 specified, but never the cold-open story; pipelining does not rescue them, because

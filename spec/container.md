@@ -240,4 +240,4 @@ a real family.
 | 3           | vector  | 1              | quantization descriptor       | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
 | 3           | vector  | 2              | cluster navigation tier       | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
 | 3           | vector  | 3              | cluster posting lists         | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
-| 4           | deletion | 0             | deletion vector                | RFC 0012 (`rfcs/0012-deletion-vectors.md`)            |
+| 4           | deletion| 0              | deletion vector               | RFC 0012 (`rfcs/0012-deletion-vectors.md`)            |

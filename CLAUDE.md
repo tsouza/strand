@@ -429,10 +429,18 @@ strand/
     data-structures.md  data-structure baseline defaults (exists, §5)
     benchmarks.md        benchmark/adapter detail + turbopuffer targets (exists, §7)
     milestones.md        full per-milestone deliverables and gates (exists, §10)
+    roadmap.md            task-level breakdown of remaining work, with a
+                         dependency graph, decomposing milestones.md's
+                         per-milestone scope into completable tasks
     ledger.md            settled vs open ledger (exists, §5)
     research/
-      README.md          condensed research grounding, R1-R11 (exists); this is the
-                         standing source — no separate full report exists
+      README.md          condensed research grounding, R1-R11 (exists); this is
+                         the standing source for the whole program. Individual
+                         tracks may also carry a focused per-track methodology
+                         write-up alongside it (e.g. r2-hybrid-codec-
+                         methodology.md) where README.md's own condensed
+                         summary needs deeper backing detail, cited normatively
+                         from the RFC that depends on it.
   references/          vendored primary sources (populated at M0 from
                        docs/research/README.md's source lists — the §2
                        source-sentence rule lives here)
@@ -453,6 +461,13 @@ strand/
                        so a second implementation can verify itself without our
                        code; golden files pin uncompressed structures per
                        invariant 11
+  verification/        formal verification of the manifest CAS protocol (RFC
+                       0002): a TLA+ model (manifest.tla/.cfg) TLC-checked
+                       against real safety invariants, README.md for how to
+                       run it. Not gated to a milestone at first (RFC 0002's
+                       own scope), now gates M3's compaction work (docs/
+                       milestones.md) — a TLAPS proof and a DST harness are
+                       its still-open remaining artifacts.
 ```
 
 Rust conventions: edition 2024, `cargo clippy -- -D warnings` clean, explicit types on

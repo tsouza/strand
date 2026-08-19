@@ -53,9 +53,11 @@ robustly by construction (>40 values per CPU cycle across Intel, AMD, Apple, and
 chips; VLDB 2023, vendored at M0). This is the existence proof that "compute-native"
 and "no vendor register width in wire bytes" (invariant 10) are compatible goals, plus
 a published GPU decode path (DaMoN '24) and a float codec (ALP, SIGMOD '24) relevant
-to the flat vector blob. Candidate status only: license unaudited, and no
-inverted-index application exists in the literature — adopting it for postings would
-be a first, which the R9 RFC must say plainly.
+to the flat vector blob. Candidate status only: no inverted-index application
+exists in the literature — adopting it for postings would be a first, which the
+R9 RFC must say plainly. Its license is already resolved, not a candidacy gate:
+`cwida/FastLanes` is confirmed MIT (`CLAUDE.md` §1, `docs/ledger.md` R9),
+Apache-2.0-compatible.
 
 **From CIFF**: the negative lesson, now with company. CIFF is a well-made exchange
 format no engine runs operationally: conversion required, no positions, no pruning

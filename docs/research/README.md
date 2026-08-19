@@ -134,9 +134,11 @@ portable scalar decoder auto-vectorizes by construction to >40 values per CPU cy
 across Intel, AMD, Apple, and AWS chips — the existence proof behind invariant 10's
 claim that compute-native and ISA-portable are compatible. Its headline comparisons
 are against scalar baselines; its margin over hand-vectorized BP128 on postings
-distributions is unmeasured, no inverted-index application exists in the literature,
-and the cwida/FastLanes license is unaudited — the three gates the R9 RFC must clear,
-alongside reconciling 1024-value granularity with the block-max sibling design. ALP
+distributions is unmeasured, and no inverted-index application exists in the
+literature — the two gates the R9 RFC must clear, alongside reconciling
+1024-value granularity with the block-max sibling design. The license half of
+this gate is already resolved, not open: `cwida/FastLanes` is confirmed MIT via
+GitHub's license API (`CLAUDE.md` §1, `docs/ledger.md` R9), Apache-2.0-compatible. ALP
 (SIGMOD 2024) is the companion float codec relevant to the flat vector blob; the
 DaMoN '24 paper gives the GPU decode path for raw-mappable blobs. Sources: FastLanes
 (vldb.org/pvldb/vol16/p2132-afroozeh.pdf); ALP (SIGMOD 2024); FastLanes-on-GPU

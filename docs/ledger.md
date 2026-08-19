@@ -374,9 +374,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   internals post-relicense, testing the inherits-from-the-fork hypothesis; (d) the
   fork reader-module list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier graph
   host choice. Adapter milestones are conditional on R11.
-- **Postings block size** (conditional): 128 was the default by shared
-  lineage, now conditional on R9's granularity outcome — the block-max sibling-blob
-  *pattern* stays settled (invariant 4), only the granularity number is open.
+- **Postings block size** (conditional): this entry previously said "128 was the
+  default by shared lineage" — stale, predating RFC 0007's approval; corrected here
+  (found during `docs/roadmap.md`'s own adversarial review, 2026-08-19). RFC 0007
+  registers **256**-value blocks (`BitPacker8x`, `spec/postings.md` §3,
+  `crates/strand-lexical/src/postings.rs`'s `BLOCK_LEN`), the shipped default,
+  conditional on R9's granularity outcome — the block-max sibling-blob *pattern*
+  stays settled (invariant 4), only the granularity number is open. (128 remains
+  the real, separate default for the positions blob family, RFC 0008 — not to be
+  conflated with postings' own 256.)
 - **Pending figures:** the ~250ms p90 tail figure — re-locate the source sentence or
   replace with a real-network M0 measured figure (`CLAUDE.md` §7); `bench/` measures
   a real cold-open p50/p90/p99 against MinIO on localhost (`bench/results/cold-open.json`),

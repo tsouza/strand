@@ -1,5 +1,20 @@
 # TLA+ Model of the Manifest CAS Protocol — Implementation Plan
 
+> **Status: completed and superseded, 2026-08-19.** All six tasks below
+> shipped (`verification/manifest.tla`, `manifest.cfg`, `README.md`), and the
+> model has since been extended twice beyond this plan's own scope — once to
+> close the reader-path/`ProposeSnapshot` correspondence gaps
+> (`docs/ledger.md`, "TLA+ model correspondence gap"), once to add
+> `commit_deletion_vector`'s revise-in-place commit shape (RFC 0012
+> Discussion — post-approval amendments). The durable record of all of that
+> lives in `docs/ledger.md`'s own entries and each RFC's Discussion section,
+> not here — this file is kept as a historical planning artifact (checkboxes
+> below marked complete to match reality) and is not otherwise part of this
+> project's own documentation set (`CLAUDE.md` §8 does not account for
+> `docs/superpowers/`; found and flagged during `docs/roadmap.md`'s own
+> adversarial review). Read `verification/README.md` for the current,
+> authoritative state instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `verification/manifest.tla`, a TLA+ model of the manifest CAS
@@ -179,7 +194,7 @@ new) are confirmed to trigger the invariant they're supposed to.
   since `TypeOK` already references the sentinels starting here and
   `RowIdCounts` already references `DistinguishedWriter`.
 
-- [ ] **Step 1: Write the module skeleton**
+- [x] **Step 1: Write the module skeleton**
 
 ```tla
 ---- MODULE manifest ----
@@ -257,7 +272,7 @@ TypeOK ==
 ====
 ```
 
-- [ ] **Step 2: Verify it parses**
+- [x] **Step 2: Verify it parses**
 
 Run:
 ```
@@ -271,7 +286,7 @@ task: `Init`/`TypeOK` alone have no `Next` relation to check state
 transitions against, so a parse-only check is the right — not a
 placeholder — verification for this step.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add verification/manifest.tla
@@ -292,7 +307,7 @@ git commit -m "verification: TLA+ manifest model skeleton (constants, variables,
   `ResolveAmbiguity(w)`, and `Next`/`Spec`, which Task 3's invariants and
   Task 4's reader actions both extend.
 
-- [ ] **Step 1: Add the four writer actions and `Next`/`Spec`**
+- [x] **Step 1: Add the four writer actions and `Next`/`Spec`**
 
 Insert before the closing `====`:
 
@@ -364,7 +379,7 @@ Next == \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ TryAdvancePoi
 Spec == Init /\ [][Next]_<<snapshots, wPc, wLocal, rPc, rLocal>>
 ```
 
-- [ ] **Step 2: Write the TLC config**
+- [x] **Step 2: Write the TLC config**
 
 ```
 CONSTANTS
@@ -389,7 +404,7 @@ error. (Verified during planning: `CHECK_DEADLOCK FALSE` is a real, working
 `.cfg` directive against this exact `tla2tools.jar`, confirmed with a
 scratch model.)
 
-- [ ] **Step 3: Run TLC**
+- [x] **Step 3: Run TLC**
 
 ```
 java -jar /home/thiago/.cache/tlaplus/tla2tools.jar -workers auto -config verification/manifest.cfg verification/manifest.tla
@@ -404,7 +419,7 @@ the exact state and action where a
 field went out of its declared shape — fix the action definition, not the
 invariant, and rerun.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add verification/manifest.tla verification/manifest.cfg
@@ -429,7 +444,7 @@ git commit -m "verification: writer-path actions (ReadCurrent, ProposeSnapshot, 
   alternative it's meant to complement. Later plans (TLAPS proof) will prove
   all four, not just TLC-check them.
 
-- [ ] **Step 1: Add the four invariants**
+- [x] **Step 1: Add the four invariants**
 
 ```tla
 \* RFC 0002 Open Questions: "no two SegmentRefs across the full committed
@@ -480,7 +495,7 @@ NextRowIdMatchesSegments ==
     snapshots[Len(snapshots)].nextRowId = SumCounts(snapshots[Len(snapshots)].segments)
 ```
 
-- [ ] **Step 2: Add them to the config and run TLC**
+- [x] **Step 2: Add them to the config and run TLC**
 
 Extend `verification/manifest.cfg`:
 
@@ -497,7 +512,7 @@ planning: the same 75 states as Task 2 (adding invariants doesn't change
 the reachable state space, only what gets checked against it), all four new
 invariants holding across every one of them.
 
-- [ ] **Step 3: Mutation-test `NoOverlappingRowIds`**
+- [x] **Step 3: Mutation-test `NoOverlappingRowIds`**
 
 This project's established discipline (`crates/strand-core/src/manifest.rs`'s
 test suite, `rfcs/0002-manifest-formal-verification.md`'s own citation of it)
@@ -515,7 +530,7 @@ with a printed counterexample trace, exit code `12`. Then revert the
 mutation exactly back to `newSeg == [base |-> nid, count |-> RowIdCounts[w]]`
 and rerun to confirm it passes clean again (exit code `0`) before moving on.
 
-- [ ] **Step 4: Mutation-test `VersionsMatchIndex`**
+- [x] **Step 4: Mutation-test `VersionsMatchIndex`**
 
 Temporarily remove `TryAdvancePointer`'s staleness guard, so it always
 attempts to advance regardless of whether a rival has already committed
@@ -539,7 +554,7 @@ exit code `12`. Then revert exactly back to the guarded version from Step 1
 above (with the `LET stale == ... IN IF stale THEN ... ELSE ...` structure)
 and rerun to confirm a clean pass (exit code `0`) before moving on.
 
-- [ ] **Step 5: Mutation-test `NextRowIdMatchesSegments`**
+- [x] **Step 5: Mutation-test `NextRowIdMatchesSegments`**
 
 Temporarily drop `RowIdCounts[w]` from `ProposeSnapshot`'s `nextRowId`
 computation:
@@ -553,7 +568,7 @@ violated.`, exit code `12`. Revert exactly back to
 `nextRowId |-> nid + RowIdCounts[w]` and rerun to confirm a clean pass (exit
 code `0`) before moving on.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add verification/manifest.tla verification/manifest.cfg
@@ -571,7 +586,7 @@ git commit -m "verification: writer-side safety invariants (no overlapping row-I
 - Consumes: `snapshots`, `Next` (extended, not replaced), `ReaderRetryLimit`.
 - Produces: `ReadPointer(r)`, `ReadSnapshotObject(r)`.
 
-- [ ] **Step 1: Add the two reader actions and extend `Next`**
+- [x] **Step 1: Add the two reader actions and extend `Next`**
 
 ```tla
 \* RFC 0002 SS4: outcome in {Found, Absent, DefiniteFailure}. Absent and Found
@@ -629,7 +644,7 @@ Next ==
 
 (`Spec`'s text is unchanged — it already references `Next` by name.)
 
-- [ ] **Step 2: Update the config to include a reader and run TLC**
+- [x] **Step 2: Update the config to include a reader and run TLC**
 
 Change `verification/manifest.cfg`'s `Readers = {}` to `Readers = {r1}`.
 Run the same TLC command as before. Expected: `Model checking completed. No
@@ -641,7 +656,7 @@ distinct states once the reader's actions are added to `Next` (state
 definition order in the file even for a semantically identical model, so
 this plan doesn't assert a specific depth number anywhere).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add verification/manifest.tla verification/manifest.cfg
@@ -659,7 +674,7 @@ git commit -m "verification: reader-path actions (ReadPointer, ReadSnapshotObjec
 - Consumes: `snapshots`, `rPc`, `rLocal` (Tasks 1, 4).
 - Produces: `ReaderSeesOnlyCommitted`.
 
-- [ ] **Step 1: Add the invariant**
+- [x] **Step 1: Add the invariant**
 
 ```tla
 \* A reader that finishes with an actual result never reports a snapshot
@@ -671,7 +686,7 @@ ReaderSeesOnlyCommitted ==
             \E i \in 1..Len(snapshots) : snapshots[i] = rLocal[r].result
 ```
 
-- [ ] **Step 2: Add it to the config and run TLC**
+- [x] **Step 2: Add it to the config and run TLC**
 
 Extend `verification/manifest.cfg`:
 
@@ -683,7 +698,7 @@ Run the same TLC command as before. Expected: `Model checking completed. No
 error has been found.`, exit code `0` — confirmed during planning: the same
 561 states as Task 4, `ReaderSeesOnlyCommitted` holding across every one.
 
-- [ ] **Step 3: Mutation-test it**
+- [x] **Step 3: Mutation-test it**
 
 Temporarily change `ReadSnapshotObject`'s `Found` branch to report a
 fabricated result instead of the real one:
@@ -697,7 +712,7 @@ violated.`, exit code `12`. Revert the mutation back to
 `snapshots[rLocal[r].ptrVersion]` and rerun to confirm a clean pass (exit
 code `0`) before moving on.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add verification/manifest.tla verification/manifest.cfg
@@ -718,7 +733,7 @@ git commit -m "verification: reader-side safety invariant (a reader only ever re
   `verification/` again, matching this project's documentation culture
   (every subsystem gets a "how to run this" note).
 
-- [ ] **Step 1: Write the README**
+- [x] **Step 1: Write the README**
 
 ```markdown
 # verification/
@@ -772,7 +787,7 @@ guard combinations to check. Scaling the model up regardless is a
 deliberate follow-on, not done here.
 ```
 
-- [ ] **Step 2: Run the full model one more time end to end**
+- [x] **Step 2: Run the full model one more time end to end**
 
 ```
 java -jar /home/thiago/.cache/tlaplus/tla2tools.jar -workers auto -config verification/manifest.cfg verification/manifest.tla
@@ -795,7 +810,7 @@ in the commit message (Step 3) regardless — it is useful context for anyone
 later deciding whether to scale the model
 up.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add verification/README.md
