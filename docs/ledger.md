@@ -1175,6 +1175,49 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   questions sections, and this ledger entry, are updated accordingly; no
   wire format, arithmetic, or shipped code changed as a result (`kBatchSize
   = 32` in `crates/strand-vector/src/fastscan.rs` was already correct).
+  **M2-8: a cross-segment codebook-identity mechanism and cheap pre-merge
+  compatibility check — resolved 2026-08-19 (`docs/roadmap.md`).** RFC
+  0010's own "How this could be wrong" item 4 and Open questions named a
+  real gap: `concatenate + remap` is only valid when two segments'
+  quantization descriptors are byte-identical (Design §7), but nothing let
+  a reader or merge planner check that cheaply before attempting a merge.
+  `crates/strand-vector/src/codebook.rs` closes it with no wire-format
+  change: `CodebookIdentity` is a computed (not serialized) summary of a
+  resident descriptor — the four scalar fields (`dims`, `distance_metric`,
+  `bit_width`, `rotator_type`) plus an XxHash3-64 content hash (invariant
+  11's own registered default checksum algorithm, reused rather than
+  adding a second one, invariant 8) over exactly the fields Design §7
+  names as the byte-identity criterion, deliberately excluding the
+  reserved byte (which `spec/vectors.md` §2 already forbids readers from
+  interpreting) and `padded_dims` (fully derived from `dims`). Building
+  one identity is `O(n)` in `rotation_payload`'s length — no new I/O
+  beyond what a reader already fetches to use the codebook at all;
+  comparing two built identities (`check_compatibility`) is `O(1)`,
+  touching neither segment's payload again. A considered-and-rejected
+  alternative, argued in the RFC's own Discussion amendment: a
+  construction-time generation/version counter, rejected because it only
+  proves temporal common ancestry, not the byte-identity Design §7
+  actually requires. Real tests build three pairs of genuinely independent,
+  footer/hotcache-decodable segments via `strand-core`'s actual
+  `SegmentBuilder` — one pair sharing a real codebook (`Compatible`), one
+  pair with independently-trained real codebooks sharing every scalar
+  field but a different RNG-drawn rotation (`Incompatible(ContentHash)`,
+  the case a bare scalar check would miss), and one pair with different
+  `dims` (`Incompatible(Dims)`, the cheap short-circuit case) — and confirm
+  the check distinguishes all three
+  (`crates/strand-vector/tests/codebook_compatibility_across_segments.rs`),
+  plus unit tests for every `CodebookMismatch` variant in isolation. Full
+  adversarial review — hash-collision risk (bounded, and the same
+  non-cryptographic-hash risk tolerance invariant 11 already accepts for
+  chunk checksums), whether the check is cheap enough to run before every
+  merge (yes, argued quantitatively), and the nearest-grave framing — lives
+  in RFC 0010's Discussion — post-approval amendments. Deliberately
+  narrow, matching this project's discipline: the codebook-sharing
+  *policy* question, cluster-assignment compatibility with a rebalanced
+  navigation tier, and the actual merge-planner code that would call this
+  function are all named precisely as still M3-1's, not claimed resolved
+  here. `cargo test --workspace` and `cargo clippy --workspace
+  --all-targets -- -D warnings` both clean.
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1

@@ -9,6 +9,7 @@ description = "STRAND vector-family blobs: flat vectors, RaBitQ quantization des
 [dependencies]
 rand = "0.9.2"
 strand-core = { path = "../strand-core" }
+twox-hash = { version = "2", default-features = false, features = ["xxhash3_64"] }
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

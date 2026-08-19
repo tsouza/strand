@@ -216,7 +216,20 @@ turns out to be a real undercount gets corrected here and in
   metadata slot and the construction algorithm together.
 - **Cross-segment codebook sharing and retraining at merge/compaction time.**
   Named precisely in Design §7 (merge semantics) as a real, load-bearing,
-  unresolved question — not silently assumed away.
+  unresolved question — not silently assumed away. **Partially resolved by
+  M2-8 (Discussion — post-approval amendment, below, `docs/roadmap.md`):**
+  a cheap, `O(1)`-after-construction pre-merge compatibility *check*
+  (`crates/strand-vector/src/codebook.rs`) now exists, so a merge planner
+  can detect a codebook mismatch before attempting `concatenate + remap`
+  rather than discovering it only when a merge already under way produces
+  corrupted distance estimates. What M2-8 does **not** resolve, named
+  precisely rather than folded in: the *policy* question of whether STRAND
+  mandates one codebook per table by convention or defines an explicit
+  requantization path for compaction, cluster-assignment compatibility
+  with a merged, rebalanced navigation tier (Design §7's own second
+  clause), and the actual merge/compaction code path that would call this
+  check — all three remain real, separate, unimplemented work, owned by
+  M3-1 (`docs/roadmap.md`).
 - **Centroid count / clustering algorithm.** This RFC's worked example and
   napkin math use the `4·√N` convention the reference library's own IVF
   documentation recommends, citing Faiss
@@ -923,16 +936,24 @@ this is exactly the class of gap the M4 clean-room read (`CLAUDE.md` §9)
 is designed to catch, caught and closed before implementation began rather
 than at that milestone.
 
-**Fourth: cross-segment codebook incompatibility (Design §7).** This RFC
+**Fourth: cross-segment codebook incompatibility (Design §7). Partially
+resolved (M2-8, Discussion — post-approval amendment, below).** This RFC
 registers `concatenate + remap` as the posting-list merge strategy only
 when descriptors match byte-for-byte — a real constraint, not a hypothetical
 one, since a production writer that retrains its codebook per segment
 (plausible, since RaBitQ's rotation is cheap to regenerate) would silently
 force every merge onto the more expensive `rebuild` path, with no format-
 level signal warning the writer this is about to happen until compaction
-time. This RFC names the constraint; it does not yet give writers a way to
-detect the mismatch cheaply before attempting a merge, which is real,
-separate, unresolved work (Open questions).
+time. This RFC named the constraint but did not give writers a way to
+detect the mismatch cheaply before attempting a merge; M2-8 closes exactly
+that gap with a cheap identity-and-compare mechanism
+(`crates/strand-vector/src/codebook.rs`), argued out on its own below. What
+remains genuinely open, not touched by M2-8: whether STRAND should mandate
+one codebook per table by *policy* (so the mismatch this check detects
+never arises in practice), an explicit requantization path for compaction
+when it does, and the actual merge-planner code that calls this check as
+part of a real merge decision — all real, separate, unresolved work
+(Open questions, M3-1).
 
 ## Alternatives considered
 
@@ -1012,12 +1033,23 @@ what the reference implementation's own `save()`/`load()` pair already does
 - ~~Updating `CLAUDE.md` §7's "roughly one segment per million 768d
   vectors" sentence~~ — done, alongside this Approval (`CLAUDE.md` §7 now
   reads ~760,000).
-- **Cross-segment codebook-sharing policy, and a cheap pre-merge
-  compatibility check** (Design §7, How this could be wrong) — whether
-  STRAND mandates one codebook per table/index by convention, or defines a
-  compatibility check plus an explicit requantization path for compaction,
-  so a writer is not surprised by an expensive `rebuild` only at merge
-  time.
+- ~~A cheap pre-merge codebook compatibility check~~ — done (M2-8,
+  2026-08-19, Discussion — post-approval amendment, below):
+  `crates/strand-vector/src/codebook.rs`'s `CodebookIdentity` and
+  `check_compatibility` let a merge planner detect a codebook mismatch in
+  `O(1)` per pair after one `O(n)`-in-payload-length identity computation
+  per segment, with real tests distinguishing a shared, real codebook from
+  two independently trained ones and from a structurally different one
+  (`crates/strand-vector/tests/
+  codebook_compatibility_across_segments.rs`). What M2-8 does **not**
+  resolve, real and still open: **cross-segment codebook-sharing policy**
+  (whether STRAND mandates one codebook per table/index by convention, or
+  defines an explicit requantization path for compaction when segments
+  disagree), **cluster-assignment compatibility** with a merged,
+  rebalanced navigation tier (Design §7's own second `concatenate + remap`
+  clause — this check closes only the codebook half), and **the actual
+  merge-planner code** that would call this check as part of a real merge
+  decision. All three are M3-1's job (`docs/roadmap.md`), not this RFC's.
 - **The graph-blob family (warm tier)** — R1's second half, the node-order
   permutation algorithm question, entirely untouched by this RFC.
 - ~~The intra-batch bit/lane order~~ — resolved (Discussion, below; `spec/
@@ -1263,3 +1295,184 @@ reference files updated in place with the new finding
 `references/cloud-native-vector-search-surveys-2026.md`) alongside the new
 `references/spann-body-figures.md`. `docs/ledger.md`'s R1 entry updated to
 match.
+
+**2026-08-19 — M2-8: a cross-segment codebook-identity mechanism and a
+cheap pre-merge compatibility check (`docs/roadmap.md`).** Prompted
+directly by this RFC's own "How this could be wrong" item 4 and Open
+questions, and by `docs/roadmap.md` M2-8's own text naming a real,
+deliberately-unresolved scoping tension between reading the codebook as a
+construction-side concern (settled alongside M2's writer/clustering work)
+and reading it as an M3-1 merge-planning input (the cost of getting it
+wrong is only paid at merge time). This amendment does not adjudicate that
+scoping question — it answers the narrower, load-bearing question both
+readings agree is real regardless of which milestone owns it: *given two
+segments' quantization descriptors, how does a reader or merge planner
+decide, cheaply, whether their codebooks are compatible?*
+
+**The identity mechanism.** Design §7 already states the compatibility
+criterion in prose — descriptors must be byte-identical in `dims`,
+`distance_metric`, `bit_width`, `rotator_type`, and `rotation_payload` — so
+this amendment does not introduce a new wire field or bump any blob's byte
+layout; the quantization descriptor blob (Design §2) is unchanged. Instead,
+`crates/strand-vector/src/codebook.rs` adds `CodebookIdentity`, a small,
+fixed-size, computed (not wire-serialized) summary: the four scalar fields
+plus a 64-bit content hash (XxHash3-64, `spec/container.md`'s own
+registered default checksum algorithm, invariant 11 — reused rather than
+introducing a second hash into the project's vocabulary, invariant 8's
+novelty-budget discipline) over `dims || distance_metric || bit_width ||
+rotator_type || rotation_payload`, each field as its wire-format bytes.
+Two considered-and-rejected inputs, named precisely because the task
+framing offered both as candidates: a construction-time *version/
+generation identifier* was rejected in favor of a *content hash*, because a
+generation counter only proves two segments were built by the same writer
+process in temporal sequence — it says nothing about whether a segment
+built by a *different* writer, or the same writer after a restart with no
+persisted counter, happens to carry a byte-identical codebook, which is
+exactly the case Design §7's own criterion cares about. A content hash
+answers the question Design §7 actually asks (are the bytes the same)
+directly, with no dependency on write-path bookkeeping a reader can't see.
+The reserved byte at descriptor offset 11 and the derived `padded_dims`
+field are deliberately excluded from the hash input, argued in the
+module's own doc comment: hashing the reserved byte would make this
+project's own "reader MUST NOT interpret it" promise (`spec/vectors.md`
+§2) leak into a compatibility decision through the back door, and
+`padded_dims` is fully determined by `dims` under the shared padding rule
+both registered rotator types use (`descriptor::padded_dims_for`), so
+including it would be redundant, not informative — invariant 8's
+novelty-budget discipline again, applied to what goes into the hash rather
+than what goes on the wire.
+
+**Why this is cheap "without needing to fully decode either codebook,"**
+the framing the task itself posed, argued precisely rather than asserted:
+building one `CodebookIdentity` costs `O(n)` in `rotation_payload`'s
+length — for the registered default (`FhtKacRotator`, 384 bytes at 768
+padded dims) this is negligible; for the non-default `MatrixRotator`
+(`dims * padded_dims * 4` bytes — 2.36 MB at `dims = padded_dims = 768`,
+Design §2) it is a real but bounded, one-time cost, no larger than the
+cost a reader already pays once to fetch and use the descriptor blob at
+all (invariant 7's cold-open wave includes it). Comparing two already-built
+identities (`check_compatibility`) is `O(1)` — four scalar-byte
+comparisons plus one `u64` comparison — with **no further access to either
+segment's `rotation_payload`**. This is the concrete answer to "cheapest
+to check without deserializing the full codebook": a merge planner
+touching `N` segments pays `O(N)` total identity-building cost once, then
+`O(1)` per pairwise comparison thereafter (`O(N)` or `O(N²)` comparisons
+depending on planning strategy, but never re-touching payload bytes),
+rather than `O(pairs × payload size)` a naive byte-for-byte comparison run
+fresh on every pair would cost — the difference that actually matters at
+the "on the order of a hundred segments" scale `CLAUDE.md` §7 already
+names for the M3 amplification benchmark.
+
+**The compatibility check function.** `check_compatibility` (and the
+`DescriptorReader`-level convenience wrapper,
+`check_descriptor_compatibility`) returns `CodebookCompatibility::
+Compatible` or `Incompatible(CodebookMismatch)`, the mismatch variant
+naming exactly which field first disagreed (`Dims`, `DistanceMetric`,
+`BitWidth`, `RotatorType`, or `ContentHash` — checked in that order, cheap
+fields first, so an obviously incompatible pair never touches the hash at
+all). `Compatible` is documented precisely as **necessary, not
+sufficient**, for `concatenate + remap`: Design §7's own second clause
+(cluster-assignment compatibility with a merged, rebalanced navigation
+tier) is separate, harder, still-unimplemented work this function does not
+attempt — a merge planner that sees `Compatible` still has real work left
+before it can safely choose `concatenate + remap` over `rebuild`, and this
+RFC does not claim otherwise.
+
+**How this could be wrong — the adversarial review this amendment is
+required to pass, per `CLAUDE.md` §3, before this is treated as settled.**
+
+*Does the identity mechanism actually catch every real incompatibility?*
+Within the scope Design §7 itself defines (byte-identical descriptor
+fields), yes, by construction: the hash covers every byte Design §7 names
+as load-bearing, in full, so any bit difference in any of those fields
+changes the hash (barring a collision, addressed next) and any difference
+in the four cheap scalar fields is caught even before the hash is
+consulted. What this mechanism does **not** catch, because Design §7
+itself does not claim it: two descriptors that are byte-identical but
+whose *codes* were nonetheless produced inconsistently by a buggy writer
+(e.g., a writer that serialized the correct rotation but applied a
+different one when quantizing) — this is a writer-correctness bug outside
+any wire-format check's reach, no different from any other codec's
+implementation-fidelity risk (RFC 0007's postings decode carries the same
+class of unstated assumption: the format can verify structure, not that a
+writer's quantizer matches its own declared descriptor).
+
+*Could two genuinely different codebooks hash-collide, or share a
+generation ID by coincidence?* The generation-ID alternative was already
+rejected above independent of this question, so only the hash-collision
+risk applies. XxHash3-64 is a non-cryptographic hash with a 64-bit output;
+a birthday-bound collision probability of roughly 2⁻³² becomes
+non-negligible only past billions of *distinct* codebooks being compared
+pairwise within one planning run, a scale this format's segment-count
+figures (`CLAUDE.md` §7: "on the order of a hundred segments" for the M3
+benchmark, ~760,000 vectors/segment for the whole corpus) are nowhere near
+— and, more importantly, this is the same non-cryptographic-collision risk
+class this project already accepts for chunk checksums under invariant 11
+("every chunk carries a declared checksum, default xxHash3-64") without
+additional mitigation, so this amendment does not invent a new risk
+tolerance, it applies the project's existing one to a second use of the
+same algorithm. Stated precisely rather than hidden: this check is a
+*correctness aid* for a trusted writer's own merge planning, not a
+security boundary against an adversarial descriptor crafted to collide —
+no part of this project's threat model treats segment producers as
+adversarial, and this amendment does not change that.
+
+*Is the check cheap enough to actually run before every merge without
+becoming its own bottleneck?* Argued quantitatively above (the `O(N)`-
+build/`O(1)`-compare paragraph); the one caveat worth stating plainly is
+that `MatrixRotator`'s multi-megabyte `rotation_payload` makes the
+*first* identity computation per segment non-trivial (not `O(1)`,
+genuinely `O(payload size)`) — real, bounded, one-time cost, not
+disguised as free, and the reason this design caches the computed
+identity rather than re-hashing on every comparison.
+
+*Nearest grave from `docs/lineage.md`, per `CLAUDE.md` §3's requirement:*
+BitFunnel and the other formats that conflated a cheap structural check
+with a full semantic guarantee, then discovered the gap in production —
+the risk here is a future caller reading `CodebookCompatibility::
+Compatible` as "safe to merge" rather than "safe to consider merging,"
+skipping Design §7's cluster-assignment clause. Mitigated the same way the
+M2-1 replication-policy amendment mitigated its own nearest-grave risk:
+structurally, not just by a comment — `CodebookCompatibility::Compatible`'s
+own doc comment states the necessary-not-sufficient scope directly at the
+call site, and the function's name (`check_compatibility`, not
+`safe_to_merge` or similar) does not overclaim what it decides.
+
+**Real tests, per `CLAUDE.md` §3's "start from usage, not structure."**
+`crates/strand-vector/src/codebook.rs`'s own unit tests cover each
+`CodebookMismatch` variant in isolation (dims, distance metric, bit width,
+rotator type, and same-scalars-different-payload) plus the reusable-
+identity shape a real merge planner uses. The task's own requirement — two
+segments with deliberately compatible and deliberately incompatible
+codebooks — is met at the segment level, not only the descriptor-bytes
+level, in the new
+`crates/strand-vector/tests/codebook_compatibility_across_segments.rs`:
+three tests build real, independently-committed, footer/hotcache-
+decodable segments via `strand-core`'s actual `SegmentBuilder` (the same
+real-segment discipline `segment_assembly.rs` established), extract each
+segment's descriptor blob back out through the real registry-lookup path,
+and confirm `check_descriptor_compatibility` correctly judges (1) two
+segments sharing one real, RNG-drawn codebook as `Compatible`, (2) two
+segments with independently-trained real codebooks — same `dims`,
+`bit_width`, `rotator_type`, `distance_metric`, genuinely different
+`rotation_payload` from two different RNG seeds — as
+`Incompatible(ContentHash)`, the exact "scalars agree, payload doesn't"
+case a coarser check would miss, and (3) two segments with different
+`dims` entirely as `Incompatible(Dims)`, the cheap short-circuit case.
+
+**What this amendment explicitly does not resolve**, named in Non-goals,
+"How this could be wrong" item 4, and Open questions above, and left for
+M3-1 (`docs/roadmap.md`): the codebook-sharing **policy** question (whether
+STRAND mandates one shared codebook per table by convention, or requires
+compaction to requantize when segments disagree), **cluster-assignment
+compatibility** with a merged, rebalanced navigation tier (Design §7's
+second `concatenate + remap` clause), and **the merge-planner code path**
+itself, which does not exist anywhere in this codebase yet — this
+amendment gives it a compatibility function to call, not a caller.
+
+`cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D
+warnings` both clean. Sections updated: Non-goals (the cross-segment
+codebook bullet), "How this could be wrong" item 4 (marked partially
+resolved), Open questions (the compatibility-check half struck as done,
+the policy half restated precisely), and this Discussion entry.
+`docs/ledger.md` and `docs/roadmap.md` M2-8 entries updated to match.
