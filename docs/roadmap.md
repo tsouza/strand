@@ -91,10 +91,16 @@ Also grounding debt, not M1-blocking but M1-adjacent and feeding M4:
   is resolved (RFC 0004, `discountOverlaps` grounded byte-exact); no
   tantivy source has been vendored for the tantivy half. Source: `docs/
   ledger.md` R4; RFC 0004's own adversarial review ("gates M4's
-  tantivy-fork parity work, not M1"). Status: open, pure grounding.
-  Depends on: nothing directly, but **blocks M4-4** (the tantivy fork
-  cannot claim length-accounting parity without it) — tracked here, under
-  M1, because the gap itself is M1-era grounding debt even though its
+  tantivy-fork parity work, not M1"). **Status: resolved 2026-08-19**
+  (`references/tantivy-fieldnorm-overlap-accounting.md`, tantivy tag
+  `0.26.1`) — tantivy has no `discountOverlaps`-equivalent mechanism at
+  all; its field-length count increments unconditionally per token,
+  equivalent to `counts_overlaps_in_length = true` in RFC 0004's own
+  vocabulary, the opposite of what `lucene-parity` scoring requires.
+  Depends on: nothing directly; **unblocks M4-4** (the tantivy fork now
+  has the grounded fact it needs to implement length-accounting parity,
+  even though the patch itself is still M4 work) — tracked here, under
+  M1, because the gap itself was M1-era grounding debt even though its
   consequence lands in M4.
 
 ## M2 — Vectors (nearly closed; loose ends remain)
@@ -303,8 +309,9 @@ Non-goals and Open questions still leave genuinely open:
 - **M4-4** — Second-reader independence: tantivy fork (primary path) or
   clean-room implementation (fallback, activates on an R11(d) failure
   trigger). Source: `docs/milestones.md` M4 entry. Status: **blocked** on
-  M4-1(d) (M4-1(a) is now done) and M1-5 (tantivy length-accounting
-  parity). **Scope
+  M4-1(d) (M4-1(a) is now done); M1-5 (tantivy length-accounting grounding)
+  is now resolved and no longer a blocker, though the fork still has to
+  implement the patch M1-5 identified. **Scope
   correction, per the adversarial review**: this document's first draft
   stated the fork depends on the *full* v0.1 spec freeze (M4-3);
   precisely, it needs the freeze only for the spec chapters the fork

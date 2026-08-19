@@ -263,12 +263,29 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   evidence, not asserted. Still open: the TurboQuant revisit condition (unchanged
   from before).
 - **R4** — precise Lucene-vs-tantivy doc-length accounting for the invariant-6 length
-  definition. The Lucene half is resolved: RFC 0004
+  definition. **Both halves are now resolved.** The Lucene half: RFC 0004
   (`rfcs/0004-analyzer-descriptors.md`) grounds `discountOverlaps` byte-exact against
   Lucene 10.5.1 source and maps it to the descriptor's own
-  `counts_overlaps_in_length` field. The tantivy half remains open — no tantivy
-  source has been vendored for this yet — and gates M4's tantivy-fork parity work,
-  not M1.
+  `counts_overlaps_in_length` field. The tantivy half — **resolved 2026-08-19**
+  (`references/tantivy-fieldnorm-overlap-accounting.md`, fetched against tantivy tag
+  `0.26.1`, the same tag `references/r11a-tantivy-reader-surface-and-lucene-codec-
+  spi.md` already pinned): tantivy has **no `discountOverlaps`-equivalent concept at
+  all** — a repo-wide `grep -rn "discount"` returns zero matches. Its field-length
+  accounting (`IndexingPosition::num_tokens`, `src/postings/postings_writer.rs:97-
+  161`, fed to `FieldNormsWriter::record` at `src/indexer/segment_writer.rs:218-220`)
+  increments unconditionally for every token the token stream yields, never
+  inspecting `token.position` or `token.position_length` to exclude same-position
+  (overlapping) tokens — confirmed both by the indexing code path and by tantivy's
+  own `position_length` unit tests, which assert only position placement, never a
+  reduced token count. Mapped onto the descriptor: **tantivy's native behavior is
+  equivalent to `counts_overlaps_in_length = true`**, the opposite of what
+  `lucene-parity` scoring requires. This gates M4's tantivy-fork parity work
+  concretely now, not just as an open question: the fork must patch
+  `PostingsWriter::index_text` (or its `segment_writer.rs` call site) to subtract
+  same-position tokens before recording fieldnorm, since no existing tantivy hook
+  does this. Inert for STRAND's own v0.1 tokenizer profile, which has no
+  synonym-expansion step, so this remains M4 scope, not M1, per RFC 0004's own
+  adversarial review.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1): a
   first decode-throughput measurement now exists
