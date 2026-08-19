@@ -19,7 +19,7 @@
 //! integration layer at real scale, not just a bigger synthetic example.
 
 use flate2::read::MultiGzDecoder;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 use strand_core::container::{Footer, Hotcache};
@@ -32,6 +32,20 @@ use strand_lexical::field::{build_field, FieldReader};
 #[derive(Deserialize)]
 struct CorpusLine {
     text: String,
+}
+
+#[derive(Serialize)]
+struct FieldEndToEndResult {
+    doc_count: usize,
+    vocabulary_size: usize,
+    term_dict_bytes: usize,
+    term_info_bytes: usize,
+    postings_bytes: usize,
+    positions_bytes: usize,
+    segment_bytes: u64,
+    build_field_seconds: f64,
+    commit_seconds: f64,
+    cold_open_ms: f64,
 }
 
 fn open_segment_bytes(bytes: &[u8]) -> Hotcache {
@@ -187,4 +201,29 @@ fn main() {
         "Done: {} real documents, {vocabulary_size} distinct terms, real end-to-end query path validated at scale.",
         doc_refs.len(),
     );
+
+    let result = FieldEndToEndResult {
+        doc_count: doc_refs.len(),
+        vocabulary_size,
+        term_dict_bytes: field.term_dict.len(),
+        term_info_bytes: field.term_info.len(),
+        postings_bytes: field.postings.len(),
+        positions_bytes: field.positions.len(),
+        segment_bytes: snapshot.segments[0].byte_length,
+        build_field_seconds: build_elapsed.as_secs_f64(),
+        commit_seconds: commit_elapsed.as_secs_f64(),
+        cold_open_ms: open_elapsed.as_secs_f64() * 1000.0,
+    };
+    // Named by real doc count, matching bench/src/tantivy_index.rs's own
+    // fix for the same clobbering risk: a fixed filename would silently
+    // overwrite a prior run's committed numbers on the next differently-
+    // scaled run.
+    let out_path = format!(
+        "{}/results/field-end-to-end-{}.json",
+        env!("CARGO_MANIFEST_DIR"),
+        result.doc_count
+    );
+    std::fs::write(&out_path, serde_json::to_string_pretty(&result).unwrap())
+        .unwrap_or_else(|e| panic!("write {out_path}: {e}"));
+    eprintln!("Wrote {out_path}");
 }
