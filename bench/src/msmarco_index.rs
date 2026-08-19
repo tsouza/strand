@@ -45,6 +45,17 @@ struct IndexStats {
     sampled_passages: u64,
     vocabulary_size: u64,
     total_postings: u64,
+    /// Sum of every posting's term frequency — the total count of raw
+    /// within-document token occurrences a positions blob (RFC 0008) would
+    /// have to store one delta per, across the whole sample.
+    total_term_occurrences: u64,
+    /// Sum of per-document token counts across sampled passages (post-
+    /// analysis, i.e. after stopword removal — the same count that becomes
+    /// a document's indexed length), and the single longest sampled
+    /// passage's token count — bounds within-document position-delta
+    /// magnitude for RFC 0008's napkin math.
+    total_doc_len: u64,
+    max_doc_len: u64,
 }
 
 #[derive(Serialize)]
@@ -97,6 +108,8 @@ fn main() {
     let mut index: HashMap<String, Vec<(u32, u32)>> = HashMap::new();
     let mut sampled_passages: u64 = 0;
     let mut doc_ordinal: u32 = 0;
+    let mut total_doc_len: u64 = 0;
+    let mut max_doc_len: u64 = 0;
 
     for (line_no, line) in reader.lines().enumerate() {
         let line_no = line_no as u64;
@@ -116,6 +129,9 @@ fn main() {
         };
 
         let tokens = strand_lexical::analyzer::analyze_lucene_en_word_only(&parsed.text);
+        let doc_len = tokens.len() as u64;
+        total_doc_len += doc_len;
+        max_doc_len = max_doc_len.max(doc_len);
         let mut per_doc_tf: HashMap<String, u32> = HashMap::new();
         for token in tokens {
             *per_doc_tf.entry(token).or_insert(0) += 1;
@@ -133,8 +149,11 @@ fn main() {
 
     let vocabulary_size = index.len() as u64;
     let total_postings: u64 = index.values().map(|v| v.len() as u64).sum();
+    let total_term_occurrences: u64 =
+        index.values().flat_map(|v| v.iter()).map(|&(_, tf)| tf as u64).sum();
     eprintln!(
-        "Indexed {sampled_passages} passages, {vocabulary_size} distinct terms, {total_postings} postings"
+        "Indexed {sampled_passages} passages, {vocabulary_size} distinct terms, {total_postings} \
+         postings, {total_term_occurrences} total term occurrences"
     );
 
     // Stratify terms by document frequency into deciles, per
@@ -205,6 +224,9 @@ fn main() {
             sampled_passages,
             vocabulary_size,
             total_postings,
+            total_term_occurrences,
+            total_doc_len,
+            max_doc_len,
         },
         deciles,
     };

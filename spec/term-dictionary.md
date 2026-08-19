@@ -10,9 +10,10 @@ Registered in `spec/container.md` §9: `family_id = 1` (lexical), `blob_type_id 
 Reference implementation: `crates/strand-lexical/src/term_dictionary.rs`. Golden
 files: `conformance/term-dictionary/toy-terms.fst` and
 `conformance/term-dictionary/toy-terms.terminfo`, matching this chapter's RFC's
-worked example exactly, byte for byte. The postings and positions blobs
-`postings_offset`/`positions_offset` point into are not yet implemented; they land
-with the R2 lexical blob (M1, `docs/ledger.md`).
+worked example exactly, byte for byte. The postings blob `postings_offset`
+points into is implemented (`spec/postings.md`, RFC 0007). The positions blob
+`positions_offset` points into is designed (`spec/positions.md`, RFC 0008,
+Approved) but not yet implemented.
 
 ## 1. Scope: one pair per field
 

@@ -61,8 +61,9 @@ new crate): `TermInfo` encode/decode, `TermInfoStore`'s direct-indexed reads, an
 `conformance/term-dictionary/` golden files and reproduced byte-exact by the crate's
 own tests — a third independent reproduction of the same bytes (RFC draft, ACPR
 review, now the library) — plus a `proptest` round-trip property test over
-arbitrary term sets. The postings/positions blobs those `TermInfo` offsets point
-into remain unimplemented, gated on the still-open R2 codec RFC. The **filter-bitmap blobs** are now RFC 0006
+arbitrary term sets. The postings blob those `TermInfo` offsets point into is
+now implemented (RFC 0007, below); the positions blob is designed (RFC 0008,
+below) but not yet implemented. The **filter-bitmap blobs** are now RFC 0006
 (`rfcs/0006-filter-bitmaps.md`, Approved) — a value-dictionary FST (identical shape
 to RFC 0005 §2) paired with a small directory plus one standard 32-bit Roaring
 bitmap per distinct value, indexed by local ordinal; the second RFC to extend the
@@ -154,7 +155,26 @@ scoring-aware (term-frequency/document-length) block-max bounds, and ARM
 validation — the RFC's own adversarial review caught and corrected a false claim
 that the registered codec's crate mitigates the ARM gap; it doesn't, for the
 specific 256-value format this RFC registers, and that gap is now stated
-honestly rather than glossed over. Benchmarks: MS
+honestly rather than glossed over. **Positions are now designed, not just
+deferred**: RFC 0008 (`rfcs/0008-positions.md`, Approved) registers a positions
+blob (`spec/positions.md`, `family_id = 1`, `blob_type_id = 3`) that reuses RFC
+0007's codec wholesale — the same `BitPacker8x`/scalar-packer block structure,
+applied to within-document position deltas that reset per document rather than
+once per whole term — bridged to postings via a new
+`postings_block_pos_prefix` region so a phrase query can locate one document's
+positions without decoding any postings or position block it doesn't need.
+`total_term_freq` (the sum of a term's per-document term frequencies, needed
+to size the position-block region but not recoverable without decoding) is
+stored as a leading field inside the positions blob itself rather than growing
+RFC 0005's already-implemented `TermInfo` record. This RFC's own real
+napkin-math measurement (extending `bench/src/msmarco_index.rs` to sum total
+term occurrences on the same MS MARCO sample) found positions add roughly
+another 19.3–27.4 MB on top of RFC 0007's ~73.2 MB postings-plus-term-info
+figure — pushing the combined cold-open cost to roughly 92.5–100.6 MB, 92% to
+just past the 100 MB budget, for one field on under 6% of the corpus — the
+concrete reason this RFC states positions should be an opt-in, per-field
+blob, not a default every field pays for. Implementation is a real, separate
+follow-on (`spec/positions.md` §9), not done in this same session. Benchmarks: MS
 MARCO BM25 latency and size vs tantivy; Lucene parity per invariant 5;
 bytes-fetched vs bytes-used across term frequency deciles (the read-amplification
 number, `docs/data-structures.md`). Adapter-based results appear in this
