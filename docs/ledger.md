@@ -611,6 +611,48 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   consumes these factors (FastScan's `accumulate()` plus the formula built
   on top of it), `MatrixRotator`'s matrix generation, k-means clustering,
   and multi-bit Extended-RaBitQ (all unchanged Non-goals from RFC 0010).
+- **The `nprobe` cluster-selection pipeline implemented — 2026-08-19, same
+  day, prompted by "implement the nprobe cluster-selection pipeline
+  next."** `crates/strand-vector/src/query.rs` implements `spec/
+  vectors.md` §6 steps 1–3 directly: unlike every other module built this
+  session, there is no external reference implementation to fetch or
+  match here — this is STRAND's own query-resolution algorithm, already
+  fully specified in the approved RFC 0010 Design §6 before any code
+  existed. `select_nprobe_clusters` computes the query's distance to every
+  centroid already in hand (no I/O) and picks the closest `nprobe`,
+  metric-aware (L2: nearest by squared distance; inner product: highest
+  true inner product, via the same "smaller estimate is better" convention
+  `estimate.rs` already established). `scan_selected_clusters` decodes and
+  estimates every candidate across the selected clusters, deduplicating by
+  row-id under closure replication and keeping each row-id's best estimate
+  — the spec's own literal requirement, tested directly with a synthetic
+  two-cluster case sharing a row-id.
+
+  Deletion-vector filtering (spec step 4) and reranking (step 5) are not
+  implemented here, named rather than glossed: this family has no wired-up
+  connection to invariant 2's general deletion-vector machinery yet (an
+  already-named Non-goal), and reranking is a thin wrapper over
+  `crate::flat` any caller can already build once it has a surviving
+  candidate set.
+
+  **The real property this whole feature exists for, tested directly**:
+  recall is monotonically non-decreasing as `nprobe` grows. Across four
+  real query points against a real 400-vector, 10-blob clustered index,
+  once the true nearest neighbor was found at some `nprobe`, it was never
+  lost again at any larger `nprobe` — the actual guarantee the `nprobe`
+  knob trades I/O against, not merely "the code runs." A second test
+  confirms `nprobe = num_clusters` recovers exactly the same candidate set
+  as a manual exhaustive scan (tying back to `build_a_real_index.rs`'s own
+  approach), and a third confirms a genuinely bounded `nprobe` (3, against
+  6 real clusters) still finds a deliberately-nearest vector when the
+  query sits close to its own cluster. 7 new tests, all passing; workspace
+  total now 162, clippy clean.
+
+  This closes RFC 0010's Design §6 query-resolution steps 1–3 completely.
+  What remains from the original Non-goals list: `MatrixRotator`'s matrix
+  *generation*; the multi-bit Extended-RaBitQ path; deletion-vector
+  integration; and reranking against the flat-vector blob (steps 4–5) —
+  all real, separate, unwritten work, now the complete and accurate list.
 - **K-means clustering implemented — 2026-08-19, same day, prompted by
   "implement k-means clustering next."** `crates/strand-vector/src/
   kmeans.rs`'s `kmeans` produces the centroids and cluster assignments

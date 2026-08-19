@@ -25,4 +25,5 @@ pub mod kmeans;
 pub mod navigation;
 pub mod posting_list;
 pub mod quantize;
+pub mod query;
 pub mod rotate;

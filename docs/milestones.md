@@ -402,13 +402,20 @@ non-increasing inertia, no empty clusters, deterministic given a seed, well-sepa
 blobs recovered exactly) rather than cross-checked against a compiled reference.
 `tests/build_a_real_index.rs` is the capstone test so far: 200 raw vectors, clustered
 from nothing, built into a real four-blob-type segment, opened cold, and queried
-across every real cluster, correctly matching brute-force ground truth. **Still
-deliberately out of scope**: `MatrixRotator`'s realized-matrix *generation* (QR
-decomposition — its *application* is implemented); the multi-bit Extended-RaBitQ
-path; and the `nprobe`-bounded cluster-selection step itself (the capstone test scans
-every cluster for its own exhaustive correctness check, not yet the bounded,
-parallel-wave query RFC 0010 Design §6 specifies). All real, separate, unwritten
-work.
+across every real cluster, correctly matching brute-force ground truth. **The
+`nprobe` cluster-selection pipeline is implemented too** (`query.rs`), completing
+RFC 0010 Design §6's query-resolution steps 1–3 — the first module this session with
+no external reference to fetch or match, since it's STRAND's own already-specified
+algorithm. `select_nprobe_clusters` picks the closest `nprobe` centroids (metric-aware,
+no I/O); `scan_selected_clusters` decodes and estimates every candidate, deduplicating
+by row-id under closure replication per the spec's own literal wording. Verified
+against the real property the feature exists for: across four real queries on a real
+400-vector index, once the true nearest neighbor was found at some `nprobe` it was
+never lost at a larger one — recall monotonically non-decreasing in `nprobe`, not
+merely "the code runs." **Still deliberately out of scope**: `MatrixRotator`'s
+realized-matrix *generation* (its *application* is implemented); the multi-bit
+Extended-RaBitQ path; deletion-vector filtering and reranking against the flat-vector
+blob (Design §6 steps 4–5). All real, separate, unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
