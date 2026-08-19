@@ -525,6 +525,28 @@ v0.1 conformance manifest, never against a moving spec; the clean-room option re
 the fallback and activates if any R11(d) failure trigger fires. Lucene `StrandCodec`
 lands here as the JVM parity vehicle.
 
+**R11(a), resolved 2026-08-19
+(`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`), confirms both
+halves of this deliverable's shape ahead of time.** tantivy (verified at tag
+`0.26.1`) has no codec SPI: `Directory` is a byte-range storage abstraction,
+`SegmentComponent` is a closed seven-variant enum with one concrete reader/writer
+compiled in per variant, and its `Postings` trait is a runtime query-result
+iterator, not a wire-format registration point. "The tantivy fork" therefore means
+literally forking `quickwit-oss/tantivy` and editing its internal reader/writer
+modules (`src/index/segment_reader.rs`, `src/index/inverted_index_reader.rs`,
+`src/index/segment_component.rs`, and the concrete `postings`/`termdict`/
+`fastfield`/`store` modules) — never registering a plugin against a stable
+extension point, because none exists. Lucene (verified at tag
+`releases/lucene/10.5.1`) has the opposite shape: `Codec` declares eleven abstract
+format methods resolved by name through `java.util.ServiceLoader` via
+`META-INF/services/org.apache.lucene.codecs.Codec`. `StrandCodec` extends
+`FilterCodec` (the documented delegation base class), overrides `postingsFormat()`
+to return a `PostingsFormat` whose `FieldsProducer` reads STRAND's own postings
+blob, delegates the other ten format methods to an existing codec
+(`Lucene104Codec` is 10.5.1's current default), and registers its class name in
+that services file — the documented, currently-shipping pattern Lucene's own
+default codec uses, not a hypothesis.
+
 **M5 — The consumer.** A thin, read-only **DataFusion TableProvider** over STRAND
 segments — the answer to "name the second engine," written into scope on purpose
 because the research concluded no forced reader exists and one must be built. Slices
