@@ -424,6 +424,48 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   precisely, matching M0's own already-recorded caveat that the real-network
   tail-latency figure remains a separate, open measurement
   (`CLAUDE.md` §7's placeholder).
+- **Tantivy importer — resolved 2026-08-19.** `CLAUDE.md`'s repository
+  shape names `strand-tools convert` as the declared home for "tantivy/CIFF
+  importers"; it now exists for tantivy. `crates/strand-tools/src/convert.rs`'s
+  `import_tantivy_field` opens a real tantivy index via its own real reader
+  API — `InvertedIndexReader::terms()`/`TermDictionary::stream()` to
+  enumerate every real term, `read_postings_from_terminfo` with
+  `IndexRecordOption::WithFreqsAndPositions` to read each term's real
+  postings and positions — grounded against the tantivy repository's own
+  `examples/iterating_docs_and_positions.rs` (fetched live, not recalled)
+  rather than reimplementing tantivy's binary format by hand. Extracted
+  `(term, doc_ordinal, positions)` triples feed directly into
+  `strand_lexical::field::build_field_from_postings`, a new function
+  `field.rs` gained specifically so this importer reuses the exact same
+  real, already-tested blob-building code `build_field` uses for text
+  input rather than duplicating it — the same reuse discipline this session
+  applied throughout (`postings.rs` reusing `scalar_pack`, `positions.rs`
+  reusing `postings.rs`'s helpers). Tantivy's segment-local `DocId` becomes
+  the STRAND local ordinal directly, since both are already dense
+  `0..num_docs` spaces — no remapping needed for the case this importer
+  accepts. `strand-tools convert --index-dir <path> --field <name> --output
+  <path>` wires it into the CLI, writing a real segment file via
+  `SegmentBuilder::build` (no manifest/store involvement — a bare segment
+  file, matching what a CLI conversion tool needs, not a commit). Verified
+  twice: a real Rust unit test (`crates/strand-tools/src/convert.rs`'s own
+  `#[cfg(test)]` module — this crate has no `[lib]` target yet, so an
+  inline unit test, not a `tests/` integration test, matching its existing
+  `inspect` module's own convention) builds a real tantivy index, imports
+  it, assembles a real STRAND segment, and runs real term and phrase
+  queries against it, including a true positional match and a true
+  negative (two terms that co-occur but are never adjacent); a manual CLI
+  smoke test round-tripped `convert` into `inspect` against a real 527-byte,
+  4-blob, checksum-valid segment on disk. One real bug caught and fixed
+  along the way: the test's first attempt at building a 3-document tantivy
+  index used the default (multi-threaded) writer, which split those 3
+  documents across 3 segments — `import_tantivy_field`'s own single-segment
+  check correctly rejected it (`MultiSegment(3)`), and the fix was
+  `writer_with_num_threads(1, ...)`, matching the exact reasoning tantivy's
+  own vendored example already states for using it. Deliberately narrow,
+  named scope: single-segment, deletion-free tantivy indexes only
+  (multi-segment merge and deletion-vector support are real, separate,
+  unattempted follow-on work); positions are always imported, a source
+  field indexed without them is out of scope for now.
 - **RFC 0009 (per-term overhead reduction) implemented — resolved
   2026-08-19.** Both fixes landed in `crates/strand-lexical/src/positions.rs`
   and `crates/strand-lexical/src/term_dictionary.rs`. Fix 1

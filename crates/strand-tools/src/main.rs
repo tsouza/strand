@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod convert;
 mod inspect;
 
 use clap::{Parser, Subcommand};
@@ -29,12 +30,61 @@ struct Cli {
 enum Command {
     /// Decode a segment file's footer and hotcache and print a report.
     Inspect { path: PathBuf },
+    /// Import one field of a real tantivy index into a real STRAND segment
+    /// file (single-segment, deletion-free tantivy indexes only).
+    Convert {
+        /// Path to the tantivy index directory (containing meta.json).
+        #[arg(long = "index-dir")]
+        index_dir: PathBuf,
+        /// Name of the tantivy text field to import.
+        #[arg(long)]
+        field: String,
+        /// Path to write the resulting STRAND segment file to.
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Command::Inspect { path } => run_inspect(&path),
+        Command::Convert { index_dir, field, output } => run_convert(&index_dir, &field, &output),
+    }
+}
+
+fn run_convert(index_dir: &std::path::Path, field: &str, output: &std::path::Path) -> ExitCode {
+    let (field_blobs, row_count) = match convert::import_tantivy_field(index_dir, field) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut builder = strand_core::segment::SegmentBuilder::new(row_count);
+    for blob in field_blobs.to_blob_specs() {
+        builder.add_blob(blob);
+    }
+    let segment_bytes = builder.build(0);
+
+    match std::fs::write(output, &segment_bytes) {
+        Ok(()) => {
+            // TERM_INFO_RECORD_LEN (28 bytes), not the short variant: the
+            // importer always calls build_field_from_postings with
+            // with_positions = true (convert.rs's own stated scope).
+            println!(
+                "wrote {} ({} bytes, {row_count} rows, {} terms)",
+                output.display(),
+                segment_bytes.len(),
+                field_blobs.term_info.len() / strand_lexical::term_dictionary::TERM_INFO_RECORD_LEN,
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: could not write {}: {e}", output.display());
+            ExitCode::FAILURE
+        }
     }
 }
 

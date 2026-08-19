@@ -117,7 +117,28 @@ licensed implementations (`unicode-rs/unicode-segmentation`,
 `CurrySoftware/rust-stemmers`, both Apache-2.0-compatible), not hand-rolled
 algorithms. The full vector suite across languages and scripts is still M1
 execution work, not done by this one vector, and the CJK/Thai/Lao segmentation-
-dictionary choice remains unresolved (RFC 0004's own Non-goals). Tantivy importer. R2
+dictionary choice remains unresolved (RFC 0004's own Non-goals). **Tantivy importer
+is now real**: `strand-tools convert --index-dir <path> --field <name> --output
+<path>` (`crates/strand-tools/src/convert.rs`) opens a real tantivy index via
+tantivy's own reader API (`InvertedIndexReader`, `TermDictionary::stream`,
+`Postings` — not a hand-reimplementation of tantivy's binary format),
+streams every term's real postings and positions, and feeds them into
+`strand_lexical::field::build_field_from_postings` — the same real,
+already-tested blob-building code `build_field` uses for text input, now
+factored out as a shared entry point precisely so this importer could reuse
+it rather than duplicate it. Tantivy's segment-local `DocId` becomes the
+STRAND local ordinal directly, since both are already dense `0..num_docs`
+spaces. Verified end to end, twice: a real Rust unit test builds a real
+tantivy index, imports it, assembles a real STRAND segment, and runs real
+term and phrase queries against it — including a true positional phrase
+match ("dog cat" adjacent in one document) and a true negative ("dog park"
+co-occurring but never adjacent) — and a manual CLI smoke test round-tripped
+`convert` into `inspect`, confirming a real 527-byte, 4-blob, checksum-valid
+segment on disk. Deliberately narrow, named scope, not silently assumed
+general: only a single-segment, deletion-free tantivy index is accepted
+(multi-segment merge and deletion-vector support are real, separate,
+unattempted follow-on work); positions are always imported (a source field
+indexed without them is out of scope for now). R2
 codec bake-off lands here and confirms or swaps the postings default (including
 verifying tantivy's actual current codec, per `docs/data-structures.md`); the R9 layout evaluation and
 license audit MUST complete before the bake-off freezes the default, since a

@@ -3461,6 +3461,9 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "strand-core",
+ "strand-lexical",
+ "tantivy",
+ "tempfile",
 ]
 
 [[package]]

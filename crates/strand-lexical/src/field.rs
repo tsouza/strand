@@ -141,6 +141,31 @@ fn build_field_impl(docs: &[&str], with_positions: bool) -> FieldBlobs {
         }
     }
 
+    build_field_from_postings(per_term, doc_lengths, with_positions)
+}
+
+/// Builds a field's blobs directly from already-extracted per-term postings
+/// — the shared core `build_field`/`build_field_without_positions` and any
+/// other real data source (e.g. `strand-tools convert`'s tantivy importer)
+/// both funnel into. `per_term` maps each term's bytes (already in
+/// unsigned UTF-8 byte order, invariant 11 — a `BTreeMap` guarantees this)
+/// to that term's postings: `(doc_ordinal, within_document_positions)`
+/// pairs, in ascending `doc_ordinal` order. `doc_lengths[i]` is document
+/// `i`'s token count (`spec/scoring-profiles.md`'s `dl` input).
+///
+/// # Panics
+///
+/// Panics if any term's `doc_ordinal`s are not strictly increasing, or if
+/// `with_positions` is `true` and any posting's positions are not
+/// non-empty and strictly increasing (`postings::build_postings`'s and
+/// `positions::build_positions`'s own preconditions — this function does
+/// not re-validate them itself, matching `build_field_impl`'s own
+/// by-construction guarantee for the analyzer-based path).
+pub fn build_field_from_postings(
+    per_term: BTreeMap<Vec<u8>, Vec<(u32, Vec<u32>)>>,
+    doc_lengths: Vec<u32>,
+    with_positions: bool,
+) -> FieldBlobs {
     let mut postings_bytes = Vec::new();
     let mut positions_bytes = Vec::new();
     let mut terms_with_info: Vec<(Vec<u8>, TermInfo)> = Vec::with_capacity(per_term.len());
