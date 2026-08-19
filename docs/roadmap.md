@@ -419,19 +419,39 @@ Non-goals and Open questions still leave genuinely open:
   on: nothing.
 - **X-3** — The ~250ms p90 tail-latency figure: currently a flagged
   placeholder (`CLAUDE.md` §7). Replace with a real vendored source
-  sentence or a real measured MinIO/S3 tail figure. Status: **half done**
-  (2026-08-19) — the "vendor a source sentence" half landed: the AWS
+  sentence or a real measured MinIO/S3 tail figure. Status: **done
+  (2026-08-19)** — the "vendor a source sentence" half landed first: the AWS
   whitepaper "Best Practices Design Patterns: Optimizing Amazon S3
   Performance" states "consistent small object latencies... of roughly
   100–200 milliseconds" (`references/aws-s3-small-object-latency.md`),
   honestly labeled as not a named percentile. The "or a real measured
-  MinIO/S3 tail figure" half is still open — that is X-4's job. Depends
-  on: nothing.
+  MinIO/S3 tail figure" half is X-4's job, done the same day — see X-4's
+  own entry below and `CLAUDE.md` §7 for the real measured p50/p90/p99.
+  Depends on: nothing.
 - **X-4** — Real-network cold-open tail latency (MinIO with injected
   latency, or real S3) — `bench/`'s existing cold-open measurement is
   against localhost MinIO with no injected latency, confirming the
   GET-count half of invariant 3 but not the real-network tail. Status:
-  open. Depends on: nothing technically.
+  **done (2026-08-19)** — real S3 credentials are not available in this
+  environment, so the substitute is a real MinIO container with a real
+  `netem` delay injected onto its network interface via a throwaway
+  `alpine` sidecar sharing its network namespace (`docker run --net
+  container:<id> --cap-add NET_ADMIN`; the MinIO image itself has no
+  package manager to install `tc` with, confirmed empirically before
+  building the mechanism). `strand_bench::inject_netem_delay` and
+  `with_minio_latency` (`bench/src/lib.rs`) and the new
+  `cold-open-injected-latency` bench binary (`bench/src/
+  cold_open_injected_latency.rs`) run the identical pointer/snapshot/
+  segment open sequence `cold-open` runs, against MinIO with a 100ms
+  one-way (egress-only, honestly not symmetric) delay chosen to target a
+  ~100ms measured round trip per warm GET. Thirty real cold opens
+  measured p50 = 344.2ms, p90 = 375.3ms, p99 = 489.8ms (min 326.7ms, max
+  489.8ms; `bench/results/cold-open-injected-latency.json`) — inside RFC
+  0001's own "~300–400ms" napkin-math prediction for this exact sequence
+  at p50/p90, modestly above it at p99. Full numbers, the mechanism's
+  honest asymmetry caveat, and what this does and does not confirm
+  against the AWS SLO figure: `CLAUDE.md` §7 and `docs/ledger.md`.
+  Depends on: nothing.
 - **X-5** — The parallel-wave aggregate throughput measurement behind the
   100 MB cold-open budget rationale. Source: `CLAUDE.md` §7. **Status:
   done, resolved 2026-08-19.** `bench/src/parallel_range_fetch.rs`
@@ -444,8 +464,12 @@ Non-goals and Open questions still leave genuinely open:
   hundreds of milliseconds" figure is not confirmed by a localhost run,
   and throughput did not scale monotonically past 32-way) are in
   `CLAUDE.md` §7 and `bench/results/parallel-range-fetch.json`. Depends
-  on: nothing. The real-S3-network half of the question is X-4's, still
-  open.
+  on: nothing. The real-S3-network half of *this specific* 100 MB
+  parallel-fetch figure is still open: X-4 (above) built and proved the
+  injected-latency mechanism (`strand_bench::inject_netem_delay`,
+  `bench/src/lib.rs`) and applied it to `cold_open.rs`'s sequence, not to
+  `parallel_range_fetch.rs`'s own wave — a future session can point the
+  same mechanism at that benchmark.
 - **X-6** — R9's postings-block-size granularity conditional (ALP/GPU
   application-fit assessment, ARM/non-AVX2 hardware). Source: `docs/
   ledger.md` R9. **Corrected by the adversarial review**: the shipped,

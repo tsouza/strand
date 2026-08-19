@@ -122,6 +122,103 @@ pub fn with_minio(body: impl FnOnce(&str, &str) + std::panic::UnwindSafe) {
     }
 }
 
+/// Injects a one-way `netem` delay onto the running container's network
+/// interface (roadmap X-4: `bench/src/cold_open_injected_latency.rs`, the
+/// real-network-tail-latency counterpart to `bench/src/cold_open.rs`'s
+/// localhost-only measurement).
+///
+/// The container under test (MinIO, started by `start_minio`) ships no
+/// package manager and no `tc` binary of its own — confirmed empirically:
+/// its image is UBI-based (`cat /etc/os-release` inside it reports
+/// `ID="rhel"`), and it has neither `apk`/`dnf`/`microdnf` nor even
+/// `which`/`grep`, so nothing can be installed inside it. The mechanism
+/// used instead: a throwaway `alpine` sidecar container started with
+/// `--net container:<id>` (joining the *same* network namespace as the
+/// target, so its `eth0` is literally the target's `eth0`, not a separate
+/// veth) and `--cap-add NET_ADMIN`, which installs `iproute2` and runs
+/// `tc qdisc add dev eth0 root netem delay`. This was verified directly in
+/// this environment before being relied on here (`docker run --rm
+/// --cap-add=NET_ADMIN alpine sh -c "apk add -q iproute2 && tc qdisc add
+/// dev eth0 root netem delay 100ms"` succeeds), and separately confirmed to
+/// actually change measured latency against a real MinIO container over its
+/// mapped host port (a `curl` round trip against `/minio/health/live` went
+/// from sub-millisecond to ~100ms with a 100ms netem delay applied this
+/// way).
+///
+/// This delays only the target's *egress* (`tc qdisc` binds to one
+/// interface's outbound direction) — traffic leaving the container, i.e.
+/// server responses — not ingress (client requests arriving). Stated
+/// honestly because it is a real asymmetry, not hidden in the number this
+/// produces: on a *fresh* TCP connection (a real round trip: SYN, the
+/// delayed SYN-ACK, ACK, request, delayed response) this yields roughly
+/// `2 * delay_ms` wall time for the first request; on a *reused*
+/// (keep-alive) connection — measured directly against a real MinIO
+/// container's `/minio/health/live` endpoint, three repeat `curl` calls
+/// over one kept-alive connection with a 50ms delay applied measured
+/// 0.0508s/0.0507s/0.0507s each, i.e. one delayed leg only — it costs
+/// approximately `delay_ms` per request, since only the response leg is
+/// delayed. `delay_ms` is therefore chosen to equal the *round-trip*
+/// figure this benchmark targets, not a true one-way figure split
+/// symmetrically across both directions; a fully symmetric injection would
+/// additionally shape the host-side veth peer's egress from the real
+/// Docker host's root network namespace, which is a materially more
+/// fragile mechanism (it requires resolving the specific veth peer
+/// interface and real root privileges on the host outside any container)
+/// and was not needed to get a real, honest round-trip number here.
+pub fn inject_netem_delay(container_id: &str, delay_ms: u64) {
+    let output = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--net",
+            &format!("container:{container_id}"),
+            "--cap-add",
+            "NET_ADMIN",
+            "alpine",
+            "sh",
+            "-c",
+            &format!("apk add -q iproute2 && tc qdisc add dev eth0 root netem delay {delay_ms}ms"),
+        ])
+        .output()
+        .expect(
+            "docker must be available to run the netem-injection sidecar \
+             (docker run --net container:<id> --cap-add NET_ADMIN alpine ...)",
+        );
+    assert!(
+        output.status.success(),
+        "netem delay injection failed (docker exit status {:?}); this is a \
+         genuine environment blocker, not a benchmark bug — see stdout/stderr \
+         below.\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+/// Like `with_minio`, but injects a `delay_ms` one-way `netem` delay (see
+/// `inject_netem_delay`) onto the MinIO container's network interface
+/// before running `body`, simulating S3-like round-trip latency instead of
+/// bare localhost. Used by `bench/src/cold_open_injected_latency.rs`
+/// (roadmap X-4).
+pub fn with_minio_latency(
+    delay_ms: u64,
+    body: impl FnOnce(&str, &str) + std::panic::UnwindSafe,
+) {
+    let setup_runtime = tokio::runtime::Runtime::new().unwrap();
+    let (endpoint, bucket, container) = setup_runtime.block_on(start_minio());
+
+    inject_netem_delay(container.id(), delay_ms);
+
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&endpoint, &bucket)));
+
+    setup_runtime.block_on(async { drop(container) });
+
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}
+
 /// A `ConditionalStore` wrapper that counts GET and PUT calls, so a
 /// benchmark can report request counts alongside latency — CLAUDE.md §7
 /// requires every cold-path number be justified in GETs and bytes, not

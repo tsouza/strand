@@ -1,0 +1,15 @@
+{
+  "name": "cold-open-injected-latency",
+  "date": "2026-08-19T21:25:12Z",
+  "commit": "2ba80d3aeaf03f0d11ce8e980741e03980ccde05",
+  "result": {
+    "injected_netem_delay_ms": 100,
+    "iterations": 30,
+    "get_count_per_open": 3,
+    "latency_ms_p50": 344.19813999999997,
+    "latency_ms_p90": 375.25070300000004,
+    "latency_ms_p99": 489.811312,
+    "latency_ms_min": 326.654104,
+    "latency_ms_max": 489.811312
+  }
+}

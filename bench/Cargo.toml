@@ -16,6 +16,10 @@ name = "cold-open"
 path = "src/cold_open.rs"
 
 [[bin]]
+name = "cold-open-injected-latency"
+path = "src/cold_open_injected_latency.rs"
+
+[[bin]]
 name = "commit-contention"
 path = "src/commit_contention.rs"
 
