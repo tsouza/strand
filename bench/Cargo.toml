@@ -51,6 +51,10 @@ path = "src/tantivy_import_scale.rs"
 name = "vector-cold-open"
 path = "src/vector_cold_open.rs"
 
+[[bin]]
+name = "term-dict-size"
+path = "src/term_dict_size.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }

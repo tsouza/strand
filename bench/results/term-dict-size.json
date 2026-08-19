@@ -1,0 +1,29 @@
+{
+  "source": "Tevatron/msmarco-passage-corpus (huggingface.co), same 8,841,823-passage corpus as bench/src/msmarco_index.rs and bench/src/field_end_to_end.rs; tokenized with strand_lexical::analyzer::analyze_lucene_en_word_only (UAX29-word/word-only, lower, lucene-en-10.5.1 stopwords, snowball-porter2-en stemming); FST built by strand_lexical::term_dictionary::build_term_dictionary, the real production function, not a bench-only approximation.",
+  "corpus_total_passages": 8841823,
+  "fst_crate_version": "0.4.7",
+  "scales": [
+    {
+      "sample_target": 100476,
+      "sample_stride": 87,
+      "sampled_passages": 101631,
+      "vocabulary_size": 136777,
+      "fst_bytes": 963258,
+      "fst_bytes_per_term": 7.042543702523085,
+      "term_info_bytes": 3829756,
+      "tokenize_and_dedupe_seconds": 23.093449224,
+      "fst_build_seconds": 0.063968208
+    },
+    {
+      "sample_target": 8841823,
+      "sample_stride": 1,
+      "sampled_passages": 8841823,
+      "vocabulary_size": 2669086,
+      "fst_bytes": 19423389,
+      "fst_bytes_per_term": 7.277168663729831,
+      "term_info_bytes": 74734408,
+      "tokenize_and_dedupe_seconds": 639.320398637,
+      "fst_build_seconds": 2.2675158890000002
+    }
+  ]
+}
