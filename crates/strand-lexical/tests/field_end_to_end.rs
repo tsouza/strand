@@ -226,8 +226,14 @@ fn two_fields_with_the_same_blob_type_ids_coexist_in_one_segment_and_stay_disamb
 
     let title_field = build_field("title", &TITLES);
     let body_field = build_field("body", &DOCS);
-    assert_eq!(title_field.field_id, strand_core::container::field_id_from_name("title"));
-    assert_eq!(body_field.field_id, strand_core::container::field_id_from_name("body"));
+    assert_eq!(
+        title_field.field_id,
+        strand_core::container::field_id_from_name("title")
+    );
+    assert_eq!(
+        body_field.field_id,
+        strand_core::container::field_id_from_name("body")
+    );
     assert_ne!(title_field.field_id, body_field.field_id);
 
     let mut builder = SegmentBuilder::new(DOCS.len() as u64);
