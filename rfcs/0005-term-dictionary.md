@@ -331,3 +331,49 @@ this blob's access pattern doesn't need to pay.
   not assumed to still match.
 - Whether Lucene's sparse block-tree design should be adopted instead is explicitly
   left open, conditioned on the FST-size-at-scale measurement above.
+
+## Discussion — post-approval amendments
+
+**2026-08-19 — FST size at realistic vocabulary scale, measured, closing this RFC's
+own Open questions item.** Prompted by `docs/roadmap.md`'s M1-2: "FST term-dictionary
+size at realistic vocabulary scale (MS MARCO or larger) is unmeasured."
+
+`bench/src/term_dict_size.rs` (new) builds the real, production
+`strand_lexical::term_dictionary::build_term_dictionary` FST — not a reimplementation —
+over real MS MARCO passages tokenized by the real declared analyzer chain
+(`analyze_lucene_en_word_only`: UAX #29 word/word-only, lower case folding,
+`lucene-en-10.5.1` stopwords, `snowball-porter2-en` stemming), at two scales in one
+run: the existing 100,476-passage cross-check scale `bench/src/field_end_to_end.rs`
+already measured, and the RFC's own named target, the **full real MS MARCO corpus**
+(8,841,823 passages, `Tevatron/msmarco-passage-corpus`).
+
+Real, measured result (`bench/results/term-dict-size.json`):
+
+| Scale | Passages sampled | Vocabulary (distinct terms) | FST bytes | Bytes/term |
+| --- | --- | --- | --- | --- |
+| Cross-check | 101,631 | 136,777 | 963,258 | 7.043 |
+| Full corpus | 8,841,823 | 2,669,086 | 19,423,389 | 7.277 |
+
+The cross-check scale independently reproduces `field_end_to_end`'s own real run
+closely (135,874 terms / 956,446 bytes there vs. 136,777 / 963,258 here) — the small
+delta is expected, since stride-based sampling at a fixed passage-count *target*
+lands on a slightly different real passage count than a contiguous prefix would, not
+a discrepancy in either harness. At full corpus scale: **19,423,389 bytes ≈ 18.5 MB**
+for a 2,669,086-term vocabulary — a small fraction of the 100 MB cold-open budget on
+its own, and real evidence for this RFC's own qualitative "compiled size grows
+sublinearly with vocabulary size" claim (Napkin math, above): passage count grew
+87.05x from the cross-check scale to the full corpus, vocabulary grew only 19.51x,
+and FST bytes grew 20.16x — sublinear in passages, essentially linear in vocabulary
+size itself (bytes/term only rose from 7.043 to 7.277, +3.3%, not the flat or shrinking
+curve a stronger "shared-prefix compression wins at scale" story might have predicted,
+and this RFC does not claim otherwise — the honest reading is that FST compression
+benefits taper as the vocabulary's own prefix-sharing saturates, not that they
+vanish). "Sublinear" is now a number, not just a structural argument, and it is a
+number against the real corpus this RFC's own Open questions item named, not a
+smaller stand-in.
+
+Sections updated: Napkin math (gains the real-measurement table above), Open
+questions (struck the resolved item). `docs/ledger.md` and `docs/roadmap.md`'s M1-2
+entry updated in place to match. This does not change the FST blob's registered
+format (`fst` crate `0.4.7`) or any wire-format decision — it closes a measurement
+gap, not a design question.

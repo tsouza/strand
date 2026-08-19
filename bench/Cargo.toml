@@ -63,6 +63,10 @@ path = "src/hotcache_tail_read.rs"
 name = "parallel-range-fetch"
 path = "src/parallel_range_fetch.rs"
 
+[[bin]]
+name = "term-dict-size"
+path = "src/term_dict_size.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }

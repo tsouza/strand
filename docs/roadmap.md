@@ -77,10 +77,12 @@ M1-5 below.
 - **M1-2** — FST term-dictionary size at realistic vocabulary scale
   (MS MARCO or larger) is unmeasured. Source: RFC 0005 Open questions
   ("needed before the cold-open byte budget question... can be answered
-  with a real number instead of a structural argument"). Status: open,
-  measurement work — `bench/` already has real MS MARCO indexing
-  infrastructure (`docs/ledger.md`'s field-end-to-end benchmarks) this can
-  likely reuse directly. Depends on: nothing.
+  with a real number instead of a structural argument"). Status: **done**
+  (2026-08-19) — `bench/src/term_dict_size.rs`, reusing `bench/`'s existing
+  real MS MARCO indexing infrastructure (`docs/ledger.md`'s field-end-to-end
+  benchmarks) directly: real full MS MARCO corpus (8,841,823 passages)
+  tokenized and built into the real production FST: 2,669,086 distinct
+  terms, 19,423,389 bytes (≈18.5 MB, 7.277 bytes/term). Depends on: nothing.
 - **M1-3** — Cross-crate-version and cross-platform determinism of the
   `fst` crate's compiled output: build the same logical FST on x86_64 and
   ARM, byte-compare. Source: RFC 0005 Open questions, repeated in RFC 0006

@@ -77,6 +77,16 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   ordering algorithm (Starling's block shuffling is the literature; pick with
   evidence), entirely
   untouched by RFC 0010, which is 1-bit cluster-family only.
+- **M1-2 (`docs/roadmap.md`) — FST term-dictionary size at realistic vocabulary
+  scale, measured 2026-08-19, not guessed.** RFC 0005's own Open questions item.
+  `bench/src/term_dict_size.rs` built the real, production `build_term_dictionary`
+  FST over the real, full MS MARCO corpus (8,841,823 passages): **2,669,086
+  distinct terms, 19,423,389 bytes (≈18.5 MB FST, 7.277 bytes/term)**. A
+  100,476-passage cross-check scale in the same run (136,777 terms, 963,258 bytes,
+  7.043 bytes/term) closely reproduces `bench/src/field_end_to_end.rs`'s own
+  independent real run at a comparable scale (135,874 terms / 956,446 bytes),
+  confirming the harness is wired correctly. Full data:
+  `bench/results/term-dict-size.json`; `rfcs/0005-term-dictionary.md` Discussion.
 - **R2** — postings default confirmation BP128 vs FastPFOR vs FastLanes on real
   corpora, including verifying tantivy's actual current codec (gates M1, load-bearing
   for the data-structure baseline's default argument); the exact d-gap variant to
