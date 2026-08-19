@@ -18,6 +18,7 @@
 //! RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`).
 
 pub mod descriptor;
+pub mod estimate;
 pub mod fastscan;
 pub mod flat;
 pub mod navigation;

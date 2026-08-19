@@ -611,6 +611,70 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   consumes these factors (FastScan's `accumulate()` plus the formula built
   on top of it), `MatrixRotator`'s matrix generation, k-means clustering,
   and multi-bit Extended-RaBitQ (all unchanged Non-goals from RFC 0010).
+- **Query-side distance estimator implemented — 2026-08-19, same day,
+  prompted by "implement the query-side distance estimator next."**
+  `crates/strand-vector/src/estimate.rs`'s `estimate_distance` closes the
+  last Non-goal RFC 0010 named specifically as "the algorithm's concern":
+  given a rotated query, a rotated centroid, and one database vector's
+  stored factors, it estimates the true distance with a two-sided error
+  bound, using the reference implementation's own formally-derived
+  estimator (`docs/docs/rabitq/estimator.md`) and its real query-factor
+  computation (`include/rabitqlib/index/query.hpp`), both vendored at
+  `references/rabitq-library-estimator-source.md`.
+
+  **A real ambiguity in the math notation was resolved by reading code,
+  not by picking an interpretation.** The formal derivation writes the
+  query term as `q_r' = P^{-1} q_r` — a reverse-rotated query — which read
+  in isolation looks like it demands a second, inverse-rotation pipeline
+  distinct from the forward `rotate_fht_kac` this crate already built.
+  Reading `query.hpp`'s actual code settled it in the other direction:
+  every query-side class takes a parameter literally named
+  `rotated_query` and uses it directly, with no inverse rotation anywhere
+  — the identical forward transform already applied to database vectors
+  and centroids at index-build time is applied to the query too. Because
+  that rotation is orthogonal, `<x_u, P^{-1}q_r> = <P x_u, q_r>`, so
+  building the lookup table from the forward-rotated query and dotting it
+  against the unrotated code bits computes the same quantity the notation
+  describes, by a cheaper route. Getting this wrong would have meant
+  building and grounding an entirely separate inverse-rotation pipeline
+  that the real implementation doesn't have.
+
+  **Verified beyond transcription, a third time this session**: a
+  standalone C++ reimplementation of the full encode-then-estimate
+  pipeline (reusing the already-verified `quantize.rs` formula) was
+  compiled and run for a real dim=64 case, both metrics. The real,
+  load-bearing check wasn't value-matching alone — it was that **the true
+  distance fell inside `[lb, ub]`** for both metrics, the actual
+  theoretical guarantee this estimator exists to provide. A large,
+  fixed-seed statistical test (2,000 random trials, not a hand-picked
+  case) then confirmed the same containment property holds for 96.3%
+  (L2) and 96.25% (IP) of random cases — deliberately checked
+  statistically rather than as a `proptest` property, since RaBitQ's own
+  documentation states its confidence constant gives "nearly perfect
+  confidence," not literal 100%, and asserting 100% containment across a
+  proptest run's many trials would produce real, expected occasional
+  failures that are not implementation bugs.
+
+  **The first genuinely full end-to-end test** (`tests/
+  query_a_real_cluster.rs`): a real cluster of 50 quantized vectors is
+  written into a real posting-list blob; a real query is rotated once and
+  scanned against every candidate in the already-fetched blob bytes (no
+  further I/O, matching RFC 0010 Design §6's one-wave query resolution);
+  the estimator correctly ranks a deliberately-nearest vector first,
+  confirmed against brute-force ground truth. 8 new tests, all passing;
+  workspace total now 147, clippy clean.
+
+  This closes every Non-goal RFC 0010's own Design §4 named as "the
+  algorithm's concern, not this container-layer RFC's" — the sign-based
+  binary code, the encode-side factors, rotation application, and now the
+  query-side estimator that consumes those factors. What remains from
+  RFC 0010's original Non-goals list: `MatrixRotator`'s matrix
+  *generation* (its application is implemented), real k-means clustering,
+  the multi-bit Extended-RaBitQ path, and the actual `nprobe` cluster-
+  selection/scan-orchestration pipeline that would wire this estimator up
+  to a real multi-cluster query end to end (Design §6 steps 1–2, as
+  opposed to the single-cluster scan this session's own test already
+  exercises).
 - **Rotation application implemented — 2026-08-19, same day, prompted by
   "implement rotation application next."** `crates/strand-vector/src/
   rotate.rs`'s `rotate_fht_kac` and `rotate_matrix` close the precondition

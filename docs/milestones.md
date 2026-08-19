@@ -380,13 +380,24 @@ reimplementation, plus a `proptest` confirming the mathematical property a rotat
 must have (L2-norm preservation) across hundreds of random inputs. A new
 `tests/full_pipeline.rs` chains descriptor, rotation, quantization, and the
 posting-list wire format together end to end for the first time: raw, unrotated
-vectors in, real blob bytes out, read back bit-exact. **Still deliberately out of
-scope, matching RFC 0010's own Design §4**: `MatrixRotator`'s realized-matrix
-*generation* (QR decomposition — its *application*, given an already-supplied
-matrix, is implemented); the query-side distance estimator that consumes these
-factors against a query vector (FastScan's `accumulate()` plus the formula built on
-top of it); real k-means clustering; and the actual `nprobe` query-resolution/scan/
-rerank pipeline. All real, separate, unwritten work.
+vectors in, real blob bytes out, read back bit-exact. **The query-side distance
+estimator is implemented too** (`estimate.rs`'s `estimate_distance`), closing every
+Non-goal RFC 0010's own Design §4 named as "the algorithm's concern" — grounded
+against the reference implementation's formal derivation and real query-factor code,
+with a real ambiguity in the math notation (whether a second, inverse-rotation
+pipeline was needed) resolved by reading the actual code rather than picking an
+interpretation. Verified against a compiled C++ cross-check (the true distance falls
+inside the estimator's own bound, the real theoretical guarantee, not just matching
+values) and a 2,000-trial statistical test (96%+ containment, checked statistically
+rather than as a flaky proptest property since the guarantee is probabilistic by
+design). `tests/query_a_real_cluster.rs` is the first genuinely full end-to-end test:
+a real cluster written to a real blob, a real query scanned against it with no further
+I/O, correctly ranking the true nearest neighbor. **Still deliberately out of scope**:
+`MatrixRotator`'s realized-matrix *generation* (QR decomposition — its *application*
+is implemented); real k-means clustering; the multi-bit Extended-RaBitQ path; and the
+actual `nprobe` cluster-selection/scan-orchestration pipeline that wires the estimator
+up to a real multi-cluster query (the single-cluster scan is now real and tested).
+All real, separate, unwritten work.
 
 **M3 — Hybrid + deletes + merge.** Deletion vectors; compaction implementing the
 per-family merge semantics of invariant 1 (concatenate+remap for cluster blobs,
