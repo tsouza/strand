@@ -390,6 +390,38 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   inventing a deliverable rather than to any real artifact. Both files were corrected
   to drop the claim (2026-08-18); `docs/research/README.md` is the standing research
   source, full stop.
+- **RFC 0008 (positions) implemented — resolved 2026-08-19.**
+  `crates/strand-lexical/src/positions.rs` builds and reads the positions
+  blob exactly as `spec/positions.md` specifies: `build_positions` takes a
+  term's postings-ordered within-document position lists and produces the
+  `total_term_freq` header, `postings_block_pos_prefix` bridge, `pos_widths`,
+  and delta stream; `PositionsReader::positions_for_doc` resolves a targeted
+  lookup (given a postings-block index, a local prefix `tf`, and a target
+  `tf` — exactly what a real `spec/postings.md` §6 skip query already
+  yields) without decoding any block it doesn't need, and `decode_all` walks
+  the whole blob alongside a term's postings `tf` array. Reuses
+  `postings.rs`'s `scalar_pack`/`scalar_unpack`/`block_count_for`/
+  `block_real_len` directly (now `pub(crate)`), per the RFC's own stated
+  plan, rather than duplicating them. RFC 0008's own worked example
+  round-trips byte-exact against the new
+  `conformance/positions/toy-positions.bin` golden file (`06 00 00 00 00 00
+  00 00 03 33 32 03`, 12 bytes — the RFC's own ACPR-corrected figure), with
+  targeted-lookup resolution checked for all three documents
+  (`crates/strand-lexical/tests/positions_worked_example.rs`).
+  Property-tested (`crates/strand-lexical/tests/positions_round_trip.rs`):
+  full decode and targeted lookups on arbitrary multi-document,
+  multi-position-per-document inputs, checked against the *original input
+  directly* (not against this blob's own decode path, avoiding a tautology)
+  — including boundary cases that stress `doc_freq`-derived postings-block
+  counts and `total_term_freq`-derived position-block counts independently,
+  since they're genuinely different counts. Not yet wired into
+  `crates/strand-lexical/src/field.rs`'s segment-lexical integration
+  layer — a field's `build_field`/`FieldReader` still never populate or read
+  `positions_offset`/`positions_length`, so phrase queries through the real
+  end-to-end path remain a real, separate follow-on, not silently assumed
+  done. This closes the one M1 lexical-family blob RFC 0007 explicitly
+  deferred; `spec/positions.md` §9 and `spec/term-dictionary.md` are updated
+  to reflect implemented, not just designed.
 - **Segment↔lexical integration and a first real query path — resolved
   2026-08-19.** Until now, `strand-core`'s segment/container/manifest layer and
   `strand-lexical`'s term-dictionary/term-info/postings blobs had never been
@@ -418,8 +450,10 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   BM25-ranked search, all passing. Deliberately narrow scope, stated in the
   module's own doc comment rather than silently assumed: one field per
   segment (multi-field blob addressing is still unsolved project-wide, RFC
-  0008's own Non-goals), no positions (RFC 0008 has no implementation yet,
-  so `positions_length` is always `0`), no filter bitmaps, no compaction or
+  0008's own Non-goals), no positions (RFC 0008 is now implemented in
+  `crates/strand-lexical/src/positions.rs`, 2026-08-19, but not yet wired
+  into `field.rs` — `positions_length` is still always `0` here, a real
+  follow-on, not a blocked one), no filter bitmaps, no compaction or
   merge, and `dl`/`avdl` for scoring are caller-supplied rather than
   blob-backed since document-length storage isn't a registered blob anywhere
   yet (RFC 0007's own Non-goals). Does not require an RFC: no new byte

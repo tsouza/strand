@@ -23,5 +23,6 @@
 pub mod analyzer;
 pub mod field;
 pub mod filter_bitmaps;
+pub mod positions;
 pub mod postings;
 pub mod term_dictionary;

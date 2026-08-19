@@ -25,12 +25,12 @@ pub const BLOCK_LEN: usize = BitPacker8x::BLOCK_LEN;
 /// Minimal scalar bit-packer (shift/mask, no SIMD, no forced block size) for
 /// the variable-length final block (`spec/postings.md` §3) — full blocks use
 /// `BitPacker8x`'s SIMD kernel; only a trailing partial block uses this.
-fn scalar_bits_needed(values: &[u32]) -> u8 {
+pub(crate) fn scalar_bits_needed(values: &[u32]) -> u8 {
     let max = values.iter().copied().max().unwrap_or(0);
     if max == 0 { 0 } else { (32 - max.leading_zeros()) as u8 }
 }
 
-fn scalar_pack(values: &[u32], width: u8) -> Vec<u8> {
+pub(crate) fn scalar_pack(values: &[u32], width: u8) -> Vec<u8> {
     if width == 0 {
         return Vec::new();
     }
@@ -52,7 +52,7 @@ fn scalar_pack(values: &[u32], width: u8) -> Vec<u8> {
     out
 }
 
-fn scalar_unpack(bytes: &[u8], count: usize, width: u8) -> Vec<u32> {
+pub(crate) fn scalar_unpack(bytes: &[u8], count: usize, width: u8) -> Vec<u32> {
     if width == 0 {
         return vec![0u32; count];
     }
@@ -84,11 +84,11 @@ fn gaps_of(ordinals: &[u32]) -> Vec<u32> {
     gaps
 }
 
-fn block_count_for(doc_freq: usize) -> usize {
+pub(crate) fn block_count_for(doc_freq: usize) -> usize {
     doc_freq.div_ceil(BLOCK_LEN)
 }
 
-fn block_real_len(doc_freq: usize, block_idx: usize) -> usize {
+pub(crate) fn block_real_len(doc_freq: usize, block_idx: usize) -> usize {
     let start = block_idx * BLOCK_LEN;
     (doc_freq - start).min(BLOCK_LEN)
 }

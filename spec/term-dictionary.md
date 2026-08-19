@@ -12,8 +12,8 @@ files: `conformance/term-dictionary/toy-terms.fst` and
 `conformance/term-dictionary/toy-terms.terminfo`, matching this chapter's RFC's
 worked example exactly, byte for byte. The postings blob `postings_offset`
 points into is implemented (`spec/postings.md`, RFC 0007). The positions blob
-`positions_offset` points into is designed (`spec/positions.md`, RFC 0008,
-Approved) but not yet implemented.
+`positions_offset` points into is also implemented (`spec/positions.md`, RFC
+0008).
 
 ## 1. Scope: one pair per field
 

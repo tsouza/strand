@@ -62,8 +62,8 @@ new crate): `TermInfo` encode/decode, `TermInfoStore`'s direct-indexed reads, an
 own tests — a third independent reproduction of the same bytes (RFC draft, ACPR
 review, now the library) — plus a `proptest` round-trip property test over
 arbitrary term sets. The postings blob those `TermInfo` offsets point into is
-now implemented (RFC 0007, below); the positions blob is designed (RFC 0008,
-below) but not yet implemented. The **filter-bitmap blobs** are now RFC 0006
+now implemented (RFC 0007, below); the positions blob is now implemented too
+(RFC 0008, below). The **filter-bitmap blobs** are now RFC 0006
 (`rfcs/0006-filter-bitmaps.md`, Approved) — a value-dictionary FST (identical shape
 to RFC 0005 §2) paired with a small directory plus one standard 32-bit Roaring
 bitmap per distinct value, indexed by local ordinal; the second RFC to extend the
@@ -171,8 +171,20 @@ RFC 0005's already-implemented `TermInfo` record. This RFC's own initial
 napkin-math measurement (extending `bench/src/msmarco_index.rs` to sum total
 term occurrences on the same MS MARCO sample) found positions add roughly
 another 19.3–27.4 MB on top of RFC 0007's originally-reported ~73.2 MB
-postings-plus-term-info figure. Implementation is a real, separate follow-on
-(`spec/positions.md` §9), not done in this same session.
+postings-plus-term-info figure. **RFC 0008 is now implemented, not just
+designed**: `crates/strand-lexical/src/positions.rs` builds and reads the
+blob exactly as `spec/positions.md` specifies, reusing `postings.rs`'s
+scalar packer and block-count helpers directly rather than duplicating
+them; the RFC's own worked example round-trips byte-exact against the new
+`conformance/positions/toy-positions.bin` golden file, including targeted-
+lookup resolution for every document; and property-based tests
+(`crates/strand-lexical/tests/positions_round_trip.rs`) cover multi-block
+lists with postings-block and position-block boundaries stressed
+independently (they're different counts), checking targeted lookups
+against the original input directly, not against this blob's own decode
+path. Not yet wired into `crates/strand-lexical/src/field.rs`'s
+segment-lexical integration layer — phrase queries through the real
+end-to-end path are a real, separate follow-on.
 
 **The MS MARCO-vs-tantivy benchmark this entry named as still owed has now
 run, and it found and corrected a real overestimate.** `bench/src/

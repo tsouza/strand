@@ -7,11 +7,11 @@ result — see the RFC for the worked example, alternatives considered, and the
 adversarial review. Registered in `spec/container.md` §9: `family_id = 1`
 (lexical), `blob_type_id = 3` (positions).
 
-Reference implementation: not yet implemented; lands as a future
-`crates/strand-lexical` module reusing `postings.rs`'s `scalar_pack`/
-`scalar_unpack` directly (RFC 0008's own stated implementation plan). Golden
-file: `conformance/positions/toy-positions.bin`, once implemented, matching
-this chapter's RFC's worked example exactly, byte for byte.
+Reference implementation: `crates/strand-lexical/src/positions.rs`, reusing
+`postings.rs`'s `scalar_pack`/`scalar_unpack`/`block_count_for`/
+`block_real_len` directly (RFC 0008's own stated implementation plan).
+Golden file: `conformance/positions/toy-positions.bin`, matching this
+chapter's RFC's worked example exactly, byte for byte.
 
 ## 1. Scope: one positions blob per field, addressed via already-reserved `TermInfo` fields
 
@@ -146,10 +146,18 @@ does not need phrase-query support SHOULD omit its positions blob entirely
 
 ## 9. Conformance status
 
-Not yet implemented. RFC 0008 is Approved; the reference implementation
-(reusing `crates/strand-lexical/src/postings.rs`'s scalar packer directly) and
-the first `conformance/positions/` golden vector are real, separate follow-on
-work, matching the same RFC-then-implement sequencing RFC 0007 used.
+Implemented (`crates/strand-lexical`). RFC 0008's own worked example (the
+same 3-posting term RFC 0007 used, extended with within-document positions)
+is the first `conformance/positions/` golden vector — real executed bytes,
+confirmed byte-exact against
+`crates/strand-lexical/tests/positions_worked_example.rs`, including
+targeted-lookup resolution for all three documents. Multi-block lists
+(postings-block and position-block boundaries stressed independently, since
+they're different counts derived from `doc_freq` and `total_term_freq`
+respectively) are property-tested in
+`crates/strand-lexical/tests/positions_round_trip.rs`, including targeted
+lookups checked directly against the original input (not against this
+blob's own full-decode path, for a genuinely independent check).
 
 ## 10. Open dependencies
 
