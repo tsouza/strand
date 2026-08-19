@@ -243,8 +243,20 @@ fn main() {
         phrase_query_latency: latency_stats(phrase_latencies_ns),
     };
 
-    let out_path = concat!(env!("CARGO_MANIFEST_DIR"), "/results/tantivy-index-benchmark.json");
+    // Named by sample size, not a fixed filename: RFC 0007/0008's Discussion
+    // sections and docs/ledger.md cite the specific ~520K-passage
+    // (sample_target=500_000) run's numbers by name
+    // (tantivy-index-benchmark.json) — a fixed name would silently
+    // overwrite that citation source on the next differently-scaled run.
+    let out_path = if sample_target == 500_000 {
+        format!("{}/results/tantivy-index-benchmark.json", env!("CARGO_MANIFEST_DIR"))
+    } else {
+        format!(
+            "{}/results/tantivy-index-benchmark-{sampled_passages}.json",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    };
     let json = serde_json::to_string_pretty(&output).unwrap();
-    std::fs::write(out_path, &json).unwrap_or_else(|e| panic!("write {out_path}: {e}"));
+    std::fs::write(&out_path, &json).unwrap_or_else(|e| panic!("write {out_path}: {e}"));
     eprintln!("Wrote {out_path} ({} bytes)", json.len());
 }

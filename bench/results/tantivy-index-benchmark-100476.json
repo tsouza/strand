@@ -1,0 +1,35 @@
+{
+  "source": "Tevatron/msmarco-passage-corpus (huggingface.co), same corpus and stride sampling as bench/src/msmarco_index.rs; every document indexed as a PreTokenizedString built directly from strand_lexical::analyzer::analyze_lucene_en_word_only's own output, so tantivy's own tokenizer/stopword/stemmer chain is never invoked — the vocabulary, doc frequencies, term frequencies, and position counts are identical to what STRAND's own postings/positions blobs would index for the same corpus subset.",
+  "corpus_total_passages": 8841823,
+  "sample_stride": 88,
+  "sampled_passages": 100476,
+  "build_wall_seconds": 19.980377972,
+  "index_total_bytes": 14119646,
+  "bytes_by_extension": {
+    "(none)": 2092,
+    "fast": 1164,
+    "fieldnorm": 101313,
+    "idx": 6340266,
+    "json": 3414,
+    "lock": 0,
+    "pos": 4004502,
+    "store": 405284,
+    "term": 3261611
+  },
+  "term_query_latency": {
+    "count": 500,
+    "mean_ns": 50747.756,
+    "p50_ns": 46041,
+    "p90_ns": 90379,
+    "p99_ns": 151396,
+    "max_ns": 289484
+  },
+  "phrase_query_latency": {
+    "count": 500,
+    "mean_ns": 93231.09,
+    "p50_ns": 57640,
+    "p90_ns": 171625,
+    "p99_ns": 869648,
+    "max_ns": 1482251
+  }
+}

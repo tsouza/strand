@@ -44,10 +44,10 @@ fn open_segment_bytes(bytes: &[u8]) -> Hotcache {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let doc_count: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10_000);
+    let sample_target: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10_000);
 
     let data_path = concat!(env!("CARGO_MANIFEST_DIR"), "/data/corpus.jsonl.gz");
-    eprintln!("Reading {doc_count} real passages from {data_path}");
+    eprintln!("Reading real passages from {data_path}");
 
     let file = std::fs::File::open(data_path).unwrap_or_else(|e| {
         panic!("open {data_path}: {e} — run the download step first (see docs/ledger.md R9)")
@@ -55,10 +55,19 @@ fn main() {
     let decoder = MultiGzDecoder::new(file);
     let reader = BufReader::with_capacity(1 << 20, decoder);
 
-    let mut docs: Vec<String> = Vec::with_capacity(doc_count);
-    for line in reader.lines() {
-        if docs.len() >= doc_count {
-            break;
+    // Identical stride formula to bench/src/msmarco_index.rs and
+    // bench/src/tantivy_index.rs, so all three tools sample the exact same
+    // document set at a given target count — a same-corpus comparison, not
+    // a same-count-different-documents one.
+    const CORPUS_TOTAL_PASSAGES: u64 = 8_841_823;
+    let stride = (CORPUS_TOTAL_PASSAGES / sample_target).max(1);
+    eprintln!("Sampling every {stride}-th passage (target {sample_target}, corpus {CORPUS_TOTAL_PASSAGES})");
+
+    let mut docs: Vec<String> = Vec::new();
+    for (line_no, line) in reader.lines().enumerate() {
+        let line_no = line_no as u64;
+        if !line_no.is_multiple_of(stride) {
+            continue;
         }
         let line = line.expect("read line");
         if line.is_empty() {

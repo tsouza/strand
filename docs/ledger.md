@@ -440,7 +440,35 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   resolves correctly (117 matches at 10K docs) — but a real reminder that a
   future real query-execution layer (not yet built, `docs/milestones.md`
   M5) needs to run query text through the same analyzer chain a field's
-  documents were indexed with, not accept raw strings.
+  documents were indexed with, not accept raw strings. **Compared directly
+  against real tantivy on the identical stride-sampled document set**
+  (`bench/src/tantivy_index.rs`, same corpus, same stride formula, so both
+  tools index the exact same passages, not just the same count): at 10,003
+  docs, STRAND's postings blob (684,248 bytes) is `1.5%` smaller than
+  tantivy's real `.idx` (694,748 bytes); at 100,476 docs, `6.2%` smaller
+  (5,949,990 vs. 6,340,266 bytes) — consistent with the earlier ~520K-passage
+  finding, the postings codec continues to tie or slightly beat tantivy's
+  real one at these scales too. Two real, honest asymmetries, not hidden:
+  (1) STRAND's `term_dict + term_info` (1.10 MB at 10K, 4.76 MB at 100K) is
+  `~46–48%` *larger* than tantivy's real term dictionary (746,482 bytes at
+  10K, 3,261,611 at 100K) — `TermInfo`'s 28-byte fixed record reserves 12
+  bytes/term for `positions_offset`/`positions_length` that go unused since
+  positions isn't implemented, real dead weight at real vocabulary scale,
+  worth revisiting once positions lands; (2) total segment size (1.79 MB at
+  10K, 10.71 MB at 100K) looks smaller than tantivy's total index (1.97 MB,
+  14.12 MB) but this is not a fair win — tantivy's total includes a real
+  `.pos` file (positions, functionality STRAND doesn't have yet), a
+  `fieldnorm` blob, and a document store STRAND's minimal `build_field`
+  never builds; the honest comparison is postings-to-postings, above. Query
+  latency is explicitly **not** compared as a competitive claim: STRAND's
+  `search_bm25` currently fully decodes and sorts every match with no top-K
+  short-circuit, while tantivy's benchmark uses a real, optimized
+  `TopDocs::with_limit(10)` collector — different amounts of work, so
+  STRAND landing in the same tens-to-hundreds-of-microseconds range (21–85μs
+  at 10K, 185–449μs at 100K, vs. tantivy's 500-query means of 20.6μs/50.7μs)
+  is a mildly encouraging signal, not a result. Adding real top-K
+  short-circuiting to the query path is a real, separate follow-on, not
+  done here.
 - **Batch-shaped reader trait — resolved 2026-08-19.** `crates/strand-core/src/
   batch.rs` now defines `BatchReader` (`next_batch(&mut self, out: &mut Vec<Item>)
   -> usize`, invariant 9's frozen shape), and `PostingsReader::batches()`
