@@ -11,7 +11,11 @@ HEAD at fetch time).
 
 Cited by: the follow-on RFC for multi-bit Extended-RaBitQ registration
 (RFC 0010 Open questions), `crates/strand-vector/src/quantize_ex.rs`,
-`crates/strand-vector/src/estimate.rs`'s multi-bit path.
+`crates/strand-vector/src/estimate.rs`'s multi-bit path, and (the
+`get_const_scaling_factors`/`faster_quantize_ex` section, added 2026-08-19)
+RFC 0011 Non-goals' `faster_quantize_ex` construction-time speedup, closed
+by M2-6 (`docs/roadmap.md`) in `quantize_ex.rs`'s `calibrate_rescale_
+factor`/`quantize_ex_fast`.
 
 ## Encode side (`rabitq_impl.hpp`, namespace `rabitqlib::quant::rabitq_impl::ex_bits`)
 
@@ -76,6 +80,66 @@ for each dimension, `code[i] = clamp(floor(t * o_abs[i] + kEps), 0, 2^ex_bits
 - 1)`; accumulates `ipnorm = sum((code[i] + 0.5) * o_abs[i])`; returns
 `ipnorm_inv = 1 / ipnorm` (or `1.0` if not a normal float — zero or
 non-finite `ipnorm`).
+
+**`get_const_scaling_factors(dim, ex_bits)`/`faster_quantize_ex` — the
+unregistered construction-time speedup RFC 0011 Non-goals named and M2-6
+(`docs/roadmap.md`) closed with `crates/strand-vector/src/quantize_ex.rs`'s
+`calibrate_rescale_factor`/`quantize_ex_fast`.** Re-fetched live from
+`include/rabitqlib/quantization/rabitq_impl.hpp` on the `main` branch,
+2026-08-19 (the excerpt above predates this closure and does not name these
+two functions' bodies). Verbatim structure:
+
+```cpp
+// For given dim and ex_bits, use random vectors to get the const rescale factor
+inline double get_const_scaling_factors(size_t dim, size_t ex_bits) {
+    constexpr long kConstNum = 100;
+    RowMajorArray<double> rand = random_gaussian_matrix<double>(kConstNum, dim, 42);
+    rand = rand.rowwise().normalized().abs();
+    double sum = 0;
+    for (long j = 0; j < kConstNum; ++j) {
+        sum += best_rescale_factor(&rand(j, 0), dim, ex_bits);
+    }
+    double t_const = sum / kConstNum;
+    return t_const;
+}
+
+template <typename T, typename TP>
+T faster_quantize_ex(const T* o_abs, TP* code, size_t dim, size_t ex_bits, double t_const) {
+    constexpr double kEps = 1e-5;
+    double ipnorm = 0;
+    std::vector<int> tmp_code(dim);
+    for (size_t i = 0; i < dim; i++) {
+        tmp_code[i] = static_cast<int>((t_const * o_abs[i]) + kEps);
+        if (tmp_code[i] >= (1 << ex_bits)) tmp_code[i] = (1 << ex_bits) - 1;
+        code[i] = static_cast<TP>(tmp_code[i]);
+        ipnorm += (tmp_code[i] + 0.5) * o_abs[i];
+    }
+    T ipnorm_inv = static_cast<double>(1 / ipnorm);
+    if (!std::isnormal(ipnorm_inv)) ipnorm_inv = 1.F;
+    return ipnorm_inv;
+}
+```
+
+`faster_quantize_ex`'s per-dimension arithmetic is byte-for-byte the same
+formula as `quantize_ex`'s, above, with the caller-supplied constant
+`t_const` substituted for the per-vector `best_rescale_factor(...)` search
+result — the entire speedup is skipping that search, not a different
+quantization formula. `ex_bits_code` (below) calls whichever of the two a
+caller selects via its own optional `t_const` parameter (`t_const > 0`
+routes to `faster_quantize_ex`; the default `t_const = -1` routes to the
+per-vector search) — both share every downstream step (sign complement,
+`total_code`/`xu_cb` reconstruction, `f_add_ex`/`f_rescale_ex` formulas)
+unconditionally, confirming construction-time-only, format-unaffecting
+scope directly in the reference's own code structure, not just its
+comments. `get_const_scaling_factors`'s calibration uses `random_gaussian_
+matrix<double>(kConstNum, dim, 42)` — a hardcoded seed internal to the
+reference's own RNG choice, not part of any persisted state; STRAND's own
+transcription takes a caller-supplied seeded `rand::Rng` instead, matching
+this crate's established convention (`kmeans.rs`, `orthogonal.rs`) rather
+than hardcoding a seed inside a library function — inconsequential for
+byte-determinism, since `t_const` is never itself part of the wire format
+and the RFC 0011 byte-determinism carve-out already treats which valid `t`
+a writer picks as an unpinned writer choice.
 
 **`ex_bits_code(residual, dim, ex_bits, ex_code)`**: `abs_res =
 abs(residual / ||residual||)` (L2-normalized, then absolute value);
