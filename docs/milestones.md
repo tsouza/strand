@@ -208,6 +208,26 @@ Adapter-based results appear in this milestone's report only after R11
 verifies the respective extension point and the build-equivalence gate
 passes; until then, harness and published-numbers baselines only.
 
+**The segment/container layer and the lexical blobs are now actually wired
+together, not just individually tested.** A maturity check found that
+`strand-core` (segments, manifest) and `strand-lexical` (term dictionary,
+postings) had never been composed — every test built one blob type in
+isolation, and the existing MinIO cold-open benchmark opens a segment with
+literal placeholder bytes, not real content; nothing anywhere resolved a
+query string to a result. `crates/strand-lexical/src/field.rs` closes that
+gap: `build_field` turns real document text into a field's three lexical
+blobs, `to_blob_specs` wraps them with their already-registered
+classification for `SegmentBuilder`, and `FieldReader` reads them back from
+a resident segment's blob registry and resolves real term lookups and a
+real BM25-ranked search. `crates/strand-lexical/tests/
+field_end_to_end.rs` is the first real end-to-end test in the repo: real
+text through the analyzer, into a real segment, committed through
+`strand-core`'s actual manifest CAS protocol against a real store, read back
+cold via a footer/hotcache decode, and queried — all passing. `docs/
+ledger.md` has the full account, including the scope this first pass
+deliberately leaves out (one field per segment, no positions, no filter
+bitmaps, no merge).
+
 **M2 — Vectors, cluster-first.** Flat vector blob; RaBitQ codecs with kernel-per-
 bit-width, the rotation descriptor field, and the rotation-provenance mechanism
 (invariant 11); the **cluster-family cold-native blob** (navigation tier + wholesale

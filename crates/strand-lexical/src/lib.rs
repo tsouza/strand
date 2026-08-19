@@ -16,9 +16,12 @@
 //! (`family_id = 2`) blob families: the term-dictionary FST and term-info
 //! store (`spec/term-dictionary.md`, RFC 0005), postings
 //! (`spec/postings.md`, RFC 0007), and the value-dictionary FST and
-//! filter-bitmap store (`spec/filter-bitmaps.md`, RFC 0006).
+//! filter-bitmap store (`spec/filter-bitmaps.md`, RFC 0006). `field` wires
+//! the lexical trio into a real `strand-core` segment and back — the first
+//! working end-to-end query path.
 
 pub mod analyzer;
+pub mod field;
 pub mod filter_bitmaps;
 pub mod postings;
 pub mod term_dictionary;

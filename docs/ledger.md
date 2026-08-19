@@ -390,6 +390,41 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   inventing a deliverable rather than to any real artifact. Both files were corrected
   to drop the claim (2026-08-18); `docs/research/README.md` is the standing research
   source, full stop.
+- **Segment↔lexical integration and a first real query path — resolved
+  2026-08-19.** Until now, `strand-core`'s segment/container/manifest layer and
+  `strand-lexical`'s term-dictionary/term-info/postings blobs had never been
+  composed: every existing test built one blob type in isolation and checked
+  it against a golden file or an in-memory round trip, and `bench/src/
+  cold_open.rs`'s own MinIO benchmark opens a segment containing literal
+  placeholder bytes (`0x2A, 0x2B`), not real content — a gap a maturity
+  assessment surfaced directly (asked "is STRAND at the maturity/specced/
+  implemented enough so we can benchmark it") and confirmed there was no
+  function anywhere that resolved a query string to a match set or a score.
+  `crates/strand-lexical/src/field.rs` closes it: `build_field(docs: &[&str])`
+  analyzes real text (the same `analyze_lucene_en_word_only` chain
+  `bench/src/msmarco_index.rs` uses) into a field's term-dictionary, term-info,
+  and postings blobs; `FieldBlobs::to_blob_specs()` wraps them as
+  `strand_core::segment::BlobSpec`s with each blob's already-registered
+  classification (RFC 0005/0007's `family_id = 1`, `blob_type_id` 0/1/2,
+  `storage-class: raw-mappable`, `tier: cold-fetchable`); `FieldReader::open`
+  reads them back from a resident segment's decoded blob registry, and
+  `FieldReader::lookup`/`search_bm25` resolve a real term to real
+  `(doc_ordinal, term_freq)` matches or BM25-ranked scores
+  (`strand_core::scoring::Bm25Profile`, RFC 0003). `crates/strand-lexical/
+  tests/field_end_to_end.rs` is the first real end-to-end test in the repo:
+  real document text → real blobs → a real segment → `strand_core::manifest::
+  commit` against a real (in-memory) `ConditionalStore` → `read_snapshot` →
+  footer/hotcache decode → `FieldReader` → real term lookups and a real
+  BM25-ranked search, all passing. Deliberately narrow scope, stated in the
+  module's own doc comment rather than silently assumed: one field per
+  segment (multi-field blob addressing is still unsolved project-wide, RFC
+  0008's own Non-goals), no positions (RFC 0008 has no implementation yet,
+  so `positions_length` is always `0`), no filter bitmaps, no compaction or
+  merge, and `dl`/`avdl` for scoring are caller-supplied rather than
+  blob-backed since document-length storage isn't a registered blob anywhere
+  yet (RFC 0007's own Non-goals). Does not require an RFC: no new byte
+  layout or registry entry is introduced, only composition of what RFC
+  0003/0005/0007 already approved.
 - **Batch-shaped reader trait — resolved 2026-08-19.** `crates/strand-core/src/
   batch.rs` now defines `BatchReader` (`next_batch(&mut self, out: &mut Vec<Item>)
   -> usize`, invariant 9's frozen shape), and `PostingsReader::batches()`
