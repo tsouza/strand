@@ -40,9 +40,15 @@ tail-latency deliverable is partially met: local-MinIO p50/p90/p99 exist in
 separate `CLAUDE.md` §7 SLO tail figure this entry used to call a "placeholder" is
 now resolved a different way, not by this benchmark: a real AWS primary source was
 located and vendored (`references/aws-s3-small-object-latency.md`, `docs/ledger.md`),
-so §7 no longer carries an unsourced number. What remains genuinely open is a
-real-network measurement of STRAND's *own* cold-open sequence — MinIO with injected
-latency, or real S3 — which this benchmark still does not provide. Implementation went
+so §7 no longer carries an unsourced number. A real-network measurement of STRAND's
+*own* cold-open sequence — this entry's stated remaining gap — is now done too
+(roadmap item X-4, resolved 2026-08-19): the same MinIO container with a real `netem`
+delay injected onto its network interface (real S3 credentials are not available in
+this environment) measured p50 = 344.2ms, p90 = 375.3ms, p99 = 489.8ms over 30 real
+cold opens (`bench/results/cold-open-injected-latency.json`), landing inside RFC
+0001's own "~300–400ms" napkin-math prediction for this sequence at p50/p90. Full
+numbers, the injection mechanism, and its honest asymmetry caveat are in `CLAUDE.md`
+§7 and `docs/ledger.md`. Implementation went
 beyond this list in one respect: the store abstraction distinguishes definite from
 ambiguous backend failures (`StoreError::Ambiguous`), `commit()` disambiguates an
 ambiguous pointer CAS with a follow-up read (RFC 0001's Discussion section records

@@ -524,16 +524,31 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   (`references/aws-s3-small-object-latency.md`, vendored 2026-08-19). `CLAUDE.md` §7
   now cites this figure, honestly labeled — the source does not name a percentile, so
   it is not claimed as a p90. This resolves the "vendor the source sentence" half of
-  the original pending item only. The "or replace with a measured MinIO/S3 tail
-  figure" half remains a separate, still-open item: `bench/` measures a real
-  cold-open p50/p90/p99 against MinIO on localhost (`bench/results/cold-open.json`),
-  which confirms the GET-count half of invariant 3 but not yet a real-network tail
-  latency of its own — that still wants MinIO with injected latency, or real S3
-  (Docker and `testcontainers-modules`' MinIO feature are present in this
-  environment, so the benchmark is runnable, but injected-latency support does not
-  exist in `bench/src/cold_open.rs` yet and was not added here — a real environment
-  and a scoped session should do that work rather than bolt it on as a side effect of
-  a documentation fix).
+  the original pending item. The "or replace with a measured MinIO/S3 tail figure"
+  half — **resolved 2026-08-19, roadmap item X-4.** `bench/` still measures a real
+  cold-open p50/p90/p99 against plain localhost MinIO (`bench/results/cold-open.json`),
+  confirming the GET-count half of invariant 3 (3 GETs/open) with a real baseline
+  (p50 = 10.0ms). The real-network half is now measured too, real S3 credentials
+  being unavailable in this environment: the same MinIO container with a real `netem`
+  delay injected onto its network interface (`bench/src/cold_open_injected_latency.rs`,
+  `strand_bench::inject_netem_delay` in `bench/src/lib.rs` — a throwaway `alpine`
+  sidecar joining the target's network namespace via `docker run --net
+  container:<id> --cap-add NET_ADMIN`, since the MinIO image itself has no package
+  manager or `tc` to install one; feasibility was verified directly against a plain
+  `alpine` container and separately against a real MinIO container's `curl`-measured
+  latency before this benchmark was written). The injection is one-way and egress-only
+  (stated honestly, not hidden: it delays only each already-open request's response
+  leg, so a 100ms injected delay targets a ~100ms measured round trip per warm GET, not
+  a symmetric 100ms each way). Thirty real cold opens against this 100ms-delay MinIO
+  measured **p50 = 344.2ms, p90 = 375.3ms, p99 = 489.8ms** (min 326.7ms, max 489.8ms;
+  `bench/results/cold-open-injected-latency.json`) — inside RFC 0001's own
+  "~300–400ms" napkin-math prediction for this exact pointer/snapshot/segment
+  sequence at p50 and p90, and only modestly above it at p99, a real confirmation of
+  the napkin-math rule's arithmetic itself, not just of the ~100ms planning figure it
+  is built from. It does not confirm the AWS SLO figure's absolute ~100–200ms number
+  against real S3 — the 100ms delay was chosen to target that figure, not discovered
+  independently — so that figure stands on the AWS source alone, per the paragraph
+  above. Full numbers and the mechanism's honest limitations are in `CLAUDE.md` §7.
 - **Other pending figures:** the parallel-wave aggregate throughput behind the 100 MB
   budget rationale — **resolved 2026-08-19, roadmap item X-5.** Real N-way parallel
   byte-range GETs against real MinIO (`bench/src/parallel_range_fetch.rs`, using
@@ -543,7 +558,13 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   Full numbers, and what this measurement does *not* confirm (the absolute "low
   hundreds of milliseconds" figure, and non-monotonic scaling past 32-way), are in
   `CLAUDE.md` §7 and `bench/results/parallel-range-fetch.json`; the real-S3-network
-  half of the question remains separately gated on X-4. tantivy codec-SPI
+  half of *this specific* 100 MB parallel-fetch question remains open — X-4 (below)
+  resolved the injected-latency mechanism and applied it to `cold_open.rs`'s
+  pointer/snapshot/segment sequence, not to `parallel_range_fetch.rs`'s own 100 MB
+  wave, so that absolute figure is not yet re-measured under injected latency; the
+  mechanism now exists in `bench/src/lib.rs` (`inject_netem_delay`,
+  `with_minio_latency`) for a future session to point at that benchmark too. tantivy
+  codec-SPI
   absence — resolved, R11(a) above; FAISS FastScan external-list feasibility
   (R11(b)). The Quickwit inheritance hypothesis
   (R11(c)) is no longer pending — resolved above with vendored primary sources. The
