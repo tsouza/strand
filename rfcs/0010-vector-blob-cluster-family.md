@@ -103,10 +103,11 @@ the real cost by roughly a fifth once the codec's own per-vector correction
 factors and STRAND's row-ids are counted, and undercounts further once
 partial-batch padding waste and centroid-table overhead are added: real
 tier-1 cost is ~131 MB per million 768d vectors, not ~100 MB, without
-replication — and, on a provisional, explicitly unverified estimate, over
-half of R1's 4× kill-criterion margin once realistic replication is
-applied. Not close to falsifying the mission claim, but a real correction,
-made honestly, not rounded away.
+replication — and, on a real body-sourced replication ratio (still
+extrapolated across an unmeasured baseline step, `references/spann-body-
+figures.md`), over half of R1's 4× kill-criterion margin once realistic
+replication is applied. Not close to falsifying the mission claim, but a
+real correction, made honestly, not rounded away.
 
 ## Motivation
 
@@ -206,7 +207,8 @@ turns out to be a real undercount gets corrected here and in
   glossed as an unremarkable deferral: this RFC's own Napkin math section
   computes replication as the single largest cost lever in the whole sizing
   picture (≈2.3× the cold-open budget at a realistic replica-8-equivalent
-  density, on an unverified estimate — Napkin math), which makes deferring
+  density, grounded against real SPANN/Li et al. body figures rather than an
+  unverified estimate (Discussion, below) — Napkin math), which makes deferring
   the knob that would make that cost visible and tunable the most
   consequential Non-goal in this RFC, not the least. M2's own milestone gate
   is therefore not fully met by this RFC alone (Open questions, below); a
@@ -762,27 +764,38 @@ within the 100 MB tier-1 budget holds roughly `100 / 131.0 ≈ 0.76` million
 `CLAUDE.md` §7 previously stated — updated in place alongside this RFC's
 Approval.
 
-**Replication's cost — a provisional, explicitly unverified estimate, not a
-measured one.** `docs/data-structures.md` names SPANN-style closure
-replication (up to 8×) as a first-class knob. `docs/research/README.md` R1
-cites SPANN's GIST1M benchmark: 13.0 GB at replica 8 vs. 7.5 GB at replica
-2 — a **1.73×** growth from replica 2 to replica 8. This RFC's own 131.0 MB
-baseline carries **no** replication (replica 1, not replica 2), so the
-1.73× ratio is not directly applicable — it omits whatever the 1→2 step
-itself costs, and applying it anyway is a deliberately conservative
-**lower bound**, not a replica-8 prediction: `130,976,400 * 1.73 ≈
-226,589,172` ≈ **≈227 MB**, ≈2.27× the 100 MB budget — over half the
+**Replication's cost — now a real, body-sourced figure, though still an
+extrapolation across a step neither source paper measured.**
+`docs/data-structures.md` names SPANN-style closure replication (up to 8×)
+as a first-class knob. The figure this RFC depends on — 13.0 GB at replica
+8 vs. 7.5 GB at replica 2 on GIST1M — was re-fetched and confirmed directly
+from a paper's body, closing the item this RFC's own Open questions section
+named: **the figure lives in the companion cloud-native benchmark paper**
+(Li et al., `arxiv.org/abs/2511.14748`, Table 4, §5.3 — "Size metrics of
+SPANN configurations on GIST1M"), not in SPANN's own NeurIPS 2021 paper,
+which was independently fetched in full (`arxiv.org/pdf/2111.08566`, the
+paper's only arXiv version) and confirmed to contain no GIST1M dataset and
+no index-size-in-bytes figure anywhere
+(`references/spann-body-figures.md`, `references/spann-neurips2021.md`'s
+own updated caveat). `docs/research/README.md` R1's parenthetical — "on
+GIST1M **in the benchmark**" — had this attribution right all along; this
+RFC's own prior citation to SPANN's paper was the error, now corrected.
+The ratio itself is unchanged and arithmetically exact: 13.0 / 7.5 = **1.73×**
+growth from replica 2 to replica 8, on a real 1,000,000-vector, 960-
+dimension GIST1M index. This RFC's own 131.0 MB baseline carries **no**
+replication (replica 1, not replica 2), and neither paper reports a
+replica-1 index-size figure at all — the lowest measured point in either
+source is replica=2 — so applying the 1.73× ratio to a replica-1 baseline
+remains a deliberately conservative **lower bound**, not a replica-8
+prediction, exactly as this RFC already stated before the re-fetch: it
+omits whatever the 1→2 step itself costs. `130,976,400 * 13.0 / 7.5 ≈
+227,025,760` ≈ **≈227 MB**, ≈2.27× the 100 MB budget — over half the
 margin to R1's 4× kill criterion, not a wide one, and likely an
 *underestimate* of the true replica-8 cost since it skips the 1→2 step.
-Critically, `references/spann-neurips2021.md` itself states its 13.0/7.5 GB
-figures were read from an abstract-only fetch and explicitly "were not
-re-confirmed here... and should be checked against the PDF body directly
-before being treated as independently vendored" — this session did not
-re-fetch SPANN's PDF body, so the ≈227 MB figure is provisional, built on a
-ratio this project's own vendoring notes flag as unverified, and Open
-questions names fetching SPANN's real replica-1-through-8 table as owed
-work before this figure can be trusted for R1's actual sizing-law
-decision.
+This figure is no longer provisional in the sense of "unconfirmed against
+a primary source" — it is a real, quoted, body-table number, correctly
+attributed — but the replica-1-baseline extrapolation it feeds into
+remains a real, named limitation, not a measurement.
 
 ## Invariant-11 checklist
 
@@ -867,8 +880,9 @@ the audit came back clean, not that the category of risk was never real.
 
 **Second, and the more consequential risk: R1's own kill criterion.** This
 RFC's corrected sizing law (Napkin math) runs ~31% over the provisional
-100 MB budget before replication, and, on a provisional and explicitly
-unverified estimate, roughly ~2.27× over at a realistic
+100 MB budget before replication, and, now grounded against real SPANN/Li
+et al. body figures rather than an unverified estimate (Discussion,
+below), roughly ~2.27× over at a realistic
 replica-8-equivalent density — over half the margin to the 4× threshold
 that would falsify the mission claim, not a wide one, and real headroom
 consumed that the previously stated (uncorrected) sizing law didn't show
@@ -881,8 +895,11 @@ estimate that assumes the old figure. If a future RFC's real, measured
 centroid count runs meaningfully higher than the `4·√N` convention this RFC
 borrows (Design §3), if dimensionality climbs toward 1536d rather than
 768d (`CLAUDE.md` §5 invariant 7's own `96/128/192 B` scaling table), or if
-the replication estimate above turns out low once SPANN's real body figures
-are fetched (a real possibility this RFC states rather than assumes away),
+the true replica-1-to-replica-8 cost turns out higher than the 1.73×
+replica-2-to-8 ratio this RFC applies as a lower bound (`references/spann-
+body-figures.md` — neither SPANN's own paper nor the companion benchmark
+paper reports a replica-1 index size, so the 1→2 step's real cost remains
+unmeasured, a real possibility this RFC states rather than assumes away),
 the margin narrows further still — this RFC's own numbers are the first
 real input to that future accounting, not a promise that the margin stays
 wide.
@@ -978,11 +995,20 @@ what the reference implementation's own `save()`/`load()` pair already does
   replica-8-equivalent density estimate is a real cost the format should
   let a deployment see and tune, not hide), and a stated M2 milestone
   deliverable this RFC does not complete.
-- **Fetching SPANN's real body figures** (`arxiv.org/abs/2111.08566`'s PDF,
-  not the abstract this session's WebFetch attempt confirmed does not
-  surface index-size tables) to replace the Napkin math section's
-  provisional, explicitly-flagged-unverified 1.73×/≈227 MB replication
-  estimate with a genuinely grounded replica-1-through-8 figure.
+- ~~Fetching SPANN's real body figures~~ — done (2026-08-19): SPANN's own
+  PDF body was fetched in full and confirmed to contain **no** GIST1M
+  dataset and **no** index-size figure at any replica count
+  (`references/spann-body-figures.md`). The real figure lives in the
+  companion benchmark paper (Li et al., `arxiv.org/abs/2511.14748`, Table
+  4, §5.3), also now fetched in full and quoted verbatim — real, measured,
+  13.0 GB vs 7.5 GB at replica 8 vs 2 on GIST1M, the same 1.73× ratio this
+  RFC already used, now grounded rather than flagged unverified (Napkin
+  math). Still open, and a real limitation this fetch could not close:
+  neither paper reports a replica=1 (unreplicated) index size, so applying
+  the replica-8/replica-2 ratio to this RFC's own replica-1 tier-1 baseline
+  remains a conservative extrapolation, not a direct measurement — a true
+  "replica-1-through-8" figure does not exist in the literature found so
+  far.
 - ~~Updating `CLAUDE.md` §7's "roughly one segment per million 768d
   vectors" sentence~~ — done, alongside this Approval (`CLAUDE.md` §7 now
   reads ~760,000).
@@ -1194,3 +1220,46 @@ questions (struck the resolved item, with the real numbers inline). No
 formula or sizing arithmetic in this RFC changes as a result of this
 amendment — the real numbers confirm the existing formulas rather than
 correcting them.
+
+**2026-08-19 — SPANN replication figures re-grounded from a real body, not
+an abstract.** Prompted by this RFC's own Open questions item: fetch
+SPANN's real body figures to replace the provisional, explicitly-flagged-
+unverified 1.73×/≈227 MB replication estimate.
+
+`arxiv.org/pdf/2111.08566` (SPANN's own paper, the only version on arXiv)
+was fetched in full and converted to text. It contains **no GIST1M dataset
+and no index-size-in-bytes figure at any replica count** — its own
+datasets are SIFT1M, SIFT1B, DEEP1B, and SPACEV1B, and its own replication
+experiment (Figure 11) reports only recall/latency curves at replica
+1/4/8/10, never a size number. The figures this RFC depends on — 13.0 GB
+at replica 8 vs. 7.5 GB at replica 2 on GIST1M — turn out to live
+elsewhere: `arxiv.org/abs/2511.14748` (Li et al., "Cloud-Native Vector
+Search: A Comprehensive Performance Analysis"), also fetched in full,
+Table 4 (§5.3), quoted verbatim in the newly vendored
+`references/spann-body-figures.md`. `docs/research/README.md` R1's own
+wording — "on GIST1M **in the benchmark**" — had this attribution correct
+from the start; this RFC's Napkin math section and Open questions item had
+mis-targeted the re-fetch at the wrong paper, an error this amendment
+corrects rather than repeats.
+
+The arithmetic itself is unchanged: 13.0 / 7.5 = 1.73×, the same ratio this
+RFC already applied to its 131.0 MB replica-1 baseline as a conservative
+lower bound, yielding the same ≈227 MB / ≈2.27× figure. What changes is the
+citation and the confidence label: the ratio is now a real, quoted,
+body-table number rather than one flagged unverified. What remains
+genuinely open, confirmed rather than assumed: **no replica=1 index-size
+figure exists in either paper** — the lowest measured point in the
+literature found so far is replica=2 — so a true replica-1-through-8 curve
+is not available, and the 1→2 step's real cost is still an unmeasured gap
+this RFC's own lower-bound framing already anticipated.
+
+Sections updated: Napkin math ("Replication's cost" paragraph, re-cited
+and re-labeled, arithmetic unchanged), Open questions (item marked done,
+with the narrower remaining gap — no replica=1 figure — stated precisely),
+"How this could be wrong" (the R1-kill-criterion paragraph's forward-
+looking clause updated to reflect what was and wasn't found), and two
+reference files updated in place with the new finding
+(`references/spann-neurips2021.md`,
+`references/cloud-native-vector-search-surveys-2026.md`) alongside the new
+`references/spann-body-figures.md`. `docs/ledger.md`'s R1 entry updated to
+match.

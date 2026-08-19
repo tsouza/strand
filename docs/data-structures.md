@@ -93,16 +93,20 @@ padding waste plus navigation-tier overhead at a `4·√N` cluster count, tier-1
 **~131 MB per million 768d vectors**, not ~100 MB, before replication
 (`rfcs/0010-vector-blob-cluster-family.md` Napkin math). SPANN-style closure
 replication (up to 8×) is a first-class recall/storage/cost knob in the blob
-metadata, not a hidden constant, and its cost is real but not yet independently
-grounded here: applying SPANN's cited GIST1M ratio (13.0 GB at replica 8 vs. 7.5 GB
-at replica 2, a 1.73× growth from replica 2 to replica 8 — not a naive 4× linear
-estimate) as a conservative lower bound on this entry's no-replication baseline puts a
-*provisional, explicitly unverified* replica-8-equivalent estimate at ~227 MB per
-million 768d vectors, ~2.27× the provisional 100 MB budget — over half the margin to
-R1's own 4× kill criterion, not a wide one — but this ratio's own source
-(`references/spann-neurips2021.md`) states its own 13.0/7.5 GB figures were read from
-an abstract-only fetch and not independently re-confirmed, so this estimate is owed a
-real fetch of SPANN's body figures before it can be trusted (RFC 0010 Open questions).
+metadata, not a hidden constant, and its cost is real and now grounded against a
+paper's body, not an abstract: applying the GIST1M ratio (13.0 GB at replica 8 vs.
+7.5 GB at replica 2, a 1.73× growth from replica 2 to replica 8 — not a naive 4×
+linear estimate) as a conservative lower bound on this entry's no-replication
+baseline puts a replica-8-equivalent estimate at ~227 MB per million 768d vectors,
+~2.27× the provisional 100 MB budget — over half the margin to R1's own 4× kill
+criterion, not a wide one. This ratio's real source is the companion cloud-native
+benchmark paper's Table 4 (Li et al., `arxiv.org/abs/2511.14748` §5.3), not SPANN's
+own paper — SPANN's own paper was fetched in full and confirmed to report no
+GIST1M dataset and no index-size figure at any replica count
+(`references/spann-body-figures.md`, resolving what RFC 0010 Open questions
+previously named as owed work). What remains a real, stated limitation: neither
+paper measures a replica=1 index size, so this estimate still extrapolates across
+the unmeasured 1→2 step rather than measuring it directly.
 A direct, load-bearing consequence of the corrected law: a segment fitting the 100 MB
 tier-1 budget now holds ~760,000 768d vectors, not ~1,000,000 — `CLAUDE.md` §7 already
 reflects this (~760,000, updated at RFC 0010's Approval).

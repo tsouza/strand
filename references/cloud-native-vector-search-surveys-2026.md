@@ -52,3 +52,10 @@ indexes for cloud-native vector search over remote storage, analyzing bottleneck
 performance across workload conditions — consistent with its role as R1's
 "companion benchmark" — but the specific dependent-fetch-chain framing was not
 independently re-quoted from this fetch.
+
+**Update, 2026-08-19.** This paper's body (not just its abstract) has since been
+fetched and searched directly, resolving R1's own "13.0 GB vs 7.5 GB index at
+replica 8 vs 2 on GIST1M" and "up to 3.14× QPS" figures, both of which live here
+(Table 4 and Figure 14, §5.3) — not in SPANN's own paper, which was independently
+fetched in full and confirmed not to contain them. Full verbatim quotes, the table,
+and the resolution are vendored in `references/spann-body-figures.md`.

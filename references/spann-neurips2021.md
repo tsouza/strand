@@ -38,10 +38,21 @@ already implicit in R1's framing.
 
 ## Not verified from this fetch (flagged, not asserted)
 
-`docs/research/README.md` R1 cites specific numbers from this paper's body — the
-"13.0 GB vs 7.5 GB index at replica 8 vs 2 on GIST1M" figure and the "up to 3.14×
-QPS" I/O-congestion figure. This fetch retrieved the abstract only, via the arXiv
-listing page; those two figures live in the paper's body/tables and were not
-re-confirmed here. They remain as previously stated (marked "prior knowledge" in
-the README before this vendoring pass) and should be checked against the PDF body
-directly before being treated as independently vendored.
+`docs/research/README.md` R1 cites specific numbers — the "13.0 GB vs 7.5 GB index
+at replica 8 vs 2 on GIST1M" figure and the "up to 3.14× QPS" I/O-congestion figure
+— that this fetch, retrieving the abstract only, could not confirm.
+
+**Update, 2026-08-19.** This paper's full PDF body has since been fetched directly
+(`arxiv.org/pdf/2111.08566`, the only version on arXiv) and searched exhaustively.
+The two figures above are **not in this paper at all**: GIST1M does not appear
+anywhere in it (this paper's datasets are SIFT1M, SIFT1B, DEEP1B, and SPACEV1B), and
+no index-size-in-bytes number for any replica count is reported anywhere in the
+text. R1's own parenthetical wording — "...on GIST1M **in the benchmark**" — was
+correctly attributing these figures to the companion benchmark paper
+(`arxiv.org/abs/2511.14748`) all along, not to this one. The real figures, quoted
+verbatim from that paper's Table 4 and Figure 14 (§5.3), are vendored in
+`references/spann-body-figures.md`. This paper's own genuine replication finding is
+narrower and different: Figure 11 reports recall/latency curves at replica counts 1,
+4, 8, and 10, and the text states plainly that performance stops improving past 8
+replicas, which is why SPANN's own experiments use replica=8 as the default — no
+size figure accompanies it.
