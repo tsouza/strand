@@ -243,8 +243,35 @@ text through the analyzer, into a real segment, committed through
 `strand-core`'s actual manifest CAS protocol against a real store, read back
 cold via a footer/hotcache decode, and queried — all passing. `docs/
 ledger.md` has the full account, including the scope this first pass
-deliberately leaves out (one field per segment, no positions, no filter
-bitmaps, no merge).
+deliberately leaves out (one field per segment, no filter bitmaps, no
+merge — positions is wired in now, see below).
+
+**Positions is wired into `field.rs` (real phrase queries), and the real
+cold-open claim is now tested against real MinIO with real content.**
+`FieldReader::phrase_query` resolves real adjacent-position matches — the
+end-to-end test proves a true positional match, not co-occurrence (two
+terms that appear in the same document but never adjacent correctly
+return no match). Re-running the tantivy comparison with positions real on
+both sides reversed the earlier "STRAND's total is smaller" reading:
+STRAND's total segment is now 9–22% *larger* than tantivy's real index
+once positions and term metadata are honestly counted, though postings
+alone still ties or beats tantivy — `docs/ledger.md` has the full,
+unflattering account. Separately, `bench/src/field_cold_open.rs` finally
+tests this project's actual thesis rather than the postings codec's byte
+efficiency: a real field (RFC 0005/0007/0008's blobs, real MS MARCO
+passages) committed to real MinIO, opened cold, and queried with a real
+BM25 search and a real phrase query. Result: **3 GETs per open at both
+5,002 docs (1.45 MB) and 50,238 docs (8.57 MB)**, and running the real
+queries after open costs the identical GET count as opening alone — a
+real, measured confirmation of invariant 3's one-wave rule for an actual
+query, not just an open, which nothing had checked before. This is a
+claim tantivy cannot be compared against at all (no object-storage-native
+open path exists in tantivy), and it is the comparison this project's
+stated mission (`CLAUDE.md` §1) actually rests on — not total on-disk
+size, which is the metric currently unfavorable to STRAND. `docs/
+ledger.md` has the full numbers, including the honest caveat that MinIO
+on `localhost` confirms the GET-count half of the claim, not the
+real-network tail-latency figure `CLAUDE.md` §7 still lists as open.
 
 **M2 — Vectors, cluster-first.** Flat vector blob; RaBitQ codecs with kernel-per-
 bit-width, the rotation descriptor field, and the rotation-provenance mechanism

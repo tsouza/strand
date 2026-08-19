@@ -1,0 +1,19 @@
+{
+  "name": "field-cold-open-50238",
+  "date": "2026-08-19T12:23:47Z",
+  "commit": "ca69f5381ab203235dea8173f37c2a981bf77172",
+  "result": {
+    "iterations": 30,
+    "doc_count": 50238,
+    "vocabulary_size": 86355,
+    "segment_bytes": 8567643,
+    "get_count_per_open": 3,
+    "open_latency_ms_p50": 9.117148,
+    "open_latency_ms_p90": 10.121248,
+    "open_latency_ms_p99": 15.244340000000001,
+    "get_count_open_and_query": 3,
+    "open_and_query_latency_ms_p50": 9.458984000000001,
+    "open_and_query_latency_ms_p90": 10.246184,
+    "open_and_query_latency_ms_p99": 11.03667
+  }
+}

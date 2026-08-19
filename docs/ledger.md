@@ -390,6 +390,40 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   inventing a deliverable rather than to any real artifact. Both files were corrected
   to drop the claim (2026-08-18); `docs/research/README.md` is the standing research
   source, full stop.
+- **Real cold-open with real, phrase-query-capable content, against real
+  MinIO — resolved 2026-08-19.** `bench/src/cold_open.rs` (M0) proves
+  invariant 3's ≤4-GET bound against a segment holding 8 literal placeholder
+  bytes — real for the container/manifest mechanics, but it has never
+  proven the bound holds for a segment with real lexical content, and
+  nothing measured how long "cold" to "first real query result" actually
+  takes. `bench/src/field_cold_open.rs` closes that gap: a real field
+  (`strand_lexical::field::build_field` over real MS MARCO passages,
+  RFC 0005/0007/0008's term-dictionary/postings/positions blobs) is
+  committed to a real MinIO container (`testcontainers`, self-contained),
+  then repeatedly opened cold and queried — a real BM25 search and a real
+  phrase query — with GET count asserted, not just measured, per
+  `CLAUDE.md` §7. Real results at two scales: 5,002 docs (1.45 MB segment)
+  — **3 GETs per open, p50 4.70ms**; 50,238 docs (8.57 MB segment) — **3
+  GETs per open, p50 9.12ms**. Critically, **running a real BM25 query and
+  a real phrase query after open costs the identical 3 GETs as opening
+  alone**, at both scales — a real, measured confirmation of invariant 3's
+  one-wave rule for an actual query, not just the open, the first time this
+  has been checked with content that can answer a query at all. Segment
+  size growing 5.9× (1.45 MB → 8.57 MB) left GET count unchanged and
+  roughly doubled latency (bandwidth-bound transfer time, not round-trip
+  count) — exactly the round-trip-bound-not-size-bound behavior `CLAUDE.md`
+  §7 claims. This is the benchmark that actually tests STRAND's stated
+  thesis ("query in place on S3... never dependent pointer-chasing",
+  `CLAUDE.md` §1) with real, phrase-searchable content, not a toy segment —
+  and it is a claim tantivy cannot be compared against at all, since it has
+  no object-storage-native open path; the honest "outperforms" claim this
+  project can make right now is this one, not total on-disk size (which
+  RFC 0008's positions blob currently loses on, named honestly in the
+  entry above this one). MinIO runs on `localhost` (not real internet
+  latency), so these numbers confirm the **GET-count** half of the claim
+  precisely, matching M0's own already-recorded caveat that the real-network
+  tail-latency figure remains a separate, open measurement
+  (`CLAUDE.md` §7's placeholder).
 - **RFC 0008 (positions) implemented — resolved 2026-08-19.**
   `crates/strand-lexical/src/positions.rs` builds and reads the positions
   blob exactly as `spec/positions.md` specifies: `build_positions` takes a

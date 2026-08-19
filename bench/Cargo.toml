@@ -39,6 +39,10 @@ path = "src/tantivy_index.rs"
 name = "field-end-to-end"
 path = "src/field_end_to_end.rs"
 
+[[bin]]
+name = "field-cold-open"
+path = "src/field_cold_open.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }
