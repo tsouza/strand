@@ -323,8 +323,8 @@ Non-goals and Open questions still leave genuinely open:
   (`InvertedLists`/FastScan over external storage); (c) Quickwit
   split/hotcache internals post-relicense; (d) the fork reader-module
   list / fork failure triggers; (e) warm-tier graph host choice. Source:
-  `docs/ledger.md` R11 ("gates all adapter work"). Status: **(a) and (c)
-  done** (2026-08-19) — (a): tantivy has no codec SPI (`Directory` is a
+  `docs/ledger.md` R11 ("gates all adapter work"). Status: **(a), (c), and
+  (d) done** (2026-08-19) — (a): tantivy has no codec SPI (`Directory` is a
   byte-range abstraction, `SegmentComponent` a closed enum); Lucene's
   `Codec`/`PostingsFormat` SPI is real and confirmed current, resolved via
   `ServiceLoader`
@@ -334,10 +334,22 @@ Non-goals and Open questions still leave genuinely open:
   half is confirmed (ordinary `Directory`/`FileHandle` consumer, no
   tantivy-internals patch), its *code* half is not (Quickwit's split/
   hotcache wire format doesn't transfer)
-  (`references/r11c-quickwit-relicense-and-hotcache-source.md`). (b), (d),
-  (e) remain open — pure research/verification, no code dependency, and
-  genuinely independent of each other and of (a)/(c). Depends on: (e)
-  depends on M2-3 existing at least in RFC-draft form — the other
+  (`references/r11c-quickwit-relicense-and-hotcache-source.md`). (d): the
+  Layer-2 reader-module list is pinned — thirteen files across segment-open
+  orchestration, postings decode, positions decode, the term dictionary, and
+  field norms, plus one new `Directory` impl for Layer-1 file virtualization
+  (no tantivy-internals patch needed there) — arming `docs/benchmarks.md`'s
+  scope-leak failure trigger; two real mismatches (postings block
+  granularity, 128 vs. STRAND's 256; tantivy's default read path already
+  uses a BM25 block-pruning bound, block-max-WAND, that STRAND's own
+  postings blob does not register yet, RFC 0007 deferring it as future
+  work) and real recent module churn (a 44-file upstream refactor,
+  PR #2993, merged 9 days before this grounding) ground the other two
+  triggers
+  (`references/r11d-tantivy-fork-reader-module-list-and-failure-
+  triggers.md`). (b), (e) remain open — pure research/verification, no code
+  dependency, and independent of each other and of (a)/(c)/(d). Depends on:
+  (e) depends on M2-3 existing at least in RFC-draft form — the other
   sub-parts have no dependency.
 - **M4-2** — CIFF importer (lossless where CIFF permits). Source:
   `docs/milestones.md` M4 entry. Status: open. Depends on: M4-1(a)/(c)
@@ -349,10 +361,16 @@ Non-goals and Open questions still leave genuinely open:
   that means re-opening the freeze.
 - **M4-4** — Second-reader independence: tantivy fork (primary path) or
   clean-room implementation (fallback, activates on an R11(d) failure
-  trigger). Source: `docs/milestones.md` M4 entry. Status: **blocked** on
-  M4-1(d) (M4-1(a) is now done); M1-5 (tantivy length-accounting grounding)
-  is now resolved and no longer a blocker, though the fork still has to
-  implement the patch M1-5 identified. **Scope
+  trigger). Source: `docs/milestones.md` M4 entry. Status: **unblocked on
+  M4-1(d)**, which is now done (2026-08-19,
+  `references/r11d-tantivy-fork-reader-module-list-and-failure-triggers.md`)
+  — the reader-module list and the grounding for all three
+  `docs/benchmarks.md` failure triggers exist; M1-5 (tantivy
+  length-accounting grounding) is likewise resolved and no longer a
+  blocker, though the fork still has to implement the patch M1-5
+  identified. Structurally ready to start; still most sensibly built
+  against a frozen manifest (M4-3, below), and this task itself does not
+  start the fork — that is separate, larger work. **Scope
   correction, per the adversarial review**: this document's first draft
   stated the fork depends on the *full* v0.1 spec freeze (M4-3);
   precisely, it needs the freeze only for the spec chapters the fork

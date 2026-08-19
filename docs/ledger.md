@@ -455,9 +455,66 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   numbered crates.io release — reinforcing (not creating) the already-planned
   practice of the STRAND fork pinning its own explicit commit rather than assuming
   crates.io and tantivy's git trunk behave identically; (d) the fork reader-module
-  list that arms the fork failure triggers (docs/benchmarks.md); (e) the warm-tier
-  graph host choice. Adapter milestones remain conditional on R11 (b), (d), and
-  (e), still open.
+  list that arms the fork failure triggers (docs/benchmarks.md) — **resolved
+  2026-08-19** (`references/r11d-tantivy-fork-reader-module-list-and-failure-
+  triggers.md`); (e) the warm-tier graph host choice. Adapter milestones remain
+  conditional on R11 (b) and (e), still open.
+
+  **R11(d) finding (`references/r11d-tantivy-fork-reader-module-list-and-failure-
+  triggers.md`, fetched against tantivy tag `0.26.1`, plus one explicitly labeled
+  excursion onto unreleased `main`, 2026-08-19):** a fork splits into two layers.
+  File virtualization (which physical component files exist, where their bytes
+  live) needs no tantivy-internals patch — a custom `Directory` impl suffices,
+  the same extension point R11(c) already confirmed Quickwit uses unmodified. The
+  byte layout inside each component does need patching, and the Layer-2
+  reader-module list for a lexical-only fork is thirteen files: segment-open
+  orchestration (`src/index/segment_reader.rs`, `inverted_index_reader.rs`,
+  `segment_component.rs`, `segment.rs`, `src/directory/composite_file.rs`),
+  postings decode (`src/postings/compression/mod.rs`, `block_segment_postings.rs`,
+  `skip.rs`, `serializer.rs`, `postings.rs`, `segment_postings.rs`), positions
+  decode (`src/positions/mod.rs`, `reader.rs`), the term dictionary
+  (`src/termdict/mod.rs`, `fst_termdict/mod.rs`, `fst_termdict/termdict.rs`), and
+  field norms (`src/fieldnorm/reader.rs`, `code.rs`, needed for the invariant-5
+  Lucene-parity profile) — plus one new `StrandDirectory` (additive, Layer 1).
+  `src/fastfield/*`, `src/store/*`, and `src/schema/document/*` are named
+  out-of-scope, since STRAND has no stored-field or generic-fast-field
+  equivalent. Two real mismatches were found while grounding the list, not
+  merely a module inventory: tantivy's postings codec bit-packs 128-value
+  blocks (`BitPacker4x::BLOCK_LEN`, confirmed by reading
+  `src/postings/compression/mod.rs`) against STRAND's registered 256-value
+  `BitPacker8x` blocks (RFC 0007, R9's correction) — a real granularity
+  mismatch, not a relabeling — and tantivy's default read path already
+  computes and uses a BM25 block-pruning bound (block-max-WAND: a
+  representative fieldnorm id and max term frequency welded inline into each
+  bit-packed block's header, `src/postings/skip.rs`'s `BlockInfo::BitPacked`)
+  that STRAND's own postings blob does not register at all yet — RFC 0007 §6
+  registers only a doc-ordinal skip bound and names the scoring-aware bound an
+  explicit non-goal, "real, separate, future work" — so the fork inherits an
+  open cross-project dependency here, not a byte-layout translation, named as
+  the parity-gate trigger's most likely ten-session risk. Module churn was
+  checked against real git history, not
+  assumed: `src/postings/skip.rs` (the file carrying both mismatches) and
+  `src/postings/mod.rs` (which re-exports `skip.rs`'s `BlockInfo`/`SkipReader`
+  and has its own real algorithmic churn) each took real, non-lint commits
+  roughly monthly through 2026, and — the sharpest data point — a 44-file
+  upstream PR,
+  "Extensible segment components via plugin trait" (#2993, ParadeDB, merged
+  2026-08-10, nine days before this grounding), touched every file in the
+  segment-open-orchestration group at once. That PR does not overturn R11(a)'s
+  finding (its own text: "the read side needs no plugin hook... read back
+  through the existing public surface `SegmentReader::open_read`" — no codec
+  SPI for *existing* components), but it does date one sentence of it: on
+  unreleased `main`, `SegmentComponent` gained an eighth `Custom(String)`
+  variant and is no longer the closed seven-variant enum R11(a) describes at
+  the pinned tag — recorded here as a fact for a future session to fold back
+  into R11(a) itself, not corrected in place, since amending an
+  already-approved finding is its own edit. `docs/benchmarks.md`'s
+  scope-leak failure trigger ("modifying files outside the pinned
+  reader-module list") is now checkable against this list; the other two
+  triggers (the ten-session parity gate, the 15%-of-commits maintenance gate)
+  are grounded, not restated, by the churn evidence above. This does not
+  start M4-4 (the fork itself) — it only unblocks it structurally, alongside
+  the already-done M4-1(a).
 
   **R11(a) finding (`references/r11a-tantivy-reader-surface-and-lucene-codec-spi.md`,
   fetched against tantivy tag `0.26.1` and Lucene tag `releases/lucene/10.5.1`,
