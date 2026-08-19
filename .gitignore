@@ -2,3 +2,6 @@
 # Downloaded benchmark corpora (multi-GB) — never committed. bench/results/
 # holds the derived JSON output, which is checked in.
 /bench/data
+# Session-local scratch: git worktrees used for isolated task execution, and
+# the scheduler's lock file. Never committed.
+/.claude/
