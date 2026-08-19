@@ -38,3 +38,17 @@ Its clean MIT licensing is genuine and noted for completeness — a future engin
 implementing only Chinese search is free to declare `jieba-rs` as its
 `segmentation_dictionary` identity, since invariant 6 only requires a declared
 identity and version, not conformance to STRAND's own recommended default.
+
+## Version pinned for the M1-7 segmentation bake-off
+
+**Source:** `https://crates.io/api/v1/crates/jieba-rs`, fetched live 2026-08-19.
+Max stable version **0.10.3** (published 2026-07-19), license **MIT**, confirming
+the audit above still holds at the exact version used by
+`bench/src/cjk_segmentation_bakeoff.rs` (`docs/roadmap.md` M1-7): a real,
+measured Chinese segmentation-agreement comparison against ICU4X's
+`icu_segmenter` dictionary path, run to check M1-1's license-and-dependency-shape
+default against a real accuracy/agreement signal for the one script this
+project's Rust-dependency constraints leave `jieba-rs` eligible to challenge.
+`jieba-rs 0.10.3`'s `default-dict` Cargo feature (enabled by default) embeds the
+same MIT-licensed `dict.txt` audited above — no separate dictionary-license
+question for this version.

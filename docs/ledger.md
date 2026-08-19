@@ -334,9 +334,25 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `segmentation_dictionary.version` is pinned as the `icu_segmenter`/
   `icu_segmenter_data` crate-semver pair, not a content hash (`spec/
   analyzer-descriptors.md` §5 states the reasoning and leaves a content-hash
-  upgrade open). Still open, genuinely: no accuracy bake-off was run
-  (license/dependency-shape grounds only, M1-7), and Thai/Lao/Hiragana/Katakana
-  remain unvectored — one Han-script vector does not cover the whole default.
+  upgrade open). **Chinese bake-off run 2026-08-19** (`docs/roadmap.md` M1-7):
+  `bench/src/cjk_segmentation_bakeoff.rs` measured ICU4X's `icu_segmenter 2.3.0`
+  dictionary path against `jieba-rs 0.10.3` (MIT,
+  `references/jieba-and-jieba-rs-license.md`) over 8 real Chinese Wikipedia
+  sentences (fetched live via the MediaWiki API,
+  `bench/results/cjk-segmentation-bakeoff.json`). Result: 0.9154 micro-average /
+  0.9139 macro-average interior-boundary agreement (an inter-segmenter agreement
+  metric, not accuracy against a gold standard — no verifiably fetchable
+  gold-segmented Chinese corpus was used). ICU4X measurably under-merges
+  compound nouns jieba-rs keeps whole (e.g. `人工智能`, `计算机`,
+  `中华人民共和国` each split by ICU4X, kept whole by jieba-rs) — a real,
+  moderate accuracy cost for the dependency-shape/license win, not a
+  hypothetical one, but not large enough on this sample to overturn the M1-1
+  recommendation. Still open, genuinely: Japanese (Lindera+IPADIC) and Thai
+  (PyThaiNLP) remain genuinely untested — Thai has no maintained Rust binding at
+  all, and Japanese would need a real IPADIC data-license audit this pass did
+  not do — and Thai/Lao/Hiragana/Katakana remain unvectored in
+  `conformance/analyzers/`, since one Han-script vector does not cover the whole
+  default.
 - **R5** — exact GCS/Azure conditional-write header semantics (confirm at spec time).
 - **R9** — compute-native block layout (gates the R2 bake-off and therefore M1): a
   first decode-throughput measurement now exists
