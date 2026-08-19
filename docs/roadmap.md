@@ -383,7 +383,7 @@ Non-goals and Open questions still leave genuinely open:
   `committed_at_millis` added additively, both-set retention resolved as a
   union, current snapshot always retained), not decided silently; see that
   RFC's Discussion entry and `spec/manifest.md` §1 for the normative
-  result. 17 new tests (round-trips, the two `CasHost` JSON shapes checked
+  result. 16 new tests (round-trips, the two `CasHost` JSON shapes checked
   byte-for-byte, and `retained_snapshots` against a snapshot inside/outside
   the duration window, the inclusive/exclusive boundary, the count-only
   floor, the union case, and the always-retain-current floor), all
