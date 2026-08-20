@@ -45,6 +45,39 @@
 //! `DEFAULT_RRF_K` here is that same fixed, not-independently-re-tuned
 //! constant, not a value this project claims to have found optimal for
 //! its own workload.
+//!
+//! `reciprocal_rank_fusion` uses one shared `k` for every input ranking.
+//! `reciprocal_rank_fusion_asymmetric` generalizes this to one constant
+//! per ranking, grounded in a second real, vendored source: Sebastian
+//! Bruch, Siyu Gai, Amir Ingber, "An Analysis of Fusion Functions for
+//! Hybrid Retrieval," ACM Transactions on Information Systems (TOIS),
+//! Vol. 42, Article 20 (2023), arXiv:2210.11934, vendored in
+//! `references/bruch-gai-ingber-2023-fusion-functions-hybrid-retrieval.md`.
+//! That paper's Equation 8 rewrites RRF for its two-ranking (lexical,
+//! semantic) setting as `f(q,d) = 1/(eta_Lex + rank_Lex(q,d)) +
+//! 1/(eta_Sem + rank_Sem(q,d))` — one constant per ranking instead of
+//! one shared `k`; `reciprocal_rank_fusion_asymmetric` extends this to
+//! an arbitrary number of rankings the same mechanical way
+//! `reciprocal_rank_fusion` already extends the base one-`k` formula
+//! beyond the original paper's own pairwise examples, summing one
+//! `1/(k_i + rank_i(d))` term per input ranking.
+//!
+//! This primitive is exposed for a real, narrow, honestly-stated reason,
+//! not because asymmetric weighting is shown to be generally better: the
+//! vendored reference's own Table 3 grid search finds the *optimal*
+//! per-ranking constants reverse which side is larger between an
+//! in-domain and an out-of-domain evaluation setting (`(eta_Lex, eta_Sem)
+//! = (10, 4)` on MS MARCO vs. `(5, 5)` on HotpotQA) — so no single
+//! default asymmetric weighting, including one tuned for this project's
+//! own workload, is safe to bake in as a new default. A caller who wants
+//! to tune per-ranking constants for their own corpus can; this module
+//! does not choose the constants for them. (An earlier draft of this
+//! idea's design work misread that same table's NDCG@1000 deltas as
+//! evidence asymmetric RRF beats symmetric RRF — the vendored
+//! reference's own "what this paper does not show" section corrects
+//! that: those deltas are the paper's *recommended*, different, non-RRF
+//! alternative compared against symmetric RRF, and the paper's own best
+//! grid-searched asymmetric RRF result still trails that alternative.)
 
 use std::collections::{HashMap, HashSet};
 
@@ -69,15 +102,25 @@ pub struct FusedResult {
 }
 
 /// Fuses any number of already-ranked, best-first row-ID lists into one
-/// ranking, via Reciprocal Rank Fusion (see this module's doc comment for
-/// the formula and `k`'s provenance). Each element of `rankings` is one
-/// ranking: row-IDs in best-first order, exactly as `strand_lexical::
-/// field::FieldReader::search_bm25_row_ids` or
+/// ranking, via Reciprocal Rank Fusion with one constant per ranking (see
+/// this module's doc comment for the generalized formula and its
+/// provenance — Bruch/Gai/Ingber's Equation 8, extended here from their
+/// two-ranking case to an arbitrary number of rankings). Each element of
+/// `rankings` is one ranking: row-IDs in best-first order, exactly as
+/// `strand_lexical::field::FieldReader::search_bm25_row_ids` or
 /// `strand_vector::query::scan_selected_clusters` (translated to row-IDs)
 /// would return them, index `0` being the best match. A row-ID's rank
 /// position within a ranking is `1 + its index` — the paper's own
 /// 1-based convention — and a row-ID absent from a ranking contributes no
 /// term to its score from that ranking, exactly as the paper states.
+///
+/// `ks[i]` is the constant used for `rankings[i]`. `ks.len()` MUST equal
+/// `rankings.len()` — one constant per ranking, not a shared default for
+/// the rest — and this is checked with a real `assert_eq!`, not a silent
+/// zip-truncation: silently dropping or ignoring rankings because the two
+/// slices disagree in length is a real correctness footgun (a caller who
+/// resizes one list without the other should get a loud panic, not a
+/// quietly wrong fused ranking).
 ///
 /// A ranking listing the same row-ID more than once is a caller error
 /// this function does not itself detect (every real producer in this
@@ -96,11 +139,21 @@ pub struct FusedResult {
 /// regardless of hash-map iteration order — this is fusion output, not a
 /// wire structure invariant 11 governs, but determinism is still worth
 /// having for a reproducible test and a reproducible query result.
-pub fn reciprocal_rank_fusion(rankings: &[&[u64]], k: f64) -> Vec<FusedResult> {
+pub fn reciprocal_rank_fusion_asymmetric(rankings: &[&[u64]], ks: &[f64]) -> Vec<FusedResult> {
+    assert_eq!(
+        ks.len(),
+        rankings.len(),
+        "reciprocal_rank_fusion_asymmetric: ks.len() ({}) must equal rankings.len() ({}) \
+         — one constant per ranking, not a default for the rest",
+        ks.len(),
+        rankings.len()
+    );
+
     // row_id -> (score, one Option<rank> slot per input ranking).
     let mut by_row_id: HashMap<u64, (f64, Vec<Option<u32>>)> = HashMap::new();
 
     for (ranking_idx, ranking) in rankings.iter().enumerate() {
+        let k = ks[ranking_idx];
         let mut seen_in_this_ranking: HashSet<u64> = HashSet::new();
         for (i, &row_id) in ranking.iter().enumerate() {
             if !seen_in_this_ranking.insert(row_id) {
@@ -127,6 +180,15 @@ pub fn reciprocal_rank_fusion(rankings: &[&[u64]], k: f64) -> Vec<FusedResult> {
         .collect();
     fused.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.row_id.cmp(&b.row_id)));
     fused
+}
+
+/// `reciprocal_rank_fusion_asymmetric` with the same shared constant `k`
+/// for every ranking — Cormack/Clarke/Büttcher's original, symmetric RRF
+/// formula (see this module's doc comment). A thin wrapper: builds
+/// `rankings.len()` copies of `k` and delegates.
+pub fn reciprocal_rank_fusion(rankings: &[&[u64]], k: f64) -> Vec<FusedResult> {
+    let ks = vec![k; rankings.len()];
+    reciprocal_rank_fusion_asymmetric(rankings, &ks)
 }
 
 /// `reciprocal_rank_fusion` with `k = DEFAULT_RRF_K` — the ordinary entry
@@ -278,5 +340,125 @@ mod tests {
         for _ in 0..20 {
             assert_eq!(fuse(&[ranking_a, ranking_b]), first);
         }
+    }
+
+    /// `reciprocal_rank_fusion(rankings, k)` must be exactly
+    /// `reciprocal_rank_fusion_asymmetric(rankings, &[k; rankings.len()])`
+    /// — the refactor that made the symmetric function a thin wrapper is
+    /// behavior-preserving, checked directly rather than only inferred
+    /// from the other, unchanged tests in this module still passing.
+    #[test]
+    fn reciprocal_rank_fusion_delegates_to_the_asymmetric_function_with_equal_constants() {
+        let ranking_a: &[u64] = &[1, 2, 3];
+        let ranking_b: &[u64] = &[3, 1, 2];
+        let via_symmetric = reciprocal_rank_fusion(&[ranking_a, ranking_b], 42.0);
+        let via_asymmetric =
+            reciprocal_rank_fusion_asymmetric(&[ranking_a, ranking_b], &[42.0, 42.0]);
+        assert_eq!(via_symmetric, via_asymmetric);
+    }
+
+    /// `ks.len()` disagreeing with `rankings.len()` is a real correctness
+    /// footgun (this module's doc comment on
+    /// `reciprocal_rank_fusion_asymmetric`) and must panic loudly rather
+    /// than silently truncate to the shorter length.
+    #[test]
+    #[should_panic(expected = "ks.len()")]
+    fn reciprocal_rank_fusion_asymmetric_panics_when_ks_length_does_not_match_rankings_length() {
+        let ranking_a: &[u64] = &[1, 2];
+        let ranking_b: &[u64] = &[3, 4];
+        reciprocal_rank_fusion_asymmetric(&[ranking_a, ranking_b], &[60.0]);
+    }
+
+    /// The worked example from `crates/strand-core/tests/
+    /// hybrid_rrf_end_to_end.rs`'s own six-row hybrid scenario, reused
+    /// here as literal row-ID rankings (that test independently asserts
+    /// these are the real row-IDs `search_bm25_row_ids` and the real
+    /// reranked ANN scan actually produce for its fixture, with
+    /// `row_id_base = 0`): the lexical ranking is `[0, 1]` (only rows 0
+    /// and 1 ever match the term `"widget"`, row 0 first for its shorter
+    /// document length) and the vector ranking is `[3, 2, 0, 4, 1, 5]`
+    /// (exact L2 order from an all-zero query, nearest first).
+    ///
+    /// At the paper's own default, `k = 60` for both rankings, that
+    /// test's own hand computation already establishes the fused order
+    /// `[0, 1, 3, 2, 4, 5]`: row 0 and row 1 — each mediocre on the
+    /// vector side alone — outrank row 3, the vector ranking's actual
+    /// nearest neighbor, because they also match the lexical ranking.
+    ///
+    /// This test picks one illustrative asymmetric weighting, `(k_lex,
+    /// k_vec) = (60, 5)` — a smaller constant weights the vector
+    /// ranking's top positions more heavily, per Equation 8 (this
+    /// module's doc comment; `references/bruch-gai-ingber-2023-fusion-
+    /// functions-hybrid-retrieval.md`) — labeled "Variant B" only to
+    /// distinguish it from the untried "Variant A" this exploration also
+    /// considered, and stated plainly as illustrative, not a recommended
+    /// default (this module's doc comment explains why no default is
+    /// shipped). Under this weighting, row 3 — a genuine cross-vocabulary
+    /// match: the vector ranking's best result, with no lexical match at
+    /// all — overtakes both row 0 and row 1, which beat it under today's
+    /// symmetric `k = 60`. Every score below is asserted exactly against
+    /// the formula applied by hand, independent of the implementation.
+    #[test]
+    fn asymmetric_rrf_variant_b_lets_the_vector_only_match_overtake_lexical_leaning_rows() {
+        let lexical: &[u64] = &[0, 1];
+        let vector: &[u64] = &[3, 2, 0, 4, 1, 5];
+        let rankings: [&[u64]; 2] = [lexical, vector];
+
+        // Sanity: reproduce hybrid_rrf_end_to_end.rs's own symmetric
+        // k=60 result first, so the "overtake" below is measured against
+        // a real, independently-established baseline, not assumed.
+        let symmetric = reciprocal_rank_fusion(&rankings, 60.0);
+        assert_eq!(
+            symmetric.iter().map(|f| f.row_id).collect::<Vec<_>>(),
+            vec![0, 1, 3, 2, 4, 5],
+            "symmetric k=60 baseline must match hybrid_rrf_end_to_end.rs's own hand computation"
+        );
+
+        let asymmetric = reciprocal_rank_fusion_asymmetric(&rankings, &[60.0, 5.0]);
+
+        let expected_scores: Vec<(u64, f64)> = vec![
+            (3, 1.0 / 6.0),               // vector rank 1 only, k_vec=5
+            (2, 1.0 / 7.0),               // vector rank 2 only, k_vec=5
+            (0, 1.0 / 61.0 + 1.0 / 8.0),  // lexical rank 1 (k=60) + vector rank 3 (k=5)
+            (1, 1.0 / 62.0 + 1.0 / 10.0), // lexical rank 2 (k=60) + vector rank 5 (k=5)
+            (4, 1.0 / 9.0),               // vector rank 4 only, k_vec=5
+            (5, 1.0 / 11.0),              // vector rank 6 only, k_vec=5
+        ];
+        for w in expected_scores.windows(2) {
+            assert!(
+                w[0].1 > w[1].1,
+                "expected_scores must be strictly descending: {expected_scores:?}"
+            );
+        }
+        assert_eq!(
+            asymmetric.iter().map(|f| f.row_id).collect::<Vec<_>>(),
+            expected_scores
+                .iter()
+                .map(|&(id, _)| id)
+                .collect::<Vec<_>>(),
+            "asymmetric (k_lex=60, k_vec=5) order must match the hand-computed expectation: {asymmetric:?}"
+        );
+        for (entry, &(expected_id, expected_score)) in asymmetric.iter().zip(expected_scores.iter())
+        {
+            assert_eq!(entry.row_id, expected_id);
+            assert_close(
+                entry.score,
+                expected_score,
+                &format!("row {expected_id}'s asymmetric score"),
+            );
+        }
+
+        // The real thesis assertion: row 3 (best vector-only match, no
+        // lexical match at all) now overtakes both row 0 and row 1,
+        // which beat it under symmetric k=60 above.
+        let position_of = |row_id: u64| asymmetric.iter().position(|f| f.row_id == row_id).unwrap();
+        assert!(
+            position_of(3) < position_of(0),
+            "row 3 must overtake row 0 under asymmetric weighting: {asymmetric:?}"
+        );
+        assert!(
+            position_of(3) < position_of(1),
+            "row 3 must overtake row 1 under asymmetric weighting: {asymmetric:?}"
+        );
     }
 }

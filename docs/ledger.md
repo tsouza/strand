@@ -3892,3 +3892,108 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   work items the way `docs/roadmap.md` already does for every other
   open decision, is this decision's own explicit next step — tracked
   there, not invented ad hoc in this entry.
+- **Asymmetric (per-ranking-constant) Reciprocal Rank Fusion added as a
+  real primitive, not wired into any caller — 2026-08-20,
+  `crates/strand-core/src/fusion.rs`.** An exploratory design pipeline
+  this session investigated generalizing M3-6's symmetric RRF (one shared
+  `k` across all input rankings) to one constant per ranking. The real
+  grounding paper — Sebastian Bruch, Siyu Gai, Amir Ingber, "An Analysis
+  of Fusion Functions for Hybrid Retrieval," ACM Transactions on
+  Information Systems, Vol. 42, Article 20 (2023), arXiv:2210.11934 — was
+  fetched and vendored, per `CLAUDE.md` §3, as
+  `references/bruch-gai-ingber-2023-fusion-functions-hybrid-retrieval.md`,
+  rather than implemented from a remembered summary of it.
+
+  **A citation error caught before it could land, corrected here so the
+  record is right the first time it appears in `docs/`.** An earlier
+  draft of this idea's own design document cited the paper's NDCG@1000
+  deltas (e.g. `0.454` vs. `0.425` on MS MARCO) as evidence *for*
+  asymmetric RRF specifically. That is wrong, and an independent critique
+  pass caught it before this entry was written: `0.454` is the score of
+  the paper's own *recommended*, different, non-RRF alternative — a
+  convex combination of normalized scores the paper calls CC/TM2C2 —
+  compared against symmetric RRF's `0.425`, not asymmetric RRF's own
+  score. The paper's own real asymmetric-RRF result (Table 3,
+  grid-searched `(η_Lex, η_Sem) = (10, 4)` on MS MARCO) reaches `0.451` —
+  better than symmetric RRF's `0.425`, but still below CC/TM2C2's `0.454`.
+  So even well-tuned asymmetric RRF underperforms what the paper actually
+  recommends instead; the vendored reference's own "what this paper does
+  not show" section states this plainly, and no other file in `docs/` or
+  `docs/roadmap.md` was found to carry the earlier, wrong version of this
+  claim (checked before writing this entry, so there was nothing else to
+  correct).
+
+  **The real, usable finding, and why the primitive is exposed on that
+  basis rather than on a general asymmetric-beats-symmetric claim.**
+  Table 3's grid search shows the *optimal* per-ranking constants reverse
+  which side is larger between an in-domain and an out-of-domain
+  evaluation setting — `(η_Lex, η_Sem) = (10, 4)` on MS MARCO (in-domain)
+  vs. `(5, 5)` on HotpotQA (out-of-domain) — so no single default
+  asymmetric weighting, including one tuned for this project's own
+  workload, is safe to bake in as a new default. That is the honest
+  reason to expose the primitive: a caller who wants to tune per-ranking
+  constants for their own corpus can, not a claim that asymmetric
+  weighting is generally better than symmetric, which the paper does not
+  show.
+
+  **The change (behavior-preserving refactor).**
+  `reciprocal_rank_fusion_asymmetric(rankings: &[&[u64]], ks: &[f64]) ->
+  Vec<FusedResult>` implements `Σᵢ 1/(ksᵢ + rankᵢ(d))` — the same
+  `FusedResult` return type M3-6's `reciprocal_rank_fusion` already uses,
+  extended from the paper's own two-ranking Equation 8 to an arbitrary
+  number of rankings the same mechanical way `reciprocal_rank_fusion`
+  already extends the base one-`k` formula beyond Cormack/Clarke/
+  Büttcher's own pairwise worked examples. `ks.len() != rankings.len()`
+  panics with a real `assert_eq!` and a clear message rather than
+  silently zip-truncating to the shorter length — a real correctness
+  footgun this exploration's own design work flagged, and a dedicated
+  test (`reciprocal_rank_fusion_asymmetric_panics_when_ks_length_does_not_match_rankings_length`)
+  exercises it directly. `reciprocal_rank_fusion(rankings, k)` is now a
+  thin wrapper: it builds `rankings.len()` copies of `k` and delegates.
+  This is behavior-preserving — every pre-existing `fusion.rs` test and
+  `crates/strand-core/tests/hybrid_rrf_end_to_end.rs` pass unchanged, with
+  identical output, plus a new dedicated test
+  (`reciprocal_rank_fusion_delegates_to_the_asymmetric_function_with_equal_constants`)
+  checking the delegation directly rather than only inferring it from the
+  other tests still passing. No new default asymmetric `k` values or
+  presets ship — the same pattern `DEFAULT_RRF_K`'s own doc comment
+  already establishes: expose the real formula and cite real evidence
+  honestly, not invent an untested default.
+
+  **The worked example, reused from a real fixture rather than invented
+  fresh.** `hybrid_rrf_end_to_end.rs`'s own six-row hybrid scenario
+  (`row_id_base = 0`) already establishes, and independently asserts, a
+  real lexical ranking `[0, 1]` and a real vector ranking
+  `[3, 2, 0, 4, 1, 5]`; `fusion.rs`'s new test
+  `asymmetric_rrf_variant_b_lets_the_vector_only_match_overtake_lexical_leaning_rows`
+  reuses those exact row-IDs and rankings as literals (re-deriving them
+  from a full segment build a second time would duplicate ~300 lines of
+  fixture machinery for no additional real coverage) and first
+  reconfirms the symmetric `k = 60` baseline order, `[0, 1, 3, 2, 4, 5]`,
+  before applying one illustrative, explicitly-non-default weighting,
+  `(k_lex, k_vec) = (60, 5)` — labeled "Variant B" in the test's own doc
+  comment, computed and verified by hand before being committed to the
+  assertion, per this task's own instruction to trust real computation
+  over any prior summary. The result, checked exactly against
+  hand-computed scores (not just "the function runs"): row 3 — the vector
+  ranking's actual nearest neighbor, with no lexical match at all — moves
+  from third place under symmetric `k = 60` to first place under
+  `(60, 5)`, overtaking both row 0 (`1/61 + 1/8 ≈ 0.14139`) and row 1
+  (`1/62 + 1/10 ≈ 0.11613`), which beat it under symmetric `k = 60`. Full
+  computed order under `(60, 5)`: row 3 (`1/6 ≈ 0.16667`) > row 2
+  (`1/7 ≈ 0.14286`) > row 0 (`≈ 0.14139`) > row 1 (`≈ 0.11613`) > row 4
+  (`1/9 ≈ 0.11111`) > row 5 (`1/11 ≈ 0.09091`).
+
+  **Deliberately not wired into any caller.** No query-intent classifier
+  or heuristic in this project decides when to prefer asymmetric over
+  symmetric RRF, or which constants to use — that would be a policy
+  layer, and `CLAUDE.md` §1 states plainly that STRAND "is not a search
+  engine, not a database, not a query planner." `fusion.rs` remains
+  crate-level glue only: both `reciprocal_rank_fusion` and
+  `reciprocal_rank_fusion_asymmetric` are exposed as primitives a caller
+  outside this project may use, not machinery this project invokes
+  itself.
+
+  `cargo check --workspace --all-targets`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, `cargo fmt --check`, and `cargo test
+  --workspace` all clean.
