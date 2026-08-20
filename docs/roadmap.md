@@ -993,8 +993,9 @@ Non-goals and Open questions still leave genuinely open:
   independent research tasks do.
 
   **Status: partially done (2026-08-20, obligation count corrected
-  2026-08-20; reader-path actions added 2026-08-20).**
-  `verification/manifest_proofs.tla` (2,090 lines) proves `IndInv1`
+  2026-08-20; reader-path actions added 2026-08-20; `Next`-level
+  composition and temporal invariance theorem added 2026-08-20).**
+  `verification/manifest_proofs.tla` (2,156 lines) proves `IndInv1`
   (`TypeOK` plus six safety/typing properties, one of them —
   `PtrVersionBounded` — added in this latest pass) inductive across `Init`
   and **all five writer-path actions plus both reader-path actions**
@@ -1029,15 +1030,32 @@ Non-goals and Open questions still leave genuinely open:
   the corresponding unprimed expression plus a separate equality reliably
   failed even though the identical shape works for a bare `<=` goal —
   full account in `verification/README.md`'s "Lessons" section, new
-  bullet. **Not yet done**, named specifically and unaffected by anything
-  above: the `Next`-level composition and the temporal invariance theorem
-  (`Spec => []IndInv1`); and the model's other six TLC-checked invariants,
-  most notably `NoOverlappingRowIds` (needs a materially harder
-  segment-packing inductive strengthening not yet attempted). Full
+  bullet. **This latest pass** added the two remaining theorems named in
+  `verification/README.md`'s own "What is explicitly not yet proved"
+  section as of the prior pass: `NextStep1` (`ASSUME IndInv1, [Next]_vars
+  PROVE IndInv1'`, assembling the eight per-action step lemmas into one
+  fact about `manifest.tla`'s actual `Next`, confirmed by reading its real
+  definition rather than assumed) and `TemporalInvariance` (`Spec =>
+  []IndInv1`, `manifest.tla`'s actual `Spec == Init /\ [][Next]_vars`
+  lifted to hold at every reachable state of an actual run via TLAPS's
+  `PTL` backend — this file's first use of `PTL`). Confirmed by a clean
+  `tlapm` run reporting `[INFO]: All 2073 obligations proved.`, exit code
+  0, reproduced identically on two separate fresh runs (one ordinary, one
+  with `--cleanfp`). A genuinely new `PTL`-specific failure mode surfaced
+  and was fixed during this pass: the temporal `QED` step failed on its
+  first full-module run because the step lemma's own `vars` operator was
+  not unfolded alongside `Spec` at the point `PTL` was cited, so the two
+  `[Next]_<...>` action formulas it needed to line up were not
+  syntactically identical; fixed by adding `vars` to the same `DEF`
+  clause — full account in `verification/README.md`'s "Lessons" section,
+  new bullet. `manifest.tla` itself needed no changes for this pass, as
+  expected. **Still not done**: the model's other six TLC-checked
+  invariants, most notably `NoOverlappingRowIds` (needs a materially
+  harder segment-packing inductive strengthening not yet attempted). Full
   accounting: `verification/README.md`'s "TLAPS proof" section, RFC
   0002's Discussion section, `docs/ledger.md`. M3-2 is not yet complete,
   and the compaction gate below still needs the remainder of this item
-  (the two items named as not yet done, immediately above) plus M3-3
+  (the one item named as not yet done, immediately above) plus M3-3
   (below, done).
 - **M3-3** — DST (Deterministic Simulation Testing) cross-validation
   harness, Workflow II first per RFC 0002 §2's approved sequencing

@@ -248,12 +248,12 @@ depth 18) as the baseline above.
 Independently confirmed by running the exact `tlapm` invocation above and
 reading its own final summary line — never assumed from a `THEOREM`'s mere
 presence in the file. As of this file's most recent `tlapm` run:
-**`[INFO]: All 2018 obligations proved.`, exit code 0, on two separate
+**`[INFO]: All 2073 obligations proved.`, exit code 0, on two separate
 runs producing the identical result: one ordinary run, one with
 `--cleanfp` (fingerprint cache erased first, so nothing was reused from
 the ordinary run)** — the determinism check this file's own honesty
 discipline calls for, not a single run taken on faith (`manifest_proofs.tla`,
-2,090 lines: 10 generic reusable lemmas plus 8 theorems). An earlier
+2,156 lines: 10 generic reusable lemmas plus 10 theorems). An earlier
 version of this file reported 1,247 obligations from a run that did not,
 in fact, reproduce: an independent adversarial review re-ran `tlapm` fresh
 against that exact commit and got `[ERROR]: 1/1247 obligations failed`
@@ -261,12 +261,15 @@ instead, isolating the failure to `ProposeDeletionVectorCommitStep1`'s
 `<3>eq` step. The fix (`ExceptSegmentDelVer`, described in "Lessons,"
 below) replaced that step entirely rather than patching it, and the
 1,261-obligation count that followed was independently reproduced twice
-before being written down. The current 2,018-obligation count is the
-five-writer-plus-`Init` 1,261 count plus the two reader-action theorems
-added in this pass (`ReadPointerStep1`, `ReadSnapshotObjectStep1`) plus
+before being written down. The 2,018-obligation count of the prior pass was
+the five-writer-plus-`Init` 1,261 count plus the two reader-action theorems
+added in that pass (`ReadPointerStep1`, `ReadSnapshotObjectStep1`) plus
 one additional inductive conjunct (`PtrVersionBounded`, below) whose
 preservation had to be re-proved across every one of the other six
-theorems too.
+theorems too. The current **2,073-obligation** count is that 2,018 plus
+the two theorems this pass added — `NextStep1` (`Next`-level composition)
+and `TemporalInvariance` (`Spec => []IndInv1`, discharged via the `PTL`
+backend) — described below.
 
 `IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted
 /\ FnDomains /\ BaseVersionBounded /\ ProposedIsReal /\ PtrVersionBounded`
@@ -283,6 +286,35 @@ plus `Init`:
   PROVE IndInv1'`, one such theorem per writer action above.
 - `THEOREM <Action>Step1 == ASSUME IndInv1, NEW r \in Readers, <Action>(r)
   PROVE IndInv1'`, one such theorem per reader action above.
+
+These eight are each "one step ahead of a state where `IndInv1` already
+held," not yet a statement about every reachable state of an actual run.
+This pass adds the two theorems that close that gap:
+
+- `THEOREM NextStep1 == ASSUME IndInv1, [Next]_vars PROVE IndInv1'` — the
+  `Next`-level composition, assembled from the eight step lemmas above by
+  case-splitting on `manifest.tla`'s actual `Next` (a disjunction of
+  `\E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/
+  ProposeDeletionVectorCommit(w) \/ TryAdvancePointer(w) \/
+  ResolveAmbiguity(w)` and `\E r \in Readers : ReadPointer(r) \/
+  ReadSnapshotObject(r)`, confirmed by reading `manifest.tla` directly
+  rather than assumed), `PICK`ing the existential witness in each of the
+  two top-level cases and then `CASE`-splitting on which action the
+  witness actually took, citing the matching `<Action>Step1` theorem
+  directly; plus the `UNCHANGED vars` stuttering case, discharged by
+  decomposing the tuple equality into the five per-variable equalities
+  (the same idiom the per-action theorems already use for their own
+  `UNCHANGED <<...>>` conjuncts) and unfolding every `IndInv1` conjunct's
+  definition against them.
+- `THEOREM TemporalInvariance == Spec => []IndInv1` — the temporal
+  invariance theorem itself, `manifest.tla`'s actual
+  `Spec == Init /\ [][Next]_vars` (confirmed directly; the model has no
+  fairness conjuncts, so this is the whole `Spec`, not a subset of it)
+  lifted from the one-step fact via the standard TLAPS pattern: `Init1`
+  gives the base case, `NextStep1` gives the inductive step stated over
+  `[Next]_vars` directly, and the `PTL` backend's temporal-induction rule
+  closes the `QED` given both plus `DEF Spec, vars` (see "Lessons" below
+  for why the `vars` half of that `DEF` is load-bearing, not decoration).
 
 Four of `IndInv1`'s seven conjuncts are not part of `manifest.cfg`'s own
 seven TLC-checked invariants — they were found necessary *during* the
@@ -314,15 +346,19 @@ actions, not just the two new reader ones — trivial for `ReadCurrent`,
 None of the four contradicts or weakens the seven TLC-checked invariants;
 they are additional facts about the same state, proved alongside them.
 
-What this combination actually establishes: for each of the five writer
-actions and both reader actions, `IndInv1` holds after the action given it
-held before. Chained with `Init1`, this is a real inductive-invariant
-proof — not a bounded check — that across any sequence of these seven
-actions, `TypeOK` never breaks, a writer that reports success really did
-commit its own proposed snapshot (`WriterSuccessIsCommitted` — the
+What the eight per-action step lemmas establish on their own: for each of
+the five writer actions and both reader actions, `IndInv1` holds after the
+action given it held before — one step ahead of a state where it already
+held, not yet a statement about an actual run. `NextStep1` and
+`TemporalInvariance` close that gap: chained with `Init1` via the `PTL`
+backend's temporal-induction rule, this is now a real inductive-invariant
+proof of `Spec => []IndInv1` — not a bounded check, and not merely a
+one-step fact — that at **every** reachable state of an actual, unbounded
+run of `Spec`, `TypeOK` never breaks, a writer that reports success really
+did commit its own proposed snapshot (`WriterSuccessIsCommitted` — the
 property RFC 0002's own Motivation names as "lose a writer's data"), and a
 reader that finishes with a result never reports a snapshot that was never
-really committed (`ReaderSeesOnlyCommitted` — now proved for the reader
+really committed (`ReaderSeesOnlyCommitted` — proved for the reader
 actions that actually produce that result, not only inherited unchanged
 through writer actions that never touch reader state).
 
@@ -331,12 +367,6 @@ through writer actions that never touch reader state).
 Stated plainly so a `THEOREM` name already in the file is never mistaken
 for finished scope:
 
-- **The `Next`-level composition and the temporal invariance theorem**
-  (`Spec => []IndInv1` via TLAPS's `PTL` backend, combining `Init1` with
-  every action's step lemma into one property that holds at every
-  reachable state of an actual run) — not attempted. Today's eight
-  theorems are seven independent "one action preserves `IndInv1`" facts,
-  not yet assembled into that single statement.
 - **The model's other six TLC-checked invariants** — `NoOverlappingRowIds`,
   `MonotonicNextRowId`, `VersionsMatchIndex`, `NextRowIdMatchesSegments`,
   `SegmentCountNeverDecreases`, `DeletionVectorCommitsOnlyReviseOneEntry` —
@@ -443,3 +473,28 @@ session doesn't rediscover them at the same cost:
   substituting through the equality once each) before the
   interval-membership `QED`, rather than leaving the substitution for the
   backend to perform inside the interval check itself.
+- **The `PTL` backend needs the composing action fact's own defined
+  operators unfolded at the point of citation, not just the top-level
+  `Spec`.** This module's first use of `PTL` (`TemporalInvariance ==
+  Spec => []IndInv1`) failed on its very first full-module run —
+  `[ERROR]: 1/2073 obligations failed`, isolated to the theorem's own
+  final `QED` step, not any of the seven other theorems it depends on —
+  even though `NextStep1 == ASSUME IndInv1, [Next]_vars PROVE IndInv1'`
+  was itself already proved and cited by name. The `QED` step originally
+  read `BY <1>1, <1>2, PTL DEF Spec`: `DEF Spec` unfolds `Spec` into
+  `Init /\ [][Next]_<<snapshots, wPc, wLocal, rPc, rLocal>>` (confirmed in
+  the failing obligation's own printed goal), but `<1>2`'s own statement
+  still carried `[Next]_vars` with this file's local `vars` operator
+  un-expanded, so the two `[Next]_<...>` action formulas were not
+  syntactically identical once `PTL` tried to line up the induction step
+  against `Spec`'s own next-state relation. The fix: add `vars` to the
+  same `DEF` clause (`BY <1>1, <1>2, PTL DEF Spec, vars`) — trivial once
+  found, but not something the three ordinary backends (zenon, Isabelle,
+  z3) surface a comparable failure mode for, since none of the eight
+  earlier theorems in this file compose two independently defined
+  operators standing for the same tuple across a temporal proof step.
+  General lesson: before citing `PTL` across a step lemma proved against
+  a locally defined `vars`-style operator and a `Spec` defined against a
+  literal tuple (or a different alias), `DEF` every operator that stands
+  for the same underlying expression on both sides of the composition, not
+  only the outermost one named in the goal.

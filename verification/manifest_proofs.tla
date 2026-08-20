@@ -2087,4 +2087,70 @@ THEOREM ReadSnapshotObjectStep1 ==
 <1>8. QED
   BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
+(* ------------------------------------------------------------------- *)
+(* Next-level composition and the temporal invariance theorem. The      *)
+(* eight theorems above are each "one action preserves IndInv1, one     *)
+(* step ahead of a state where it already held" -- NextStep1 assembles  *)
+(* them into a single fact about manifest.tla's actual Next (a          *)
+(* disjunction over five existentially-quantified writer actions and    *)
+(* two existentially-quantified reader actions, per manifest.tla's own  *)
+(* Next definition), and TemporalInvariance below lifts that one-step   *)
+(* fact to the standard TLA+ invariance rule -- IndInv1 holds not just  *)
+(* one step past a state where it already held, but at EVERY reachable  *)
+(* state of an actual run of Spec == Init /\ [][Next]_vars (manifest.tla*)
+(* has no fairness conjuncts, so this is the full Spec, not a subset of *)
+(* it). This is the standard TLAPS "prove Spec => []Inv" pattern (see    *)
+(* the TLAPS tutorial and the distribution's own Paxos.tla-style example*)
+(* proofs): a step lemma covering [Next]_vars (the action, disjuncted   *)
+(* with stuttering), combined with Init1, discharged via the PTL        *)
+(* backend's temporal-induction rule.                                  *)
+(* ------------------------------------------------------------------- *)
+
+THEOREM NextStep1 == ASSUME IndInv1, [Next]_vars PROVE IndInv1'
+<1>1. CASE Next
+  <2>1. CASE \E w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ ProposeDeletionVectorCommit(w)
+                                \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
+    <3>1. PICK w \in Writers : ReadCurrent(w) \/ ProposeSnapshot(w) \/ ProposeDeletionVectorCommit(w)
+                                \/ TryAdvancePointer(w) \/ ResolveAmbiguity(w)
+      BY <2>1
+    <3>2. CASE ReadCurrent(w)
+      BY <3>2, ReadCurrentStep1
+    <3>3. CASE ProposeSnapshot(w)
+      BY <3>3, ProposeSnapshotStep1
+    <3>4. CASE ProposeDeletionVectorCommit(w)
+      BY <3>4, ProposeDeletionVectorCommitStep1
+    <3>5. CASE TryAdvancePointer(w)
+      BY <3>5, TryAdvancePointerStep1
+    <3>6. CASE ResolveAmbiguity(w)
+      BY <3>6, ResolveAmbiguityStep1
+    <3>7. QED
+      BY <3>1, <3>2, <3>3, <3>4, <3>5, <3>6
+  <2>2. CASE \E r \in Readers : ReadPointer(r) \/ ReadSnapshotObject(r)
+    <3>1. PICK r \in Readers : ReadPointer(r) \/ ReadSnapshotObject(r)
+      BY <2>2
+    <3>2. CASE ReadPointer(r)
+      BY <3>2, ReadPointerStep1
+    <3>3. CASE ReadSnapshotObject(r)
+      BY <3>3, ReadSnapshotObjectStep1
+    <3>4. QED
+      BY <3>1, <3>2, <3>3
+  <2>3. QED
+    BY <1>1, <2>1, <2>2 DEF Next
+<1>2. CASE UNCHANGED vars
+  <2>unch. snapshots' = snapshots /\ wPc' = wPc /\ wLocal' = wLocal /\ rPc' = rPc /\ rLocal' = rLocal
+    BY <1>2 DEF vars
+  <2>qed. QED
+    BY <2>unch DEF IndInv1, TypeOK, WriterSuccessIsCommitted, ReaderSeesOnlyCommitted,
+                    FnDomains, BaseVersionBounded, ProposedIsReal, PtrVersionBounded
+<1>3. QED
+  BY <1>1, <1>2
+
+THEOREM TemporalInvariance == Spec => []IndInv1
+<1>1. Init => IndInv1
+  BY Init1
+<1>2. IndInv1 /\ [Next]_vars => IndInv1'
+  BY NextStep1
+<1>3. QED
+  BY <1>1, <1>2, PTL DEF Spec, vars
+
 =============================================================================
