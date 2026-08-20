@@ -214,15 +214,50 @@ Non-goals and Open questions still leave genuinely open:
   Starling vs. an untested alternative). Source: `CLAUDE.md`'s own mission
   statement ("the warm-tier graph blob family is in-scope but explicitly
   second") and RFC 0010 Non-goals/Open questions ("entirely untouched by
-  this RFC"). **Confirmed by adversarial review**: this is not a small
-  task — it is a full new blob family requiring its own RFC (design,
-  worked example, napkin math, adversarial review) before any code, the
-  same weight RFC 0010 itself carried for the cluster family, and
-  `docs/milestones.md` genuinely names no explicit M2/M3 boundary sentence
-  for it (verified directly against the file's M2 and M3 paragraphs).
-  Status: open, RFC-sized. Depends on: nothing technically, but sequencing
-  it after M2-1/M2-2 is recommended so the cluster family's own remaining
-  loose ends don't compete for the same design attention.
+  this RFC"). **Status: RFC drafted, not yet approved**
+  (`rfcs/0014-graph-blob-family.md`, `docs/ledger.md`, 2026-08-20) — a
+  full new blob family, the same weight RFC 0010 itself carried for the
+  cluster family, registering `family_id = 5` ("graph") with two blob
+  types (graph node records; node-order permutation directory), grounded
+  against the real, live-fetched DiskANN NeurIPS 2019 paper (Algorithms
+  1–3, the on-disk layout, the billion-point experiment parameters —
+  `references/diskann-neurips2019.md`, re-fetched in full this session:
+  the earlier vendoring was abstract-only and insufficient to ground a
+  wire-format RFC) and the real, live-fetched Starling SIGMOD 2024 paper
+  (the NP-hardness theorem, the BNP/BNF/BNS block-shuffling algorithms
+  with BNF's own pseudocode transcribed in full — `references/starling-
+  sigmod2024.md`, likewise re-fetched in full). Resolves R1's node-order-
+  permutation question with a real comparison, not a straw man: Starling's
+  BNF is registered as the default, argued against a genuine, cited,
+  unmeasured alternative (reusing an existing cluster-family k-means
+  assignment as physical placement order) rather than only against Gorder
+  (already ruled out on record, `docs/data-structures.md`). Confirms and
+  details invariant 1's `rebuild` merge-strategy label for this family
+  with three independent arguments (RobustPrune's global pruning property,
+  DiskANN's own measured single-vs-merged latency finding, and
+  IP-DiskANN's own framing of batch consolidation as the standard prior
+  behavior). Finds, and states honestly rather than glossing over, a real
+  v0.1 design cost: because the RFC defers an in-memory compressed-code
+  cache (a real, named Non-goal, follow-on work), its query-resolution
+  path must fetch every candidate node it discovers, not only nodes it
+  expands, a real round-trip regression against DiskANN's own published
+  figures, quantified in the RFC's own worked example (a 5-node graph
+  trace: 2 real hops, 4 real fetches) and Napkin math (an honest
+  worst-case bound reaching the tens of thousands of fetches at realistic
+  `R` and hop counts, still one to four orders of magnitude below the
+  5–20-second cold-object-storage baseline this family exists to escape,
+  per `CLAUDE.md` §7's own calibration line). Left Draft deliberately, per
+  `CLAUDE.md` §3 — the RFC's own Status bullet names three specific
+  reasons this design (a real, STRAND-original physical-slot-addressing
+  scheme built on top of, not read directly out of, either cited paper)
+  needs an independent adversarial pass before Approval, not a
+  self-declaration by the drafting session. No crate code was written;
+  the next step is that independent review, then implementation (real
+  Vamana/BNF construction code, a `bench/` measurement replacing this
+  RFC's own literature-translated arithmetic — both named in the RFC's own
+  Open questions). Depends on: nothing technically, but sequencing it
+  after M2-1/M2-2 was followed here so the cluster family's own remaining
+  loose ends didn't compete for the same design attention.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**
