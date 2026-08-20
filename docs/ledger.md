@@ -3221,6 +3221,61 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   slice; the node-order-permutation (BNF) algorithm, the wire-format
   blobs, and the query path are separate, later slices already named in
   `docs/roadmap.md`'s M2-3 entry.
+- **RFC 0014 implementation, slice 2 of 4 — Starling's node-order-
+  permutation algorithms, pure in-memory Rust — 2026-08-20.**
+  `crates/strand-vector/src/reorder.rs`; `docs/roadmap.md`'s M2-3 entry
+  carries the full account, this entry the condensed one. `OR(G)`
+  (Definition 1/Eq. 5), BNP (Algorithm I), and BNF (Algorithm II, the
+  RFC's own registered default), transcribed against
+  `references/starling-sigmod2024.md`'s own vendored pseudocode. BNS
+  (Algorithm III) explicitly not implemented: the vendored reference gives
+  it as prose with no concrete selection rule, iteration order, or
+  termination condition beyond a stated complexity class, and guessing a
+  mechanism to fit that shape would be presenting an invention as
+  Starling's own algorithm, per `CLAUDE.md` §3 — a real, named gap, not a
+  shortfall against this task's actual (BNP/BNF) requirement.
+
+  **A real finding from running the transcription against a real graph,
+  not anticipated going in, and a real fix.** A single BNF iteration can
+  measurably decrease `OR(G)` below its own BNP starting layout — the
+  paper's own text says this is possible ("does not ensure the
+  convergence of `OR(G)`," unlike BNS's Lemma-4.2-proved monotonicity) —
+  and Algorithm 1's own pseudocode, read literally, would still return
+  that worse layout if the configured stopping rule halted there. This
+  task's own required comparative test caught exactly that on a real
+  `build_vamana` graph (`n=500`, `block_size=16`: BNP `0.1401`, one BNF
+  iteration `0.0841`). Fixed by tracking the best `OR(G)` layout seen
+  across BNP's own starting point and every BNF iteration and returning
+  that one — a documented engineering choice, not a mechanical
+  transcription step, that makes `bnf(...)`'s own result a guaranteed
+  lower bound of `bnp(...)`'s on every input. The raw one-iteration
+  mechanism itself is unchanged and stays independently hand-checkable,
+  extracted into its own `bnf_one_iteration` function separately from the
+  best-seen wrapper.
+
+  **Required comparative proof, reported honestly.** Re-run after the fix
+  at the same real-graph configuration: naive `0.0300`, BNP `0.1401`, BNF
+  `0.1401` — equal to BNP here, not strictly greater, because this run's
+  own iterations never beat BNP's own starting layout before stopping.
+  Stated plainly rather than smoothed: the paper's "BNF beats BNP" claim
+  is an aggregate finding across real datasets, not a per-run guarantee,
+  and this module's own required property is the provably-always-true
+  weaker one (`bnf(...) ≥ bnp(...)`), which held. Two hand-checkable
+  worked examples independently prove the mechanism: a 6-node
+  interleaved-pairs graph where BNP alone reaches `OR(G) = 1.0` from a
+  naive `0.0`, and the RFC's own 5-node example where one raw BNF
+  iteration provably decreases `OR(G)` from `0.6` to `0.4`, while
+  `bnf(...)`'s own best-seen wrapper correctly returns the better `0.6`
+  layout instead — both proven in the same test.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `cargo
+  test --workspace` all clean (11 new tests, including a property-tested
+  bijection guarantee over real `build_vamana` graphs — the correctness
+  property the eventual wire-format permutation-directory blob depends on
+  completely). Depends on: nothing further for this slice; the wire-format
+  blobs and the query path remain separate, later slices already named in
+  `docs/roadmap.md`'s M2-3 entry.
 - **DST cross-validation harness (Workflow II) built and run — M3-3,
   2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
   TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and

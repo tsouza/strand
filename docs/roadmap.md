@@ -320,9 +320,9 @@ Non-goals and Open questions still leave genuinely open:
   RFC's own illustrative topology — expected and stated in the RFC's own
   text ("a plausible Vamana output for hand-checkability, not a
   hand-execution of Algorithm 3") — so the implementation instead asserts
-  degree `≤ R` and a correct nearest-neighbor result across 20 seeds, both
+  degree `≤ R` and a correct nearest-neighbor result across 500 seeds, both
   of which hold. Full reachability from the entry point does not hold at
-  this exact tiny scale: an exploratory 500-seed sweep found the outlier
+  this exact tiny scale: the same 500-seed loop found the outlier
   `E=(2,2)` deterministically unreachable in 0/500 runs, traced to real
   geometry, not flakiness or a bug — `E` is farther from every other point
   than those points are from each other, so `A`/`B`/`C`/`D`'s own true
@@ -353,6 +353,78 @@ Non-goals and Open questions still leave genuinely open:
   Depends on: nothing further for this slice; the node-order-permutation
   (BNF) algorithm, the wire-format blobs (Design §§2–3), and the query
   path (Design §5) are separate, later slices in this same sequence.
+
+  **Implementation, slice 2 of 4 — Starling's node-order-permutation
+  algorithms, pure in-memory, no wire format — done (2026-08-20).**
+  `crates/strand-vector/src/reorder.rs`: the overlap-ratio locality metric
+  `OR(G)` (Definition 1/Eq. 5), BNP (Algorithm I), and BNF (Algorithm II,
+  the RFC's own registered default), transcribed against
+  `references/starling-sigmod2024.md`'s own vendored pseudocode — no wire
+  format, no `SegmentBuilder`; wire-format blobs (Design §§2–3) and the
+  query path (Design §5) remain separate, later slices. **BNS (Algorithm
+  III) is explicitly not implemented**: the vendored reference's own BNS
+  section is prose, not pseudocode, and names no concrete candidate-pair
+  selection rule, iteration order, or termination condition beyond a
+  stated complexity class — inventing a mechanism that merely produces the
+  right asymptotic shape would be presenting a guess as Starling's own
+  algorithm, exactly what this task's own brief and `CLAUDE.md` §3
+  forbid. BNP and BNF are this RFC's load-bearing pieces (the simple
+  baseline and the registered default); BNS's absence is a real, named
+  gap, not a shortfall against this task's actual requirement.
+
+  Three documented interpretation choices for real ambiguities the
+  vendored BNF pseudocode leaves open, named rather than silently
+  resolved: tie-breaking toward the lower block ID when two candidates
+  share the same neighbor frequency; the "add `u` to an empty block"
+  fallback read as "the first block with any spare capacity," since
+  nothing in the algorithm's own text guarantees a literally empty block
+  still exists whenever that branch fires; and — found only by running
+  this module's own literal transcription against a real
+  `build_vamana`-constructed graph, not anticipated going in — a single
+  BNF iteration can measurably *decrease* `OR(G)` below its own BNP
+  starting point (a real, paper-acknowledged possibility: "BNF's
+  efficiency is contingent on the number of iterations and does not
+  ensure the convergence of `OR(G)`," unlike BNS, which Lemma 4.2 proves
+  monotonic), so `bnf(...)` tracks the best `OR(G)` layout seen across
+  BNP's own starting point and every iteration and returns that one,
+  making its own result a guaranteed lower bound of `bnp(...)`'s on every
+  input rather than a probabilistic "usually better" — every intermediate
+  per-iteration transition still follows Algorithm 1's own rule exactly
+  and unmodified, extracted into its own function
+  (`bnf_one_iteration`) precisely so the raw mechanism stays independently
+  hand-checkable, separately from the best-seen wrapper around it.
+
+  **Required comparative proof, and what it actually showed.** On a real
+  `build_vamana`-constructed graph (`n=500`, `dims=32`, `R=16`,
+  `block_size=16`, seed 42): naive/ID-order `OR(G) = 0.0300` (close to the
+  paper's own measured `≈0` baseline); BNP `OR(G) = 0.1401`; BNF, after
+  the best-seen fix, `OR(G) = 0.1401` — equal to BNP at this specific
+  configuration, not strictly greater, because this run's own BNF
+  iterations never found a layout better than BNP's own starting point
+  before the configured stopping rule halted. This is reported honestly
+  rather than smoothed: the paper's own claim (BNF beats BNP on average,
+  across their real datasets) is an aggregate finding, not a per-run
+  guarantee, and this module's own required property is the weaker,
+  provably-always-true one (`bnf(...)` result `≥ bnp(...)` result on every
+  input), which this same run confirms held. A hand-checkable 6-node
+  example (two disjoint 2-cycles, interleaved by ID) independently proves
+  BNP's own mechanism reaches `OR(G) = 1.0` from a naive `0.0` baseline by
+  hand; a second hand-checkable trace over the RFC's own 5-node worked
+  example proves BNF's own one-iteration mechanism exactly, including the
+  real case where it decreases `OR(G)` from BNP's `0.6` to `0.4` — and
+  confirms `bnf(...)`'s own best-seen wrapper correctly returns BNP's
+  better `0.6` layout instead, both proven in the same test.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, and
+  `cargo test --workspace` all clean (11 new tests in
+  `crates/strand-vector/src/reorder.rs`, including a property-tested
+  bijection guarantee over real `build_vamana` graphs at varied scale,
+  degree bound, and block size — the correctness property the eventual
+  wire-format permutation-directory blob depends on completely). Depends
+  on: nothing further for this slice; the wire-format blobs (Design §§2–3)
+  and the query path (Design §5) remain separate, later slices in this
+  same sequence.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**
