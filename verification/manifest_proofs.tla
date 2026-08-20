@@ -106,7 +106,20 @@ BY ElementOfSeq
 (* (EXCEPT never changes a function's domain) rather than by TypeOK.       *)
 FnDomains == DOMAIN wLocal = Writers /\ DOMAIN rLocal = Readers
 
-IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted /\ FnDomains
+(* Needed so ProposeSnapshot/ProposeDeletionVectorCommit can type-check     *)
+(* `snapshots[wLocal[w].baseVersion]` when baseVersion > 0: without an      *)
+(* upper bound relating a writer's cached baseVersion to the CURRENT        *)
+(* length of `snapshots`, nothing says that index is even in bounds. True   *)
+(* by construction (ReadCurrent's only write to baseVersion sets it to the  *)
+(* CURRENT Len(snapshots); thereafter snapshots only grows, never shrinks,  *)
+(* and no other action touches a writer's baseVersion field at all), but    *)
+(* "true by construction" still has to be said as an explicit inductive     *)
+(* conjunct for TLAPS to use it -- found necessary the same way FnDomains   *)
+(* was, by first trying to type-check ProposeSnapshot's `proposed` record   *)
+(* without it and watching tlapm reject the missing-bound obligation.       *)
+BaseVersionBounded == \A w \in Writers : wLocal[w].baseVersion <= Len(snapshots)
+
+IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted /\ FnDomains /\ BaseVersionBounded
 
 THEOREM Init1 == Init => IndInv1
 <1>1. Init => TypeOK
@@ -117,8 +130,10 @@ THEOREM Init1 == Init => IndInv1
   BY DEF Init, ReaderSeesOnlyCommitted
 <1>4. Init => FnDomains
   BY DEF Init, FnDomains
-<1>5. QED
-  BY <1>1, <1>2, <1>3, <1>4 DEF IndInv1
+<1>5. Init => BaseVersionBounded
+  BY DEF Init, BaseVersionBounded
+<1>6. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
 
 (* ------------------------------------------------------------------- *)
 (* Per-action step lemmas. Each shows IndInv1 preserved across one      *)
@@ -267,7 +282,32 @@ THEOREM ReadCurrentStep1 ==
     BY <1>unch DEF IndInv1, FnDomains
   <2>c. QED
     BY <2>a, <2>b DEF FnDomains
-<1>5. QED
-  BY <1>1, <1>2, <1>3, <1>4 DEF IndInv1
+<1>5. BaseVersionBounded'
+  <2> SUFFICES ASSUME NEW w0 \in Writers PROVE wLocal'[w0].baseVersion <= Len(snapshots')
+    BY DEF BaseVersionBounded
+  <2>1. CASE w0 = w
+    <3>1. CASE wLocal' = [wLocal EXCEPT ![w] =
+                           [baseVersion |-> Len(snapshots),
+                            nextRowId |-> IF Len(snapshots) = 0 THEN 0 ELSE snapshots[Len(snapshots)].nextRowId,
+                            proposed |-> NoProposal]]
+      <4>a. wLocal'[w] = [baseVersion |-> Len(snapshots),
+                           nextRowId |-> IF Len(snapshots) = 0 THEN 0 ELSE snapshots[Len(snapshots)].nextRowId,
+                           proposed |-> NoProposal]
+        BY <3>1, <1>dom, ExceptSame
+      <4>b. QED
+        BY <4>a, <2>1, <1>unch
+    <3>2. CASE wLocal' = wLocal
+      BY <3>2, <2>1, <1>unch DEF IndInv1, BaseVersionBounded
+    <3>3. QED
+      BY <3>1, <3>2, <1>wldisj
+  <2>2. CASE w0 # w
+    <3>a. wLocal'[w0] = wLocal[w0]
+      BY <2>2, <1>wldisj, <1>dom, ExceptOther
+    <3>b. QED
+      BY <3>a, <1>unch DEF IndInv1, BaseVersionBounded
+  <2>3. QED
+    BY <2>1, <2>2
+<1>6. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
 
 =============================================================================
