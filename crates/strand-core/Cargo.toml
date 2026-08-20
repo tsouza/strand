@@ -26,6 +26,16 @@ all = { level = "deny", priority = -1 }
 s3 = ["dep:aws-sdk-s3", "dep:aws-config", "dep:aws-smithy-types", "dep:tokio"]
 
 [dev-dependencies]
+# strand-lexical and strand-vector both depend on strand-core as a normal
+# dependency; the reverse edge here is dev-only (test-only), so this is a
+# supported Cargo dev-dependency cycle, not a real circular build
+# dependency — needed because `tests/hybrid_rrf_end_to_end.rs` (M3-6,
+# `docs/roadmap.md`) is the one place in this project that builds a real
+# segment carrying both blob families over one row-ID space and needs
+# both crates to do it.
 proptest = "1.11.0"
+rand = "0.9.2"
+strand-lexical = { path = "../strand-lexical" }
+strand-vector = { path = "../strand-vector" }
 testcontainers-modules = { version = "0.15.0", features = ["minio"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
