@@ -615,3 +615,73 @@ first, per §2's own approved sequencing) both land before compaction's own
 commit-path design work starts, so that work extends a model already proven to
 correspond to the real code rather than stacking a third hopeful, unverified
 extension on top. Neither artifact is built yet. Landed 2026-08-19.
+
+**TLAPS proof of the model's five writer actions — landed 2026-08-20,
+`docs/roadmap.md` M3-2.** The first of the two remaining artifacts named
+above now has real, mechanically-checked progress, honestly partial. Every
+claim below was independently confirmed by running `tlapm` and reading its
+own final summary line — never assumed from a `THEOREM`'s presence in the
+file alone, per this task's own explicit honesty requirement.
+
+A real toolchain fix was needed before any proof could be attempted: TLAPS
+1.5.0 rejects any module extending `manifest.tla` outright, because its
+level-checker cannot process `SumCounts`'s `RECURSIVE`-operator definition
+(an assertion failure in `e_levels.ml`, "Recursive operator definitions are
+not supported"). Fixed by rewriting `SumCounts` to TLA+'s native
+recursive-*function* syntax, a semantics-preserving change re-confirmed
+against TLC (identical 5,943 states, 22,286 generated, depth 18, before and
+after). `verification/README.md`'s new "TLAPS proof" section carries the
+full account, including a "lessons for extending this proof" list — several
+genuinely reproducible backend-flakiness patterns (existentials spanning a
+state transition, repeated large inline subexpressions, `<=`-transitivity
+through record-field expressions) that cost real iteration to diagnose and
+are worth a future session reading before adding to this file.
+
+`verification/manifest_proofs.tla` (new, `EXTENDS manifest` so TLC's own
+checking of the model stays untouched by proof iteration) proves
+`IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted
+/\ FnDomains /\ BaseVersionBounded /\ ProposedIsReal` inductive across
+`Init` and all five of the model's **writer**-path actions (`ReadCurrent`,
+`ProposeSnapshot`, `ProposeDeletionVectorCommit`, `TryAdvancePointer`,
+`ResolveAmbiguity` — the actions matching `commit()`'s and
+`commit_deletion_vector()`'s real control flow, which is the literal scope
+this task named). Three of `IndInv1`'s six conjuncts (`FnDomains`,
+`BaseVersionBounded`, `ProposedIsReal`) are not among `manifest.cfg`'s own
+seven TLC-checked invariants — each is a fact true by construction that
+still needed stating as its own explicit inductive conjunct before TLAPS
+could use it, found by trying to type-check an obligation without it and
+watching tlapm reject the gap. None weakens or contradicts the seven
+TLC-checked invariants.
+
+**Fully proved, confirmed by a clean `tlapm` run reporting
+`[INFO]: All 1247 obligations proved.` and exit code 0**: `Init1` and one
+step theorem per writer action, each of the shape `IndInv1 /\ Action(w) =>
+IndInv1'`. Chained together this is a genuine inductive-invariant proof —
+not a bounded check — that across any sequence of these five actions,
+`TypeOK` never breaks, `WriterSuccessIsCommitted` holds (no writer that
+reports success has actually lost its own committed data — the property
+this RFC's own Summary names first: "lose a writer's data"), and
+`ReaderSeesOnlyCommitted` holds (no reader ever observes a snapshot that
+was never really committed).
+
+**Explicitly not yet attempted, so partial scope is never mistaken for
+complete coverage**: the reader-path actions (`ReadPointer`,
+`ReadSnapshotObject`); the `Next`-level case-split composing all seven
+actions into one property and the temporal invariance theorem itself
+(`Spec => []IndInv1`, needing TLAPS's `PTL` backend) — today's six theorems
+are independent per-action facts, not yet assembled into that single
+statement; and the model's other six TLC-checked invariants, most notably
+`NoOverlappingRowIds` — the invariant most directly answering "no two
+writers' CAS-raced commits silently overlap row-ID ranges," arguably the
+more central of the two properties this RFC's own Summary names
+("silently commit overlapping row-ID ranges or lose a writer's data").
+`NoOverlappingRowIds` needs a materially harder inductive strengthening
+(proving each snapshot's segments are packed contiguously, by induction
+over `SumCounts`'s recursive structure) than anything this pass attempted;
+it is not close to done, not merely unstarted busywork. The DST
+cross-validation harness (this RFC's third artifact) is entirely
+unstarted. `docs/ledger.md` carries the same accounting for the
+settled-vs-open ledger's sake, and `docs/roadmap.md`'s M3-2 entry is
+updated to reflect partial, not complete, status — M3's compaction gate
+(this section, above) still needs the remainder of this artifact plus the
+DST harness before it is satisfied.
