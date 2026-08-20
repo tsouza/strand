@@ -149,9 +149,18 @@ direct consequence (`rfcs/0008-positions.md` and
 Non-goals, resolved here per roadmap item X-1).
 
 `field_id` is a `u64`. The value `0` (`FIELD_ID_NONE`) is reserved and
-means "this blob has no field association" — a segment-scoped blob (a
-deletion vector, RFC 0012) or the anonymous placeholder blob RFC 0001's
-own worked example (§7) uses. Every other value is computed as
+means "this blob has no field association" — the anonymous placeholder
+blob RFC 0001's own worked example (§7) uses is the only blob-registry
+entry that has actually used it to date. (An earlier version of this
+sentence also cited a deletion vector, RFC 0012, as a second example;
+that reference was stale and is removed here. Per `spec/deletion.md` §2
+and RFC 0012 Design §1, a deletion-vector object is never placed in a
+segment's blob registry at all — no footer, no hotcache, no `blob_entry`
+— so it was never a real `field_id = FIELD_ID_NONE` registry entry to
+cite. Correction identified while drafting `docs/roadmap.md` D-5, which
+depends on this section's precedent being accurate: D-5's own new blob is
+poised to be blob-registry `field_id = 0`'s first real, non-toy use.)
+Every other value is computed as
 `xxHash3-64` (the same algorithm the footer's `checksum_algo` already
 names, reused rather than registering a second hash function, invariant 8)
 over the field's declared name, taken as raw UTF-8 bytes with no

@@ -1631,6 +1631,163 @@ discipline every other milestone gets in this document.
   code-search system rather than an adjacent storage layer. Status: open,
   research-sized, no code dependencies, no other item in this section blocks it —
   a reasonable next single task given its low weight. Depends on: nothing.
+- **D-5** — A recency-weighted BM25 scoring profile, `bm25-recency`, motivated by
+  the same domain-scoping decision that opened D-1 through D-4 but not one of its
+  four originally-named "does change" items itself — a new task this session's own
+  design exploration (research → design → independent adversarial critique)
+  surfaced, and a real candidate for logs specifically: log relevance genuinely
+  decays with age in a way general prose search does not model. The critique found
+  the core research sound (the dl/avdl blob gap is real and correctly independent
+  of this design; the recency formula is genuinely Elasticsearch's own exponential
+  decay function, independently re-verified against Elastic's live docs;
+  `family_id = 6` is genuinely unallocated in `spec/container.md` §9) but flagged
+  five real problems before the design would be RFC-ready. This entry is the design
+  corrected against all five, re-verified against the actual repo rather than
+  trusted from the critique's summary.
+
+  **Mechanism.** Register `family_id = 6` ("temporal"), `blob_type_id = 0`
+  ("event-timestamp store"): a dense `u64`-milliseconds-per-row-ordinal array,
+  `storage_class = raw-mappable`, `tier = cold-fetchable`, `alignment = 8`,
+  `merge strategy = concatenate + remap`. The real structural precedent for that
+  merge strategy is `spec/vectors.md` §7's flat-vector blob — also a dense,
+  row-ordinal-indexed array merged by concatenation and offset remapping, not
+  rebuild or rebalance — not the deletion vector the original proposal cited.
+  **Fix 1 (field_id):** the proposal claimed `field_id = FIELD_ID_NONE` (row-scoped,
+  not field-scoped) usage here was "exactly the precedent `spec/deletion.md`'s
+  deletion-vector blob already establishes." Independently re-checked against
+  `spec/deletion.md` §2 ("Not a segment, not a container... No footer, no hotcache,
+  no blob registry"), RFC 0012 Design §1 ("this 'blob type' is registered for
+  identity and citation purposes even though the object itself never lives inside a
+  segment's own blob registry"), and `crates/strand-core/src/deletion.rs` directly
+  (no `BlobEntry`/`BlobSpec` anywhere in it): this is false. A deletion vector is
+  never a blob-registry entry at all. The only real prior `field_id = 0` usage
+  anywhere in the actual blob registry is RFC 0001's own toy placeholder, which
+  `spec/container.md` §5a itself now states plainly is the only registry entry that
+  has used it to date (stale "deletion vector, RFC 0012" reference in that section
+  removed by this same pass, `spec/container.md` §5a). This design would be the
+  **first real production use** of blob-registry `field_id = 0`, not a repeat of
+  established practice — stated as such, not glossed.
+
+  A new scoring profile `bm25-recency` (`spec/scoring-profiles.md`):
+  `final_score = bm25_component * decay(event_timestamp_millis, origin_millis,
+  scale_millis, decay, offset_millis)`, where `decay(t, origin, scale, decay,
+  offset) = exp((ln(decay) / scale) * max(0, |t - origin| - offset))` —
+  Elasticsearch's real exponential decay function. Segment-frozen parameters: `k1`,
+  `b` (inherited, same defaults and bounds as `bm25`); `scale_millis` (required, no
+  default); `decay` (`0 < decay < 1`, default `0.5`); `offset_millis` (default `0`).
+  **Fix 4 (parameter validation):** `scale_millis` had no stated lower bound in the
+  original proposal — `ln(decay) / scale_millis` divides by zero at `scale_millis =
+  0`, the exact class of bound `spec/scoring-profiles.md` §2 already enforces on
+  `k1` (`≥ 0, finite`) and `b` (`0 ≤ b ≤ 1`). Add `scale_millis > 0, finite` to the
+  parameter table, matching that rigor. No principled *upper* bound is arguable from
+  first principles the way the lower bound is: an unusually large `scale_millis`
+  just makes decay negligible over any realistic time delta, which is not a
+  correctness problem, only a modeling no-op — inventing an arbitrary cap here would
+  be exactly the kind of unsourced number `CLAUDE.md` §2 deletes rather than
+  softens. The one real MUST is `finite` (rejecting `+inf`/`NaN`, matching `k1`'s
+  own `finite` requirement), not a numeric ceiling.
+
+  Query-time, **not** segment-frozen: `origin_millis` — storing "now" in a segment
+  descriptor would silently decay every score to zero once the segment ages past
+  `scale_millis`, so `spec/scoring-profiles.md` §1 needs one new sentence
+  acknowledging a profile's inputs may include caller-supplied, non-descriptor
+  values (real, since today's descriptor schema, RFC 0003 §1, states only
+  segment-frozen fields).
+
+  **Worked example**, extending RFC 0003's own canonical `bm25` example (4 docs,
+  term "whale", `dl = 41`, `tf = 3`, `avdl = 40`, `k1 = 1.2`, `b = 0.75` →
+  `idf = 0.847298`, `norm = 1.222500`, `bm25 = 0.601988` — re-derived by hand here,
+  matches) with a 5th document sharing the same `tf`/`dl`/`avdl` shape but a
+  different `n`: `idf = ln(1.4) = 0.336472`, `norm = 1.222500` (unchanged, `dl`/`avdl`
+  held fixed by construction, a toy simplification, not a claim about a real
+  multi-segment `avdl` recomputation), `bm25_component = 0.336472 * 3 / 4.222500 =
+  0.239057` (recomputed by hand: `3 * 0.336472 = 1.009416`; `1.009416 / 4.2225 =
+  0.239057` — confirmed, not copied uncritically). At `scale_millis = 3,600,000`
+  (1 hour), `decay = 0.5`, `offset_millis = 0`: doc D (30 min = 1,800,000 ms old)
+  gets `decay = exp(0.5 * ln(0.5)) = 0.5^0.5 = 0.707107` → `final = 0.239057 *
+  0.707107 = 0.169039`; doc E (2 hr = 7,200,000 ms old) gets `decay = 0.5^2 = 0.25`
+  → `final = 0.239057 * 0.25 = 0.059764`. Ratio `0.169039 / 0.059764 = 2.828428 ≈
+  2√2` — all four figures re-derived independently here, matching the original
+  proposal exactly.
+
+  **Cost, re-verified against the real `bench/results/field-end-to-end-100476.json`
+  figures, one error found and corrected.** Storage at the real 100,476-document
+  MS MARCO benchmark scale: `100,476 * 8 = 803,808` bytes (≈785 KiB, confirmed:
+  `803808 / 1024 = 784.97`), **≈0.77%** of the 100 MB (104,857,600-byte) cold-open
+  budget (`803808 / 104857600 = 0.00767`) — matches the original proposal. The
+  proposal's comparison figure does not: it cited "the real positions-blob figure of
+  4,135,112 bytes (≈19% of it)" against the same 100 MB budget. Recomputed directly
+  against the real, committed figure (`bench/results/field-end-to-end-100476.json`,
+  `"positions_bytes": 4135112`): `4135112 / 104857600 = 0.03944` — **≈3.9%, not
+  ≈19%**. The raw byte figure itself is real and correctly cited (confirmed against
+  the committed JSON); the percentage computed from it was not. Corrected here as an
+  additional finding beyond the critique's five, per `CLAUDE.md` §2's rule that a
+  wrong number is deleted or fixed, not softened. Registry overhead: 42 bytes/segment
+  (`spec/container.md` §5) against the measured 16,344-byte hotcache ceiling
+  (`docs/ledger.md`'s hotcache-tail-read entry) — `42 / 16344 = 0.00257`, **≈0.26%**,
+  confirmed. Zero added round trips: the wholesale-fetch placement rule RFC 0003 §4,
+  `spec/postings.md` §8, `spec/term-dictionary.md` §5, and `spec/filter-bitmaps.md`
+  §5 already established applies identically to a `raw-mappable`, `cold-fetchable`
+  blob addressed from the hotcache's blob registry. `committed_at_millis` (the
+  existing snapshot-level timestamp) cannot substitute: `CLAUDE.md` §6's own text
+  states batching encourages one shared commit timestamp per batch, which would
+  collapse an hour-spanning batch's real event-time spread to a single decay value
+  against this same worked example's own 1-hour `scale_millis` — a real argument,
+  re-checked against the cited section, not merely asserted.
+
+  **Fix 2 (undisclosed dependency on an open RFC).** The profile-precondition rule
+  (a segment declaring `bm25-recency` MUST also declare the event-timestamp blob)
+  requires a reader to know which scoring profile a field declares *before* checking
+  blob presence — but RFC 0003's own Open Questions section defers the
+  scoring-profile descriptor's placement inside a segment to the still-open
+  R2/postings RFC (`docs/ledger.md` R2; RFC 0003 Open Questions: "deferred to the
+  R2/postings RFC, which owns the lexical blob's byte layout"). The original
+  proposal's blast-radius section claimed zero interaction with any other open RFC
+  and missed this coupling entirely. Named explicitly here, not claimed independent:
+  drafting `bm25-recency` as a numbered RFC does not strictly require R2 to land
+  first (RFC 0003 itself shipped and was approved with its own descriptor placement
+  left open, the exact precedent to follow), but the profile-precondition rule's
+  own conformance behavior is genuinely unresolved until R2 lands, and the eventual
+  RFC MUST say so rather than assume the precondition mechanism is fully specified.
+
+  **Fix 3 (missing infrastructure).** "Apply decay once per document, not once per
+  term" assumes a multi-term, per-document score-summing path. Checked directly
+  against `crates/strand-lexical/src/field.rs`: `FieldReader::search_bm25(term:
+  &str, doc_lengths: &[u32], profile: &Bm25Profile)` and `search_bm25_row_ids` both
+  take one `term: &str`, singular — every caller scores exactly one query term at a
+  time today; no multi-term aggregation path exists. A literal implementation
+  against the current codebase risks applying the decay factor once per
+  `(term, document)` pair instead of once per document, silently squaring the
+  recency penalty on any multi-term query. Resolution for this pass: **scope the MVP
+  explicitly to single-term queries**, matching what `search_bm25` already supports,
+  and name multi-term score aggregation (summing term scores per document before
+  applying decay once) as new, separate required design work the eventual RFC must
+  do — not an assumed-available primitive, and not silently deferred without a name.
+
+  **Fix 5 (domain-fit scope).** `committed_at_millis`'s inadequacy is argued for
+  logs specifically; the original proposal never addressed source-code segments,
+  where "recency" would mean commit or last-modified time from the VCS, a
+  completely different provenance than log-ingest timing, and possibly a different
+  per-file rather than per-batch granularity. Resolution: **`bm25-recency` is scoped
+  to log-family segments for this pass.** Whether and how an analogous mechanism
+  applies to code segments (a `family_id = 6` blob populated from VCS metadata
+  instead of ingest timestamps, or a different profile entirely) is named here as a
+  separate, later open question, not silently unaddressed the way the original
+  proposal left it.
+
+  Status: **open, RFC-sized, design revised after independent adversarial review** —
+  not yet an approved or implemented RFC; a corrected pre-RFC design ready for
+  someone to actually draft. Depends on: nothing to begin drafting (following RFC
+  0003's own precedent of shipping the profile mechanism ahead of the R2 placement
+  decision, Fix 2 above); real conformance-vector and end-to-end work is coupled to
+  R2 landing and to D-1's log analyzer profile (a `bm25-recency` conformance corpus
+  wants real, D-2-sourced log data with real timestamps, not synthetic ones).
+
+  **Next step**: draft this as a real numbered RFC — `ls rfcs/` shows 0001 through
+  0014 already allocated, so the next free number is **0015** — once someone picks
+  this up, following `CLAUDE.md` §3's design-then-implementation separation (design
+  lands and passes its own adversarial review before any implementation session
+  starts building against it).
 
 ## Also corrected by this revision, outside this document
 
