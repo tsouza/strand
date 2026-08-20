@@ -100,6 +100,22 @@ pub fn store_for(endpoint: &str, bucket: &str) -> S3Store {
     S3Store::new(client, bucket.to_string())
 }
 
+/// Creates one additional bucket against an already-running MinIO container
+/// (from `start_minio`/`with_minio`). A manifest's pointer and snapshot
+/// objects live at fixed keys within a bucket (`_strand/current`,
+/// `crates/strand-core/src/manifest.rs`), so two independent tables need two
+/// buckets, not two key prefixes within one. Used by
+/// `bench/src/multi_segment_query.rs`, which needs one fresh table per
+/// segment-count configuration without paying for a second container per
+/// configuration.
+pub fn create_bucket(endpoint: &str, bucket: &str) {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let client = aws_sdk_s3::Client::from_conf(client_config_async(endpoint).await);
+        client.create_bucket().bucket(bucket).send().await.unwrap();
+    });
+}
+
 /// Starts a fresh MinIO container, runs `body` against its endpoint and
 /// bucket, and always tears the container down inside an active runtime
 /// afterward, panic or not. `ContainerAsync::drop` panics without an active
@@ -216,14 +232,20 @@ pub fn with_minio_latency(delay_ms: u64, body: impl FnOnce(&str, &str) + std::pa
     }
 }
 
-/// A `ConditionalStore` wrapper that counts GET and PUT calls, so a
-/// benchmark can report request counts alongside latency — CLAUDE.md §7
-/// requires every cold-path number be justified in GETs and bytes, not
-/// only wall-clock time.
+/// A `ConditionalStore` wrapper that counts GET and PUT calls (and the
+/// total bytes returned by GETs), so a benchmark can report request counts
+/// and byte volume alongside latency — CLAUDE.md §7 requires every
+/// cold-path number be justified in GETs and bytes, not only wall-clock
+/// time. Byte tracking (`get_bytes`) was added for
+/// `bench/src/multi_segment_query.rs`, the first benchmark here that needs
+/// to report "total bytes fetched" for a query spanning a variable,
+/// caller-controlled number of GETs (one per segment plus the manifest
+/// reads) rather than one fixed-shape open sequence.
 pub struct CountingStore<'a, S: ConditionalStore> {
     inner: &'a S,
     gets: AtomicU64,
     puts: AtomicU64,
+    get_bytes: AtomicU64,
 }
 
 impl<'a, S: ConditionalStore> CountingStore<'a, S> {
@@ -232,6 +254,7 @@ impl<'a, S: ConditionalStore> CountingStore<'a, S> {
             inner,
             gets: AtomicU64::new(0),
             puts: AtomicU64::new(0),
+            get_bytes: AtomicU64::new(0),
         }
     }
 
@@ -243,16 +266,28 @@ impl<'a, S: ConditionalStore> CountingStore<'a, S> {
         self.puts.load(Ordering::SeqCst)
     }
 
+    /// Sum of the byte lengths of every value returned by a `get` call
+    /// (misses contribute nothing) since the last `reset`.
+    pub fn get_bytes(&self) -> u64 {
+        self.get_bytes.load(Ordering::SeqCst)
+    }
+
     pub fn reset(&self) {
         self.gets.store(0, Ordering::SeqCst);
         self.puts.store(0, Ordering::SeqCst);
+        self.get_bytes.store(0, Ordering::SeqCst);
     }
 }
 
 impl<S: ConditionalStore> ConditionalStore for CountingStore<'_, S> {
     fn get(&self, key: &str) -> Result<Option<(Vec<u8>, ETag)>, StoreError> {
         self.gets.fetch_add(1, Ordering::SeqCst);
-        self.inner.get(key)
+        let result = self.inner.get(key)?;
+        if let Some((bytes, _)) = &result {
+            self.get_bytes
+                .fetch_add(bytes.len() as u64, Ordering::SeqCst);
+        }
+        Ok(result)
     }
 
     fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<ETag, StoreError> {

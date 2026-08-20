@@ -433,14 +433,35 @@ Non-goals and Open questions still leave genuinely open:
 - **M3-7** — The multi-segment benchmark: the same corpus at 1, 16, and
   ~128 segments, cold and warm, producing a measured segment-count-
   amplification curve. Source: `docs/milestones.md` M3 entry; feeds R10.
-  Status: **blocked** on M3-1 (compaction) for the realistic multi-segment
-  corpus shape, though a *without-compaction* version (many small segments
-  from repeated small commits, no merge) could run earlier as a partial
-  measurement.
+  Status: the **full** version — realistic multi-segment shape reached via
+  commits *and* merges — remains **blocked** on M3-1 (compaction, not yet
+  built). The **without-compaction partial version** this entry's own text
+  named as runnable earlier is **done, 2026-08-20**
+  (`bench/src/multi_segment_query.rs`,
+  `bench/results/multi-segment-query-partial.json`): the same 12,800-document
+  corpus, committed as 1, 16, and 128 independent segments via repeated
+  small `manifest::commit` calls with no merge step (compaction genuinely
+  does not exist yet), queried cold and warm against real MinIO. Real,
+  measured result: cold GETs were exactly `2 + segment_count` at every
+  point — 3, 18, 130 — confirming `CLAUDE.md` §7's O(segments) model exactly
+  on this corpus; cold bytes fetched grew too (643,158 → 713,164 →
+  1,291,500 bytes, ~2.0x from 1 to 128 segments, on the *same* total
+  document count) from each additional segment's fixed per-segment
+  overhead; cold latency grew but not proportionally to GET count at every
+  step (1→16 segments: 6x the GETs, 1.5x the p50 latency; 16→128: 7.2x the
+  GETs, 9.6x the p50 latency), and warm-cached (zero-GET) latency did not
+  grow monotonically at all (44.8ms → 11.8ms → 57.2ms p50) — both reported
+  as measured, not smoothed, per `CLAUDE.md` §2's rule for this project's
+  own numbers, not only vendored ones. This partial run does not close
+  M3-7: the full, post-compaction version — which would additionally show
+  compaction's effect on the curve — remains open, blocked on M3-1.
 - **M3-8** — R10 resolution: should the manifest carry optional
   per-segment summary metadata (term-statistics sketches, centroid
   summaries, min/max pruning stats) for cross-segment query pruning?
-  Source: `docs/ledger.md` R10. Status: **blocked** on M3-7.
+  Source: `docs/ledger.md` R10. Status: **blocked** on M3-7's **full**
+  version — the without-compaction partial measurement above confirms the
+  cost problem R10 exists to address is real, but says nothing about how
+  compaction changes the curve, so it does not unblock this item.
 
 ## M4 — Interchange + independence
 

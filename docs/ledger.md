@@ -581,7 +581,16 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   pruning stats) so a reader can prune segments before opening them, and what does
   target segment size look like when the 100 MB budget pushes segment count up while
   open-amortization pushes it down? Fed by the M3 multi-segment benchmark; any
-  summary blob must stay index-internals-agnostic per `CLAUDE.md` §6.
+  summary blob must stay index-internals-agnostic per `CLAUDE.md` §6. **Partial
+  data point, 2026-08-20** (`docs/roadmap.md` M3-7's without-compaction partial
+  measurement, `bench/src/multi_segment_query.rs`,
+  `bench/results/multi-segment-query-partial.json`): real, measured cold GETs grew
+  exactly `2 + segment_count` (3, 18, 130 at 1/16/128 segments) with nothing in the
+  manifest pruning segments at query time — a real confirmation that the cost
+  problem R10 exists to address is real, not just theorized. This does not resolve
+  R10: it says nothing about compaction's effect on the curve (M3-1 not yet built,
+  so this measurement is without-compaction only), and R10 itself remains fed by,
+  and gated on, M3-7's full version.
 - **R11 — Adapter feasibility audit (gates all adapter work).** Verify against
   current source, not memory: (a) **resolved 2026-08-19** — tantivy's reader
   surface — map the modules a STRAND read path must replace, settling the codec-SPI
