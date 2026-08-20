@@ -515,7 +515,24 @@ Non-goals and Open questions still leave genuinely open:
   rather than re-scoped outright, since the fork's own eventual scope
   (lexical-only vs. full-format) is itself still an open design choice.
 - **M4-5** — Puffin blob-type packaging RFC. Source: `docs/milestones.md`
-  M4 entry. Status: open, design work. Depends on: nothing.
+  M4 entry. **Status: RFC drafted, not yet approved**
+  (`rfcs/0013-puffin-export-sidecar.md`, `docs/ledger.md`, 2026-08-20) — a
+  one-way, on-demand STRAND → Puffin export sidecar (deletion vectors
+  translated byte-exact into Puffin's own registered `deletion-vector-v1`
+  type; every other blob family passed through opaquely under one
+  STRAND-namespaced type), grounded against the real, fetched Puffin v1
+  spec and the real `apache/iceberg-rust` crate
+  (`references/puffin-spec-and-iceberg-rust-implementation.md`), with a
+  container-profile alternative (STRAND's own segment format redefined
+  around Puffin's shape) considered and rejected in the RFC's own Design
+  §1. Left Draft deliberately — the RFC's own Status bullet argues this
+  design (a second wire format, a second checksum algorithm, for narrow,
+  unproven interop value) needs a genuine independent adversarial review
+  before Approval, not a self-declaration by the same session that drafted
+  it, per `CLAUDE.md` §3. No crate code was written; the next step is that
+  independent review, then implementation. Depends on: nothing to review;
+  implementation, if approved, most sensibly follows `spec/deletion.md`
+  (already landed, M2) and needs no other M4 item first.
 - **M4-6** — Lucene `StrandCodec` (JVM parity vehicle). Source:
   `docs/milestones.md` M4 entry. Status: **unblocked on M4-1(a)**, which
   is now done (including its Lucene-codec-SPI half, above); still, like
