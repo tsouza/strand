@@ -49,9 +49,11 @@
 //!
 //! **A second real ambiguity, resolved and documented rather than
 //! invented.** Algorithm 3 says "let `s` denote the medoid of dataset `P`"
-//! with no computation procedure specified — the paper's own §3.1 only
-//! discusses approximating a medoid for out-of-memory-scale construction,
-//! not an exact definition. This module computes the exact medoid as the
+//! with no computation procedure specified anywhere in the paper — the
+//! only other place `medoid` appears (§1) just names `s` again, and §3.1
+//! discusses overlapping k-means clustering for out-of-memory-scale
+//! construction, a different topic, not a medoid-approximation procedure.
+//! This module computes the exact medoid as the
 //! real dataset point minimizing the sum of *squared* Euclidean distances
 //! to every other point, which is provably identical to the point nearest
 //! the coordinate-wise mean (the standard variance-decomposition identity:
@@ -611,8 +613,10 @@ mod tests {
         // an honest, worked-out exception rather than a blanket assertion.
         // At this specific tiny scale (n=5, R=2), the outlier E=(2,2) is
         // deterministically unreachable from the entry point D under every
-        // seed tried (0/500 in an exploratory sweep, not a rare tail
-        // event): E is farther from every other point than those points
+        // seed tried (0/500 in the loop below, not a rare tail event, and
+        // independently reproduced by an ACPR reviewer at n=1000 seeds
+        // outside this test): E is farther from every other point than
+        // those points
         // are from each other, so each of A/B/C/D's own true two nearest
         // neighbors always excludes E, and R=2 leaves no spare slot for
         // it -- RobustPrune, run correctly, evicts E from every
@@ -635,7 +639,7 @@ mod tests {
         };
 
         let mut divergence_confirmed = false;
-        for seed in 0..20u64 {
+        for seed in 0..500u64 {
             let mut rng = StdRng::seed_from_u64(seed);
             let result = build_vamana(&points, n, dims, &config, &mut rng);
 
