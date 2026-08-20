@@ -42,12 +42,21 @@
   deliverables explicitly: "the graph-blob family (warm tier,
   DiskANN/Vamana)... including R1's second half (the node-order permutation
   algorithm question, Starling vs. an untested alternative)."
-- **Spec chapters produced:** none yet. This RFC proposes a new chapter,
-  `spec/graph-vectors.md`, and additively extending `spec/container.md` §9
-  with a new `family_id = 5` ("graph"), both written only at Approval —
-  every existing spec chapter in this repository states an already-settled
-  result, and this RFC is not settled (the same discipline
-  `rfcs/0013-puffin-export-sidecar.md`'s own header states).
+- **Spec chapters produced:** none at Draft time. This RFC proposed a new
+  chapter, `spec/graph-vectors.md`, and additively extending
+  `spec/container.md` §9 with a new `family_id = 5` ("graph"), both stated
+  here as written only at Approval — every existing spec chapter in this
+  repository states an already-settled result, and this RFC was not yet
+  settled at Draft time (the same discipline
+  `rfcs/0013-puffin-export-sidecar.md`'s own header states). **Correction,
+  found by an independent ACPR review of this RFC's own implementation
+  sequence**: `spec/container.md` §9's extension did not actually land at
+  Approval as this bullet originally promised — it landed later, in the
+  implementation sequence's slice 3 (`docs/roadmap.md`'s M2-3 entry),
+  alongside the graph node-record and permutation-directory wire format
+  it registers. `spec/graph-vectors.md` itself remains genuinely
+  unwritten, tracked as real, named follow-on work in that same
+  implementation sequence, not silently dropped.
 - **Invariants exercised:** 1 (`CLAUDE.md` §5 — this RFC is the concrete
   detailing of the `rebuild` merge strategy invariant 1 already names for
   graph indexes, Design §6), 3 (argued *not* to govern this family's

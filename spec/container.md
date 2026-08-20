@@ -299,19 +299,19 @@ types) with RFC 0014.
 an anonymous placeholder blob with no real family meaning, and no RFC may assign it
 a real family.
 
-| `family_id` | family  | `blob_type_id` | blob type                     | registered by                                         |
-| ----------- | ------- | -------------- | ----------------------------- | ----------------------------------------------------- |
-| 1           | lexical | 0              | term-dictionary FST           | RFC 0005 (`rfcs/0005-term-dictionary.md`)             |
-| 1           | lexical | 1              | term-info store               | RFC 0005 (`rfcs/0005-term-dictionary.md`)             |
-| 1           | lexical | 2              | postings                      | RFC 0007 (`rfcs/0007-postings-codec.md`)              |
-| 1           | lexical | 3              | positions                     | RFC 0008 (`rfcs/0008-positions.md`)                   |
-| 1           | lexical | 4              | term-info store, no positions | RFC 0009 (`rfcs/0009-per-term-overhead-reduction.md`) |
-| 2           | filter  | 0              | value-dictionary FST          | RFC 0006 (`rfcs/0006-filter-bitmaps.md`)              |
-| 2           | filter  | 1              | filter-bitmap store           | RFC 0006 (`rfcs/0006-filter-bitmaps.md`)              |
-| 3           | vector  | 0              | flat vectors                  | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
-| 3           | vector  | 1              | quantization descriptor       | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
-| 3           | vector  | 2              | cluster navigation tier       | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
-| 3           | vector  | 3              | cluster posting lists         | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
-| 4           | deletion| 0              | deletion vector               | RFC 0012 (`rfcs/0012-deletion-vectors.md`)            |
-| 5           | graph   | 0              | graph node records             | RFC 0014 (`rfcs/0014-graph-blob-family.md`)           |
-| 5           | graph   | 1              | node-order permutation directory | RFC 0014 (`rfcs/0014-graph-blob-family.md`)         |
+| `family_id` | family   | `blob_type_id` | blob type                        | registered by                                         |
+| ----------- | -------- | -------------- | --------------------------------- | ----------------------------------------------------- |
+| 1           | lexical  | 0              | term-dictionary FST              | RFC 0005 (`rfcs/0005-term-dictionary.md`)             |
+| 1           | lexical  | 1              | term-info store                  | RFC 0005 (`rfcs/0005-term-dictionary.md`)             |
+| 1           | lexical  | 2              | postings                         | RFC 0007 (`rfcs/0007-postings-codec.md`)              |
+| 1           | lexical  | 3              | positions                        | RFC 0008 (`rfcs/0008-positions.md`)                   |
+| 1           | lexical  | 4              | term-info store, no positions    | RFC 0009 (`rfcs/0009-per-term-overhead-reduction.md`) |
+| 2           | filter   | 0              | value-dictionary FST             | RFC 0006 (`rfcs/0006-filter-bitmaps.md`)              |
+| 2           | filter   | 1              | filter-bitmap store              | RFC 0006 (`rfcs/0006-filter-bitmaps.md`)              |
+| 3           | vector   | 0              | flat vectors                     | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 3           | vector   | 1              | quantization descriptor          | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 3           | vector   | 2              | cluster navigation tier          | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 3           | vector   | 3              | cluster posting lists            | RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`)  |
+| 4           | deletion | 0              | deletion vector                  | RFC 0012 (`rfcs/0012-deletion-vectors.md`)            |
+| 5           | graph    | 0              | graph node records               | RFC 0014 (`rfcs/0014-graph-blob-family.md`)           |
+| 5           | graph    | 1              | node-order permutation directory | RFC 0014 (`rfcs/0014-graph-blob-family.md`)           |
