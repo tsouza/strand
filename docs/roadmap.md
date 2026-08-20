@@ -1787,10 +1787,10 @@ discipline every other milestone gets in this document.
   D-2's real code corpus would let a follow-up benchmark measure this family's actual
   cost on structured, clustered data instead of a near-worst-case synthetic
   distribution, closing the gap this project's own conversation about that benchmark
-  already named directly. Status: open, needs D-2's real corpus first and a real,
-  licensable, locally-runnable code-embedding model (not yet identified or verified
-  available in this environment — check feasibility before committing to a specific
-  model). Depends on: D-2.
+  already named directly. Status: **closed by D-8**, below — a real, licensable,
+  locally-runnable code-embedding model was found, D-2's real corpus was embedded
+  with it, and the graph-blob benchmark was re-run against the result. Depends on:
+  D-2.
 - **D-4** — Vendor telemetry-adjacent and code-search-adjacent prior art into
   `references/` and `docs/lineage.md`, the same discipline every other design
   lineage entry in this project already follows (a primary source, fetched and
@@ -2649,6 +2649,203 @@ discipline every other milestone gets in this document.
   conformance-status update, per the newly-named editing-surface fix above)
   — both updated in the same session, matching every one of RFC 0004's prior
   amendments, before any conformance vectors are built.
+
+- **D-8** — D-3, executed: a real code-embedding model was found, licensed,
+  and run locally; D-2's Rust stdlib corpus was chunked and embedded with it;
+  the graph-blob benchmark was re-run against the result and compared
+  directly to `bench/results/graph-warm-query.json`'s synthetic-data run.
+  **Feasibility research, live-checked rather than assumed.** Three real
+  candidates were checked against Hugging Face's own model API (license
+  field, real file sizes, real siblings list), not against remembered
+  model-card text, per `CLAUDE.md` §3: `microsoft/codebert-base` was
+  rejected — its model API response carries no license field at all (not
+  merely an unfamiliar one), a real gap this pass would not paper over with
+  an assumed Apache-2.0/MIT reading, and it also ships no ONNX export, so
+  using it would require building a separate pooling head on top of a bare
+  encoder; `Salesforce/codet5p-110m-embedding` was rejected on runtime
+  grounds, not license — it is real BSD-3-Clause (compatible), but its
+  `config.json` names a `custom_code` architecture with no ONNX export,
+  so loading it at all requires `trust_remote_code=True` through the full
+  `transformers`+PyTorch stack, the heavy install path this task asked to
+  avoid where a lighter one exists. `jinaai/jina-embeddings-v2-base-code`
+  was the real, live-confirmed winner: Hugging Face's model API reports
+  `license: apache-2.0` directly (no combination-license reasoning needed,
+  the cleanest possible match to `CLAUDE.md` §1's zero-exceptions bar), a
+  real `onnx/model_quantized.onnx` export already exists in the repo
+  (161,895,621 bytes — squarely in the "tens-to-low-hundreds of MB" range
+  this task asked for, not the multi-GB range), and its model card states
+  real code-specific training: pretrained on the `github-code` dataset then
+  fine-tuned on "more than 150 million... coding question answer and
+  docstring source code pairs" across "English and 30 widely used
+  programming languages," Rust named explicitly among them. Real output
+  dimensionality, confirmed by inspecting the ONNX graph's own output
+  tensor shape directly (`onnxruntime.InferenceSession.get_outputs()`), is
+  **768**, not the original synthetic benchmark's `dims=128` — used as-is
+  here rather than truncated or padded, since either transform would
+  discard or fabricate signal the model was never trained to tolerate.
+
+  **The minimal-footprint runtime path this task asked to check for is
+  real and was used**: `onnxruntime` (23.1 MB wheel) plus the pure-Rust-
+  backed `tokenizers` package (3.3 MB wheel) — no PyTorch, no `transformers`,
+  no `trust_remote_code` — because the model's own published ONNX export
+  already bakes its custom ALiBi-attention architecture into a standard
+  graph with two plain inputs (`input_ids`, `attention_mask`) and one
+  output (`last_hidden_state`, shape `[batch, seq, 768]`), confirmed by
+  loading the graph and printing its real input/output signature before
+  committing to this path. Pooling is attention-mask-weighted mean pooling
+  over `last_hidden_state` (the same convention the model's own
+  `1_Pooling/config.json` and its published Transformers.js example use),
+  followed by L2 normalization — a deliberate choice, not the model's own
+  forced default, made because this model's intended similarity metric is
+  cosine similarity on unit vectors, and `crate::vamana`'s squared-Euclidean
+  distance is exactly monotonic with cosine similarity on unit vectors
+  (`‖a−b‖² = 2 − 2·cos(a,b)`), so the two pair up correctly without any
+  further metric-conversion work. Before spending compute on the full
+  corpus, this pipeline's real signal was sanity-checked on four hand-
+  written Rust snippets: `checked_add` vs. `checked_sub` (structurally
+  near-identical) scored cosine similarity 0.756, against 0.10–0.35 for
+  every cross-category pair (`string_split`, `vec_push`) — real, confirmed
+  cluster structure, not an assumption, before the corpus-scale run began.
+
+  **Real corpus and chunking, per D-2's own recommendation.** The identical
+  source D-2 named — `rust-lang/rust`, `library/core`+`library/std`+
+  `library/alloc` at tag `1.97.1` — was fetched with a shallow, blob-filtered,
+  sparse-checkout clone (`git clone --filter=blob:none` + `sparse-checkout`),
+  landing 1,064 real `.rs` files in ~17 MB (`.git` a further 13 MB), excluding
+  D-2's own two named per-file license exceptions
+  (`library/core/src/unicode/unicode_data.rs`,
+  `library/std/src/sys/sync/mutex/fuchsia.rs`) from this pass exactly the
+  same way D-2 itself flagged them, even though this data never leaves the
+  local machine. Chunking method, stated plainly per this task's own
+  requirement (not `syn`, not tree-sitter — a regex-plus-brace-counting
+  heuristic, fast to get mostly right rather than slow to get exactly
+  right, judged acceptable for a one-off benchmark-input generation pass
+  and not committed spec tooling): find a `fn` signature (with optional
+  `pub`/`async`/`unsafe`/`extern`/`const` modifiers and leading attributes)
+  up to its opening `{`, then walk forward counting braces to the matching
+  close, keeping the whole span. This is naive about string/char/comment
+  literals containing braces, so a small, unquantified fraction of chunks
+  may be mis-bounded — stated honestly rather than silently assumed
+  correct. 17,262 raw chunks were extracted this way; 14,773 remained after
+  exact-text dedup (macro-expanded impls across primitive integer types
+  produce some identical bodies); a 4,000-chunk build sample (matching the
+  original benchmark's own `n=4,000`) and a disjoint 300-chunk query sample
+  were drawn with fixed, distinct seeds (`20260820`/`20260821`) from that
+  pool, length-filtered to 40–4,000 characters (mean 352.8) to drop
+  one-line trivial getters and pathological outliers. The query set is real
+  held-out code embeddings from the same corpus, not fresh random vectors —
+  a random vector in ambient 768-d space would sit off this model's real
+  data manifold, which would be a *less* representative query workload than
+  reusing the corpus, not a neutral baseline.
+
+  **The re-run benchmark**: `bench/src/graph_warm_query_real_embeddings.rs`
+  (`graph-warm-query-real-embeddings` in `bench/Cargo.toml`), a new binary
+  alongside `graph_warm_query.rs` rather than a rewrite of it — the same
+  pattern `cold_open.rs`/`cold_open_injected_latency.rs` already establish
+  for "same measurement, different real regime, separate file, separate
+  results JSON." Construction parameters held identical to the original run
+  for a fair A/B (`R=64`, construction `L=100`, `alpha=1.2`, query-time
+  `L ∈ {32, 100}`, `k=10`); `dims=768` differs honestly, for the real reason
+  above. Local NVMe read latency was re-measured anyway (for a
+  self-contained report) rather than reused, and landed within noise of the
+  original run (p50 57.5μs vs. 56.2μs) — confirming, not contradicting, that
+  this component measures the storage device, not the data distribution, as
+  the D-3 task itself expected.
+
+  **The real comparative numbers**
+  (`bench/results/graph-warm-query-real-embeddings.json` against
+  `bench/results/graph-warm-query.json`, both real, both committed):
+
+  | metric (n=4,000, R=64) | synthetic, dims=128 | real embeddings, dims=768 |
+  |---|---|---|
+  | L=32 mean hops/query (min–max) | 33.45 (32–37) | 33.9 (32–38) |
+  | L=32 mean fetches/query | 2,032.9 | 1,416.3 |
+  | L=32 fetches as % of pessimistic hops×R bound | 95.0% | 65.2% |
+  | L=100 mean hops/query (min–max) | 100.80 (100–103) | 101.5 (100–104) |
+  | L=100 mean fetches/query | 5,761.1 | 3,512.4 |
+  | L=100 fetches as % of pessimistic hops×R bound | 89.3% | 54.1% |
+  | Starling OR(G), BNF permutation | 0.0795 | 0.1769 |
+  | Starling OR(G), unshuffled | 0.0156 | 0.0121 |
+  | est. query latency (local p50), L=32/L=100 | 114.3ms / 324.0ms | 81.4ms / 201.9ms |
+  | `build_vamana` wall time | 183,468ms | 416,827ms |
+  | graph blob bytes (node records + directory) | 3,152,016 | 13,392,016 |
+  | S3 whole-blob open | 3 GETs, p50 4.6ms | 3 GETs, p50 12.6ms |
+
+  **What this does and does not confirm, stated precisely rather than
+  picking the flattering half.** It does **not** confirm the hoped-for
+  "real clustered data converges in fewer hops" framing: hop count stayed
+  pinned almost exactly to the query-time `L` ceiling in both regimes —
+  every sweep's minimum hop count equals `L` itself, in both the synthetic
+  and the real run. `GreedySearch`'s termination is driven by when its
+  `L`-sized candidate list stops improving, and that saturation happened at
+  essentially the same rate regardless of whether the underlying data was
+  uniform-random or genuinely clustered — a real, honest correction to this
+  entry's own opening hypothesis, not softened. It **does** confirm a real,
+  distinct effect of cluster structure, visible in a different metric:
+  **fetch count and hop-to-hop redundancy**. Real embeddings needed 30–39%
+  fewer total record fetches per query at both `L` values, and the
+  "fraction of the pessimistic `hops × R` bound" — how much of the
+  worst-case fan-out each hop's real neighbor-overlap saves — dropped from
+  ~90–95% (synthetic, i.e. barely better than the pessimistic bound at all)
+  to ~54–65% (real). This is the real signature of cluster structure this
+  benchmark was built to find: a clustered embedding space's neighbor sets
+  overlap substantially more between successive greedy-search hops than a
+  uniform-random space's do, so a fixed hop budget touches fewer distinct
+  records — even though the hop budget itself is not shortened by
+  clustering. The Starling `OR(G)` locality metric corroborates this
+  independently (not derived from the fetch-count numbers at all): BNF's
+  own block-locality score more than doubled, 0.0795 → 0.1769, meaning BNF
+  reordering finds meaningfully better block-local neighbor structure on
+  real clustered data than on synthetic uniform-random data. Estimated
+  query latency (fetches × the real local-NVMe p50, essentially identical
+  across both runs) fell correspondingly, 29–38% lower with real data — but
+  remains firmly in the same regime RFC 0014 Design §5 already predicted
+  and `graph-warm-query.json` already measured: 81–202ms per query, still
+  one to two orders of magnitude above DiskANN's own cited `<3ms`, because
+  this v0.1 graph-blob format still has no compressed-code cache to avoid a
+  full-precision fetch per visited node — real data narrows that gap, real
+  data does not close it. `build_vamana` wall time grew 2.27x (183.5s →
+  416.8s) for a 6x increase in `dims`, a real, sub-linear-in-dims scaling
+  measurement offered without a forced explanation for the exact ratio
+  (plausibly memory-bandwidth rather than pure-compute bound at this scale,
+  not independently verified here). Graph blob bytes grew 4.25x for the
+  same 6x `dims` increase, the expected sub-linear-in-dims result of a
+  fixed per-record overhead (row ID, neighbor list) that does not scale
+  with vector width. The S3 GET count stayed exactly 3 in both runs,
+  confirming the wire-format shape is unaffected by embedding source or
+  dimensionality, as invariant 3 requires.
+
+  **Named limitation, stated explicitly per this task's own instruction:**
+  one model's (`jina-embeddings-v2-base-code`) embedding space on one
+  corpus (4,000 heuristically-extracted Rust stdlib function chunks) is not
+  a universal claim about "code embeddings" in general — a different model,
+  a different language mix, a different chunking granularity (whole files,
+  logical blocks smaller than a function, or docstring-only spans), or a
+  corpus with different real cluster density could show different
+  fetch-count/redundancy numbers. The query workload here is also
+  same-distribution held-out code chunks, not an independently-sourced
+  query shape a real deployment would see (for example, natural-language
+  code-search questions rather than function bodies) — real query-side
+  embeddings for a natural-language-to-code search task are a real
+  follow-up this entry does not attempt. The heuristic, non-parser chunker
+  (above) is a second, separately-named source of imprecision in exactly
+  what "a code embedding" means in this run.
+
+  Real artifacts from this pass: `bench/src/graph_warm_query_real_embeddings.rs`,
+  `bench/results/graph-warm-query-real-embeddings.json`, and (gitignored,
+  per `/bench/data`, never committed — the same pattern `msmarco_index.rs`
+  already establishes) `bench/data/d3-jina-code-v2/` (the ONNX model, tokenizer,
+  and the two generated embedding `.bin`/`.meta.json` pairs) and
+  `bench/data/d3-rust-stdlib-1.97.1/` (the sparse Rust stdlib checkout).
+  `cargo check --workspace --all-targets` and `cargo clippy -p strand-bench
+  --bin graph-warm-query-real-embeddings --all-targets -- -D warnings` both
+  clean. Status: **closed** — D-3's own open question (real vs. synthetic
+  convergence behavior) has a real, measured, honestly-mixed answer: hop
+  count is governed by `L` regardless of data distribution; fetch count and
+  graph locality are real, measurably better on clustered data, by 30–65%
+  depending on the metric, which is a genuine, partial confirmation of the
+  original "near-worst-case synthetic" caveat, not a full one. Depends on:
+  D-2, D-3.
 
 ## Also corrected by this revision, outside this document
 

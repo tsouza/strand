@@ -83,6 +83,10 @@ path = "src/multi_segment_query.rs"
 name = "graph-warm-query"
 path = "src/graph_warm_query.rs"
 
+[[bin]]
+name = "graph-warm-query-real-embeddings"
+path = "src/graph_warm_query_real_embeddings.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }
