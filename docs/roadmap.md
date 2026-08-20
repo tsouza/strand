@@ -487,7 +487,16 @@ Non-goals and Open questions still leave genuinely open:
   M2-3 existing at least in RFC-draft form — the other sub-parts have no
   dependency.
 - **M4-2** — CIFF importer (lossless where CIFF permits). Source:
-  `docs/milestones.md` M4 entry. Status: open. Depends on: M4-1(a)/(c)
+  `docs/milestones.md` M4 entry. Status: **done** (2026-08-20,
+  `docs/ledger.md`'s CIFF importer entry). `crates/strand-tools/src/
+  ciff.rs`'s `import_ciff` follows the tantivy importer's own pattern
+  (`convert.rs`) end to end: a real, live-fetched CIFF `.proto` schema
+  (`references/ciff-common-index-file-format.md`), hand-written
+  `prost::Message` structs, and the same `build_field_from_postings`/
+  `SegmentBuilder` path every importer uses. Per-term document frequency
+  and per-document length round-trip losslessly, cross-checked against
+  CIFF's own integrity totals; positions and external document IDs are
+  named, honest gaps (CIFF carries neither). Depends on: M4-1(a)/(c)
   (now done) informed exact scope, not strictly blocking a first pass.
 - **M4-3** — Conformance manifest frozen at spec v0.1. Source:
   `docs/milestones.md` M4 entry. Status: **blocked** on every spec
