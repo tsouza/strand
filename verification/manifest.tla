@@ -389,9 +389,11 @@ VersionsMatchIndex ==
 \* `SumCounts(segs) == ...`) an earlier version of this line used. Both are
 \* standard TLA+ and TLC accepts (and, empirically, model-checks identically
 \* to) either; the rewrite was forced by TLAPS 1.5.0, not chosen for its own
-\* sake: `verification/manifest_proofs.tla`'s proof of NextRowIdMatchesSegments
-\* (RFC 0002 / docs/roadmap.md M3-2) cannot be checked at all under the
-\* operator form -- tlapm aborts on *any* obligation in a module extending
+\* sake: `verification/manifest_proofs.tla` (RFC 0002 / docs/roadmap.md M3-2)
+\* -- which does NOT itself contain a proof of NextRowIdMatchesSegments; see
+\* that file's own "What is explicitly not yet proved" section -- could not
+\* be processed AT ALL under the operator form, regardless of which theorem
+\* was being checked: tlapm aborts on *any* obligation in a module extending
 \* this one with `Error: Recursive operator definitions are not supported`
 \* (an assertion failure in tlapm's own level-checker, e_levels.ml), confirmed
 \* by running tlapm against this module before and after this rewrite, in the

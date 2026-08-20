@@ -100,6 +100,44 @@ LEMMA ExceptProposedAt ==
 <1>5. QED
   BY <1>1, <1>2, <1>3, <1>4
 
+(* SegmentRec-EXCEPT membership fact for ProposeDeletionVectorCommit's        *)
+(* revoke step: incrementing an already-typed SegmentRec's delVer field       *)
+(* stays inside SegmentRec. This is the same shape as ExceptProposedAt above  *)
+(* -- field-by-field facts about the EXCEPT expression, proved directly via   *)
+(* ExceptSame/ExceptOther/ExceptDomain and combined once at the end -- rather *)
+(* than first proving the EXCEPT expression EQUALS a literal record          *)
+(* ([base|->.., count|->.., delVer|->..]) and then checking that literal's    *)
+(* membership. An earlier version of this proof took the literal-equality     *)
+(* route (`<3>eq`, citing only `DEF SegmentRec`) and that step did not        *)
+(* reliably discharge with the documented backend versions (TLAPS 1.5.0,      *)
+(* zenon 0.8.4, Isabelle2011-1, z3 4.8.9): reproduced 2/2 on a genuinely       *)
+(* fresh, cache-cleared run (a single z3 subprocess spinning past 20 minutes  *)
+(* on that one obligation), matching this file's own "Lessons" section        *)
+(* below, which already flagged this exact step as the hardest in the file.   *)
+(* This lemma sidesteps the literal-equality goal entirely -- the same fix    *)
+(* direction ExceptProposedAt already uses for SnapshotRec's `proposed`       *)
+(* field -- and discharges reliably in its place (see README.md's "TLAPS     *)
+(* proof" section for the current, personally-reverified obligation count).   *)
+LEMMA ExceptSegmentDelVer ==
+    ASSUME NEW r \in SegmentRec, NEW v \in Nat
+    PROVE  [r EXCEPT !.delVer = v] \in SegmentRec
+<1>dom. DOMAIN r = {"base", "count", "delVer"}
+  BY DEF SegmentRec
+<1>domdv. "delVer" \in DOMAIN r
+  BY <1>dom
+<1>domE. DOMAIN [r EXCEPT !.delVer = v] = {"base", "count", "delVer"}
+  BY <1>dom, ExceptDomain
+<1>baseE. [r EXCEPT !.delVer = v].base = r.base
+  BY ExceptOther
+<1>countE. [r EXCEPT !.delVer = v].count = r.count
+  BY ExceptOther
+<1>delVerE. [r EXCEPT !.delVer = v].delVer = v
+  BY <1>domdv, ExceptSame
+<1>fields. r.base \in Nat /\ r.count \in Nat
+  BY DEF SegmentRec
+<1>qed. QED
+  BY <1>domE, <1>baseE, <1>countE, <1>delVerE, <1>fields DEF SegmentRec
+
 LEMMA SnapshotElt ==
     ASSUME NEW seq \in Seq(SnapshotRec), NEW k \in 1..Len(seq)
     PROVE  seq[k] \in SnapshotRec
@@ -688,10 +726,11 @@ THEOREM ProposeDeletionVectorCommitStep1 ==
   (* membership check, taking 10+ minutes on a single z3/zenon subprocess   *)
   (* or failing outright, across three separate `tlapm` runs -- confirmed   *)
   (* the hard way. Shrinking the term via a local abbreviation (standard    *)
-  (* TLAPS practice for exactly this situation) plus proving the EXCEPT     *)
-  (* expression EQUALS a literal record first (the same "reconstruct as a   *)
-  (* literal, then check the literal's membership" shape that already      *)
-  (* works cleanly everywhere else in this file) together resolved it.      *)
+  (* TLAPS practice for exactly this situation) resolves the abbreviation   *)
+  (* half of the problem; <2>d below then discharges the per-field         *)
+  (* membership check via `ExceptSegmentDelVer` -- see that lemma's own     *)
+  (* comment for why the literal-record-equality route this step used      *)
+  (* to take was replaced.                                                 *)
   <2> DEFINE priorSeg1 == (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1]
   <2>a. 1 \in 1..Len(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)
     BY <1>lenps
@@ -700,15 +739,7 @@ THEOREM ProposeDeletionVectorCommitStep1 ==
   <2>c. priorSeg1.delVer \in Nat
     BY <2>b DEF SegmentRec
   <2>d. [priorSeg1 EXCEPT !.delVer = priorSeg1.delVer + 1] \in SegmentRec
-    <3>eq. [priorSeg1 EXCEPT !.delVer = priorSeg1.delVer + 1]
-           = [base |-> priorSeg1.base, count |-> priorSeg1.count, delVer |-> priorSeg1.delVer + 1]
-      BY <2>b DEF SegmentRec
-    <3>fields. priorSeg1.base \in Nat /\ priorSeg1.count \in Nat
-      BY <2>b DEF SegmentRec
-    <3>lit. [base |-> priorSeg1.base, count |-> priorSeg1.count, delVer |-> priorSeg1.delVer + 1] \in SegmentRec
-      BY <3>fields, <2>c DEF SegmentRec
-    <3>qed. QED
-      BY <3>eq, <3>lit
+    BY <2>b, <2>c, ExceptSegmentDelVer
   <2>e. [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments) EXCEPT ![1].delVer = @ + 1]
         = [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments) EXCEPT ![1] =
              [priorSeg1 EXCEPT !.delVer = priorSeg1.delVer + 1]]

@@ -162,9 +162,19 @@ depth 18) as the baseline above.
 Independently confirmed by running the exact `tlapm` invocation above and
 reading its own final summary line — never assumed from a `THEOREM`'s mere
 presence in the file. As of this file's most recent `tlapm` run:
-**`[INFO]: All 1247 obligations proved.`, exit code 0, on a clean,
-uninterrupted run** (`manifest_proofs.tla`, 1,371 lines: 6 generic reusable
-lemmas plus 6 theorems).
+**`[INFO]: All 1261 obligations proved.`, exit code 0, on two separate,
+cache-cleared, back-to-back runs producing the identical result** — the
+determinism check this file's own honesty discipline calls for, not a
+single run taken on faith (`manifest_proofs.tla`, 1,402 lines: 7 generic
+reusable lemmas plus 6 theorems). An earlier version of this file reported
+1,247 obligations from a run that did not, in fact, reproduce: an
+independent adversarial review re-ran `tlapm` fresh against that exact
+commit and got `[ERROR]: 1/1247 obligations failed` instead, isolating the
+failure to `ProposeDeletionVectorCommitStep1`'s `<3>eq` step. The fix
+(`ExceptSegmentDelVer`, described in "Lessons," below) replaced that step
+entirely rather than patching it, and the corrected 1,261-obligation count
+above is the one independently reproduced twice before being written down
+here.
 
 `IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted
 /\ FnDomains /\ BaseVersionBounded /\ ProposedIsReal` is proved to be a
@@ -258,12 +268,27 @@ session doesn't rediscover them at the same cost:
   logic being simple. `<1>revok`'s inner proof (`ProposeDeletionVectorCommitStep1`)
   reliably defeated every backend — confirmed across five separate `tlapm`
   runs, several with a single z3 or zenon subprocess spinning for 10+
-  minutes on one obligation — until the repeated `IF...THEN...ELSE...`
-  was named once via a local `<2> DEFINE priorSeg1 == ...` abbreviation
-  (standard TLAPS practice) and the target EXCEPT expression was proved
-  equal to a literal record (`[base|->.., count|->.., delVer|->..]`) before
-  checking *that* literal's set membership, rather than checking the
-  EXCEPT expression's membership directly.
+  minutes on one obligation. Naming the repeated `IF...THEN...ELSE...` once
+  via a local `<2> DEFINE priorSeg1 == ...` abbreviation (standard TLAPS
+  practice) fixed half the problem. The other half needed a real second
+  fix, found only after the first "fix" was independently re-tested and
+  found not to reliably hold: an earlier version of this file additionally
+  proved the target EXCEPT expression equal to a literal record
+  (`[base|->.., count|->.., delVer|->..]`) before checking *that* literal's
+  set membership — this route *sometimes* discharged but was not reliable
+  across fresh, cache-cleared runs with the documented backend versions
+  (reproduced failing 2/2 by an independent review). The fix that actually
+  holds up under repeated fresh runs sidesteps literal-equality entirely:
+  `ExceptSegmentDelVer`, a small reusable lemma proving `[r EXCEPT
+  !.delVer = v] \in SegmentRec` field-by-field (`DOMAIN`, then each field,
+  via `ExceptSame`/`ExceptOther`/`ExceptDomain`, the same shape
+  `ExceptProposedAt` above already uses for `SnapshotRec`'s `proposed`
+  field), cited directly at the call site instead of reconstructing a
+  literal record. The general lesson: for an EXCEPT-membership goal, prefer
+  proving membership directly, field by field, over proving equality to a
+  literal record first — the literal-equality route is a plausible-looking
+  shortcut that measurably does not hold up under a real, repeated,
+  cache-cleared `tlapm` run.
 - **Existential goals built by combining "a witness exists in the OLD
   state" with "the old state's contents are preserved into the new
   state"** (the `\E i \in 1..Len(s') : s'[i] = v` shape that recurs in

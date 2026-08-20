@@ -2848,7 +2848,7 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   TLC (identical 5,943 states, 22,286 generated, depth 18, before and
   after) — the one change this work made to `manifest.tla` itself.
 
-  New `verification/manifest_proofs.tla` (1,371 lines, `EXTENDS manifest`)
+  New `verification/manifest_proofs.tla` (1,402 lines, `EXTENDS manifest`)
   proves `IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\
   ReaderSeesOnlyCommitted /\ FnDomains /\ BaseVersionBounded /\
   ProposedIsReal` inductive across `Init` and all five **writer**-path
@@ -2862,17 +2862,32 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   watching tlapm reject a type-check without it. None weakens the seven
   TLC-checked invariants.
 
-  **Confirmed proved** by a clean, uninterrupted `tlapm` run reporting
-  `[INFO]: All 1247 obligations proved.`, exit code 0 (the honesty
-  requirement this task carried: every claim independently confirmed by
-  running `tlapm` and reading its own output, never assumed from a
-  `THEOREM`'s presence in the file): `Init1`, plus one step theorem per
-  writer action. Chained, this is a genuine inductive-invariant proof —
-  not a bounded check — that `TypeOK` never breaks and, the property RFC
-  0002's own Motivation names first, no writer that reports success has
-  lost its own committed data (`WriterSuccessIsCommitted`), and no reader
-  ever observes a snapshot that was never really committed
-  (`ReaderSeesOnlyCommitted`).
+  **Confirmed proved** by a clean `tlapm` run reporting `[INFO]: All 1261
+  obligations proved.`, exit code 0, reproduced identically across two
+  separate cache-cleared runs (the honesty requirement this task carried:
+  every claim independently confirmed by running `tlapm` and reading its
+  own output, never assumed from a `THEOREM`'s presence in the file):
+  `Init1`, plus one step theorem per writer action. Chained, this is a
+  genuine inductive-invariant proof — not a bounded check — that `TypeOK`
+  never breaks and, the property RFC 0002's own Motivation names first, no
+  writer that reports success has lost its own committed data
+  (`WriterSuccessIsCommitted`), and no reader ever observes a snapshot
+  that was never really committed (`ReaderSeesOnlyCommitted`).
+
+  **This obligation count was wrong once, caught by review, and is now
+  independently re-verified — stated here rather than quietly overwritten.**
+  A first pass of this task reported 1,247 obligations proved from a run
+  that did not, in fact, reproduce: an independent adversarial reviewer
+  re-ran `tlapm` fresh against that exact commit and got one real failure
+  (`ProposeDeletionVectorCommitStep1`'s `<3>eq` step), reproduced 4/4 on
+  cache-cleared runs. The fix (`ExceptSegmentDelVer`, a reusable lemma
+  proving `EXCEPT`-membership field-by-field rather than via a literal-
+  record-equality detour that looked like it worked but did not reliably
+  discharge) is a different proof strategy for that one step, not a patch;
+  full account in `verification/README.md`'s "Lessons" section and RFC
+  0002's own Discussion addendum. Nothing about this correction narrows or
+  widens the scope claimed below — the writer-path proof was always the
+  right scope, and remains exactly as scoped.
 
   **Confirmed NOT proved, named specifically rather than left implicit**:
   the reader-path actions (`ReadPointer`, `ReadSnapshotObject`); the

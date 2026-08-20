@@ -654,8 +654,9 @@ watching tlapm reject the gap. None weakens or contradicts the seven
 TLC-checked invariants.
 
 **Fully proved, confirmed by a clean `tlapm` run reporting
-`[INFO]: All 1247 obligations proved.` and exit code 0**: `Init1` and one
-step theorem per writer action, each of the shape `IndInv1 /\ Action(w) =>
+`[INFO]: All 1261 obligations proved.` and exit code 0, reproduced
+identically on two separate cache-cleared runs**: `Init1` and one step
+theorem per writer action, each of the shape `IndInv1 /\ Action(w) =>
 IndInv1'`. Chained together this is a genuine inductive-invariant proof —
 not a bounded check — that across any sequence of these five actions,
 `TypeOK` never breaks, `WriterSuccessIsCommitted` holds (no writer that
@@ -663,6 +664,29 @@ reports success has actually lost its own committed data — the property
 this RFC's own Summary names first: "lose a writer's data"), and
 `ReaderSeesOnlyCommitted` holds (no reader ever observes a snapshot that
 was never really committed).
+
+**Addendum, 2026-08-20 (a false completion claim, caught by independent
+review, corrected).** An earlier pass of this same task-level effort
+reported 1,247 obligations proved and treated that as settled. An
+independent adversarial reviewer re-ran `tlapm` fresh (cleared proof
+cache, matching backend versions) against that exact commit and got a
+different, real result: one obligation failed
+(`ProposeDeletionVectorCommitStep1`'s `<3>eq` step, which proved the
+target `EXCEPT` expression equal to a literal record before checking the
+literal's membership), reproduced failing on 4 separate cache-cleared
+runs. The fix replaces that step with `ExceptSegmentDelVer`, a small
+reusable lemma proving the same membership fact directly, field by field,
+the same technique `ExceptProposedAt` already used elsewhere in this file
+— not a patch to the failing step, a different proof strategy for it.
+The corrected 1,261-obligation count above was independently reproduced
+twice, fresh, before being written down here; `verification/README.md`'s
+"Lessons" section carries the full account, including why the
+literal-equality route looked like it worked but did not reliably hold.
+Nothing about this correction changes the *scope* named below — the
+writer-path proof this section claims was always the right scope, and
+remains exactly as scoped; only the obligation count and the reliability
+of one internal step were wrong, and both are now independently
+verified, not merely re-asserted.
 
 **Explicitly not yet attempted, so partial scope is never mistaken for
 complete coverage**: the reader-path actions (`ReadPointer`,
