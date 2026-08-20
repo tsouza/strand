@@ -35,10 +35,9 @@
 //! memory (`CLAUDE.md` §3): Apache Iceberg's `remove_orphan_files`
 //! procedure takes its own separate `older_than` parameter (default 3
 //! days ago), entirely independent of `expire_snapshots`'s retention
-//! properties — "Unlike `expire_snapshots`, which targets old snapshots
-//! and their associated data files, `remove_orphan_files` specifically
-//! identifies and removes files that have become disconnected from table
-//! metadata entirely" (`references/iceberg-remove-orphan-files-procedure.md`).
+//! properties (whose own equivalent, `history.expire.max-snapshot-age-ms`,
+//! defaults to 5 days) — two separately documented parameters with two
+//! different defaults (`references/iceberg-remove-orphan-files-procedure.md`).
 //! [`DEFAULT_RETENTION_WINDOW_MILLIS`] mirrors that same default. Recorded
 //! normatively in `rfcs/0001-container-rowid-manifest.md`'s Discussion
 //! section (M3-5) and `spec/manifest.md`'s "Orphan files" paragraph.

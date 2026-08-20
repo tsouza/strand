@@ -1047,11 +1047,10 @@ first few minutes).
 Resolved by grounding against real prior art rather than picking a number
 from memory (`CLAUDE.md` §3): Apache Iceberg's `remove_orphan_files`
 action takes its own `older_than` parameter (default **3 days ago**),
-entirely independent of `expire_snapshots`'s retention properties. Its
-own documentation states the split directly: "Unlike `expire_snapshots`,
-which targets old snapshots and their associated data files,
-`remove_orphan_files` specifically identifies and removes files that have
-become disconnected from table metadata entirely"
+entirely independent of `expire_snapshots`'s retention properties (whose
+own `older_than`-equivalent, `history.expire.max-snapshot-age-ms`,
+defaults to 5 days) — two separately documented parameters with two
+different defaults, not one knob doing double duty
 (`references/iceberg-remove-orphan-files-procedure.md`, fetched
 2026-08-19). STRAND's sweep follows the same split: `sweep_orphans`'s
 `retention_window_millis` is a parameter to the sweep call (and

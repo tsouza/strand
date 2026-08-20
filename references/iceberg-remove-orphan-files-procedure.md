@@ -17,8 +17,8 @@ Apache-2.0 (already recorded for this repository in
 
 ## Description
 
-"The procedure removes files that are not referenced in any metadata files
-of an Iceberg table and can thus be considered 'orphaned'."
+"Used to remove files which are not referenced in any metadata files of an
+Iceberg table and can thus be considered 'orphaned'."
 
 ## Key parameters
 
@@ -38,11 +38,13 @@ equivalent knobs (`history.expire.max-snapshot-age-ms`,
 which *snapshots* remain live. `remove_orphan_files` is a **separate
 procedure** with its **own separate `older_than` parameter and its own
 separate default (3 days)** — it does not read or derive from
-`expire_snapshots`'s retention properties at all. Iceberg's own docs state
-the distinction directly: "Unlike `expire_snapshots`, which targets old
-snapshots and their associated data files, `remove_orphan_files`
-specifically identifies and removes files that have become disconnected
-from table metadata entirely."
+`expire_snapshots`'s retention properties at all. Iceberg's own docs never
+state this distinction as a contrast between the two procedures directly;
+the separation is inferred from the two procedures' independent parameter
+tables and defaults (`expire_snapshots`'s `older_than` defaults to 5 days,
+`remove_orphan_files`'s to 3 days — two different numbers is itself
+evidence the two knobs are not the same one), not from a single sentence
+naming the split.
 
 ## What this confirms
 
