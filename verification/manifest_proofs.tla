@@ -142,7 +142,22 @@ FnDomains == DOMAIN wLocal = Writers /\ DOMAIN rLocal = Readers
 (* without it and watching tlapm reject the missing-bound obligation.       *)
 BaseVersionBounded == \A w \in Writers : wLocal[w].baseVersion <= Len(snapshots)
 
-IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted /\ FnDomains /\ BaseVersionBounded
+(* Needed so TryAdvancePointer/ResolveAmbiguity can type-check the Append   *)
+(* that lands a writer's own `wLocal[w].proposed` into `snapshots`:         *)
+(* `TypeOK` alone only says that field is `NoProposal` OR a `SnapshotRec`,  *)
+(* which is not enough to know it is safe to append at the specific moment *)
+(* the pointer CAS succeeds. It is always a real `SnapshotRec` by that      *)
+(* point (ProposeSnapshot/ProposeDeletionVectorCommit only ever advance a  *)
+(* writer to "Advance" in the same step that sets its `.proposed` field to *)
+(* a real record), but -- same story as FnDomains and BaseVersionBounded -- *)
+(* that has to be said as its own inductive conjunct before TLAPS can use  *)
+(* it; found necessary the same way, by first trying to type-check the     *)
+(* Append in TryAdvancePointerStep1 without it.                            *)
+ProposedIsReal == \A w \in Writers :
+    wPc[w] \in {"Advance", "ResolveAmbiguity", "Done"} => wLocal[w].proposed \in SnapshotRec
+
+IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted /\ FnDomains
+           /\ BaseVersionBounded /\ ProposedIsReal
 
 THEOREM Init1 == Init => IndInv1
 <1>1. Init => TypeOK
@@ -155,8 +170,10 @@ THEOREM Init1 == Init => IndInv1
   BY DEF Init, FnDomains
 <1>5. Init => BaseVersionBounded
   BY DEF Init, BaseVersionBounded
-<1>6. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
+<1>6. Init => ProposedIsReal
+  BY DEF Init, ProposedIsReal
+<1>7. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
 
 (* ------------------------------------------------------------------- *)
 (* Per-action step lemmas. Each shows IndInv1 preserved across one      *)
@@ -330,8 +347,42 @@ THEOREM ReadCurrentStep1 ==
       BY <3>a, <1>unch DEF IndInv1, BaseVersionBounded
   <2>3. QED
     BY <2>1, <2>2
-<1>6. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
+<1>6. ProposedIsReal'
+  <2> SUFFICES ASSUME NEW w0 \in Writers, wPc'[w0] \in {"Advance", "ResolveAmbiguity", "Done"}
+               PROVE  wLocal'[w0].proposed \in SnapshotRec
+    BY DEF ProposedIsReal
+  <2>1. CASE w0 = w
+    <3>domp. DOMAIN wPc = Writers
+      BY DEF IndInv1, TypeOK
+    <3>a. wPc'[w] \in {"Propose", "Failed", "Read"}
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Propose"]
+        BY <4>1, <3>domp, ExceptSame
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>2, <3>domp, ExceptSame
+      <4>3. CASE wPc' = [wPc EXCEPT ![w] = "Read"]
+        BY <4>3, <3>domp, ExceptSame
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>wpcdisj
+    <3>b. QED
+      BY <3>a, <2>1
+  <2>2. CASE w0 # w
+    <3>a. wPc'[w0] = wPc[w0]
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Propose"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE wPc' = [wPc EXCEPT ![w] = "Read"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>wpcdisj
+    <3>b. wLocal'[w0] = wLocal[w0]
+      BY <2>2, <1>wldisj, <1>dom, ExceptOther
+    <3>c. QED
+      BY <3>a, <3>b DEF IndInv1, ProposedIsReal
+  <2>3. QED
+    BY <2>1, <2>2
+<1>7. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
 
 THEOREM ProposeSnapshotStep1 ==
     ASSUME IndInv1, NEW w \in Writers, ProposeSnapshot(w)
@@ -557,8 +608,55 @@ THEOREM ProposeSnapshotStep1 ==
       BY <3>a, <1>unchsnap DEF IndInv1, BaseVersionBounded
   <2>3. QED
     BY <2>1, <2>2
-<1>6. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
+<1>6. ProposedIsReal'
+  <2> SUFFICES ASSUME NEW w0 \in Writers, wPc'[w0] \in {"Advance", "ResolveAmbiguity", "Done"}
+               PROVE  wLocal'[w0].proposed \in SnapshotRec
+    BY DEF ProposedIsReal
+  <2>1. CASE w0 = w
+    <3>1. CASE /\ wLocal' = [wLocal EXCEPT ![w].proposed =
+                              [version |-> wLocal[w].baseVersion,
+                               nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                               segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                    [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+               /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
+               /\ UNCHANGED <<snapshots, rPc, rLocal>>
+      <4>a. wLocal'[w].proposed =
+              [version |-> wLocal[w].baseVersion,
+               nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+               segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                    [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]
+        BY <3>1, <1>domw, ExceptProposedAt
+      <4>b. QED
+        BY <2>1, <4>a, <1>newrecok
+    <3>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"] /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+      BY <3>2, <2>1, <1>domp, ExceptSame
+    <3>3. QED
+      BY <3>1, <3>2, <1>disj
+  <2>2. CASE w0 # w
+    <3>a. wPc'[w0] = wPc[w0]
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Advance"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. QED
+        BY <4>1, <4>2, <1>wpcdisj
+    <3>b. wLocal'[w0] = wLocal[w0]
+      <4>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                             [version |-> wLocal[w].baseVersion,
+                              nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                              segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                   [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wLocal' = wLocal
+        BY <4>2
+      <4>3. QED
+        BY <4>1, <4>2, <1>disj
+    <3>c. QED
+      BY <3>a, <3>b DEF IndInv1, ProposedIsReal
+  <2>3. QED
+    BY <2>1, <2>2
+<1>7. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
 
 THEOREM ProposeDeletionVectorCommitStep1 ==
     ASSUME IndInv1, NEW w \in Writers, ProposeDeletionVectorCommit(w)
@@ -583,20 +681,37 @@ THEOREM ProposeDeletionVectorCommitStep1 ==
     BY <2>5, <1>lenps DEF SnapshotRec
 <1>revok. [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)
              EXCEPT ![1].delVer = @ + 1] \in Seq(SegmentRec)
+  (* Named locally via `<2> DEFINE` rather than repeating the IF-expression *)
+  (* inline (as the surrounding steps in this file otherwise do): this is   *)
+  (* the one step in the whole file where the repeated inline expression    *)
+  (* reliably defeated every backend on the raw EXCEPT-of-unknown-record    *)
+  (* membership check, taking 10+ minutes on a single z3/zenon subprocess   *)
+  (* or failing outright, across three separate `tlapm` runs -- confirmed   *)
+  (* the hard way. Shrinking the term via a local abbreviation (standard    *)
+  (* TLAPS practice for exactly this situation) plus proving the EXCEPT     *)
+  (* expression EQUALS a literal record first (the same "reconstruct as a   *)
+  (* literal, then check the literal's membership" shape that already      *)
+  (* works cleanly everywhere else in this file) together resolved it.      *)
+  <2> DEFINE priorSeg1 == (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1]
   <2>a. 1 \in 1..Len(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)
     BY <1>lenps
-  <2>b. (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1] \in SegmentRec
+  <2>b. priorSeg1 \in SegmentRec
     BY <1>priorsegs, <2>a, SnapshotElt
-  <2>c. (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1].delVer \in Nat
+  <2>c. priorSeg1.delVer \in Nat
     BY <2>b DEF SegmentRec
-  <2>d. [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1]
-           EXCEPT !.delVer = (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1].delVer + 1]
-         \in SegmentRec
-    BY <2>b, <2>c DEF SegmentRec
+  <2>d. [priorSeg1 EXCEPT !.delVer = priorSeg1.delVer + 1] \in SegmentRec
+    <3>eq. [priorSeg1 EXCEPT !.delVer = priorSeg1.delVer + 1]
+           = [base |-> priorSeg1.base, count |-> priorSeg1.count, delVer |-> priorSeg1.delVer + 1]
+      BY <2>b DEF SegmentRec
+    <3>fields. priorSeg1.base \in Nat /\ priorSeg1.count \in Nat
+      BY <2>b DEF SegmentRec
+    <3>lit. [base |-> priorSeg1.base, count |-> priorSeg1.count, delVer |-> priorSeg1.delVer + 1] \in SegmentRec
+      BY <3>fields, <2>c DEF SegmentRec
+    <3>qed. QED
+      BY <3>eq, <3>lit
   <2>e. [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments) EXCEPT ![1].delVer = @ + 1]
         = [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments) EXCEPT ![1] =
-             [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1]
-                EXCEPT !.delVer = (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)[1].delVer + 1]]
+             [priorSeg1 EXCEPT !.delVer = priorSeg1.delVer + 1]]
     OBVIOUS
   <2>f. QED
     BY <1>priorsegs, <2>a, <2>d, <2>e, ExceptSeq
@@ -786,7 +901,54 @@ THEOREM ProposeDeletionVectorCommitStep1 ==
       BY <3>a, <1>unchsnap DEF IndInv1, BaseVersionBounded
   <2>3. QED
     BY <2>1, <2>2
-<1>6. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
+<1>6. ProposedIsReal'
+  <2> SUFFICES ASSUME NEW w0 \in Writers, wPc'[w0] \in {"Advance", "ResolveAmbiguity", "Done"}
+               PROVE  wLocal'[w0].proposed \in SnapshotRec
+    BY DEF ProposedIsReal
+  <2>1. CASE w0 = w
+    <3>1. CASE /\ wLocal' = [wLocal EXCEPT ![w].proposed =
+                              [version |-> wLocal[w].baseVersion,
+                               nextRowId |-> wLocal[w].nextRowId,
+                               segments |-> [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)
+                                               EXCEPT ![1].delVer = @ + 1]]]
+               /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
+               /\ UNCHANGED <<snapshots, rPc, rLocal>>
+      <4>a. wLocal'[w].proposed =
+              [version |-> wLocal[w].baseVersion,
+               nextRowId |-> wLocal[w].nextRowId,
+               segments |-> [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)
+                               EXCEPT ![1].delVer = @ + 1]]
+        BY <3>1, <1>domw, ExceptProposedAt
+      <4>b. QED
+        BY <2>1, <4>a, <1>newrecok
+    <3>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"] /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+      BY <3>2, <2>1, <1>domp, ExceptSame
+    <3>3. QED
+      BY <3>1, <3>2, <1>disj
+  <2>2. CASE w0 # w
+    <3>a. wPc'[w0] = wPc[w0]
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Advance"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. QED
+        BY <4>1, <4>2, <1>wpcdisj
+    <3>b. wLocal'[w0] = wLocal[w0]
+      <4>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                             [version |-> wLocal[w].baseVersion,
+                              nextRowId |-> wLocal[w].nextRowId,
+                              segments |-> [(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments)
+                                              EXCEPT ![1].delVer = @ + 1]]]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wLocal' = wLocal
+        BY <4>2
+      <4>3. QED
+        BY <4>1, <4>2, <1>disj
+    <3>c. QED
+      BY <3>a, <3>b DEF IndInv1, ProposedIsReal
+  <2>3. QED
+    BY <2>1, <2>2
+<1>7. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
 
 =============================================================================
