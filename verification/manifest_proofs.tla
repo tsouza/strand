@@ -77,6 +77,29 @@ OBVIOUS
 (* Seq(SnapshotRec) is itself a SnapshotRec. Isolated once so every later  *)
 (* per-action step just cites SnapshotElt instead of re-deriving           *)
 (* ElementOfSeq's instantiation each time.                                *)
+(* ProposeSnapshot / ProposeDeletionVectorCommit update wLocal via a        *)
+(* nested field-EXCEPT (`[wLocal EXCEPT ![w].proposed = v]`), TLA+ sugar    *)
+(* for `[wLocal EXCEPT ![w] = [wLocal[w] EXCEPT !.proposed = v]]`. Same     *)
+(* story as the ExceptSame/ExceptOther pair above: each conjunct here is   *)
+(* OBVIOUS alone, but the two-step desugaring has to be spelled out        *)
+(* explicitly (<1>1 first, then the plain record-field facts, combined at  *)
+(* the end) or tlapm's backends fail to connect them.                      *)
+LEMMA ExceptProposedAt ==
+    ASSUME NEW f, NEW x \in DOMAIN f, NEW v
+    PROVE  /\ [f EXCEPT ![x].proposed = v][x].proposed = v
+           /\ [f EXCEPT ![x].proposed = v][x].baseVersion = f[x].baseVersion
+           /\ [f EXCEPT ![x].proposed = v][x].nextRowId = f[x].nextRowId
+<1>1. [f EXCEPT ![x].proposed = v][x] = [f[x] EXCEPT !.proposed = v]
+  OBVIOUS
+<1>2. [f[x] EXCEPT !.proposed = v].proposed = v
+  OBVIOUS
+<1>3. [f[x] EXCEPT !.proposed = v].baseVersion = f[x].baseVersion
+  OBVIOUS
+<1>4. [f[x] EXCEPT !.proposed = v].nextRowId = f[x].nextRowId
+  OBVIOUS
+<1>5. QED
+  BY <1>1, <1>2, <1>3, <1>4
+
 LEMMA SnapshotElt ==
     ASSUME NEW seq \in Seq(SnapshotRec), NEW k \in 1..Len(seq)
     PROVE  seq[k] \in SnapshotRec
@@ -305,6 +328,233 @@ THEOREM ReadCurrentStep1 ==
       BY <2>2, <1>wldisj, <1>dom, ExceptOther
     <3>b. QED
       BY <3>a, <1>unch DEF IndInv1, BaseVersionBounded
+  <2>3. QED
+    BY <2>1, <2>2
+<1>6. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5 DEF IndInv1
+
+THEOREM ProposeSnapshotStep1 ==
+    ASSUME IndInv1, NEW w \in Writers, ProposeSnapshot(w)
+    PROVE  IndInv1'
+<1>rc. RowIdCounts[w] \in Nat \ {0}
+  BY DEF RowIdCounts
+<1>domw. DOMAIN wLocal = Writers
+  BY DEF IndInv1, FnDomains
+<1>disj. \/ /\ wLocal' = [wLocal EXCEPT ![w].proposed =
+                          [version |-> wLocal[w].baseVersion,
+                           nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                           segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+            /\ wPc' = [wPc EXCEPT ![w] = "Advance"]
+            /\ UNCHANGED <<snapshots, rPc, rLocal>>
+         \/ /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+            /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+  BY DEF ProposeSnapshot
+<1>unchsnap. snapshots' = snapshots /\ rPc' = rPc /\ rLocal' = rLocal
+  BY <1>disj
+<1>priorsegs. wLocal[w].baseVersion # 0 => snapshots[wLocal[w].baseVersion].segments \in Seq(SegmentRec)
+  <2>1. wLocal[w].baseVersion \in Nat
+    BY DEF IndInv1, TypeOK
+  <2>2. wLocal[w].baseVersion <= Len(snapshots)
+    BY DEF IndInv1, BaseVersionBounded
+  <2>3. wLocal[w].baseVersion # 0 => wLocal[w].baseVersion \in 1..Len(snapshots)
+    BY <2>1, <2>2
+  <2>4. snapshots \in Seq(SnapshotRec)
+    BY DEF IndInv1, TypeOK
+  <2>5. wLocal[w].baseVersion # 0 => snapshots[wLocal[w].baseVersion] \in SnapshotRec
+    BY <2>3, <2>4, SnapshotElt
+  <2>6. QED
+    BY <2>5 DEF SnapshotRec
+<1>newrecok. wLocal[w].baseVersion # 0 \/ TRUE =>
+    [version |-> wLocal[w].baseVersion,
+     nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+     segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                          [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])] \in SnapshotRec
+  <2>a. wLocal[w].baseVersion \in Nat /\ wLocal[w].nextRowId \in Nat
+    BY DEF IndInv1, TypeOK
+  <2>b. (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments) \in Seq(SegmentRec)
+    <3>1. CASE wLocal[w].baseVersion = 0
+      <4>a. (IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments) = <<>>
+        BY <3>1
+      <4>b. <<>> \in Seq(SegmentRec)
+        OBVIOUS
+      <4>c. QED
+        BY <4>a, <4>b
+    <3>2. CASE wLocal[w].baseVersion # 0
+      BY <3>2, <1>priorsegs
+    <3>3. QED
+      BY <3>1, <3>2
+  <2>c. [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0] \in SegmentRec
+    BY <2>a, <1>rc DEF SegmentRec
+  <2>d. Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+               [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0]) \in Seq(SegmentRec)
+    BY <2>b, <2>c, AppendProperties
+  <2>e. QED
+    BY <2>a, <1>rc, <2>d DEF SnapshotRec
+<1>wlatw. \/ /\ wLocal'[w].baseVersion \in Nat
+             /\ wLocal'[w].nextRowId \in Nat
+             /\ wLocal'[w].proposed \in SnapshotRec
+          \/ wLocal'[w] = wLocal[w]
+  <2>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                         [version |-> wLocal[w].baseVersion,
+                          nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                          segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                               [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+    <3>a. wLocal'[w].proposed =
+            [version |-> wLocal[w].baseVersion,
+             nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+             segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                  [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]
+      BY <2>1, <1>domw, ExceptProposedAt
+    <3>b. wLocal'[w].baseVersion = wLocal[w].baseVersion /\ wLocal'[w].nextRowId = wLocal[w].nextRowId
+      BY <2>1, <1>domw, ExceptProposedAt
+    <3>c. wLocal[w].baseVersion \in Nat /\ wLocal[w].nextRowId \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>d. QED
+      BY <3>a, <3>b, <3>c, <1>newrecok
+  <2>2. CASE wLocal' = wLocal
+    BY <2>2
+  <2>3. QED
+    BY <2>1, <2>2, <1>disj
+<1>wpcdisj. \/ wPc' = [wPc EXCEPT ![w] = "Advance"]
+            \/ wPc' = [wPc EXCEPT ![w] = "Failed"]
+  BY <1>disj
+<1>domp. DOMAIN wPc = Writers
+  BY DEF IndInv1, TypeOK
+<1>wpcatw. wPc'[w] \in {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"} /\ wPc'[w] # "Done"
+  <2>rng. wPc \in [Writers -> {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"}]
+    BY DEF IndInv1, TypeOK
+  <2>1. CASE wPc' = [wPc EXCEPT ![w] = "Advance"]
+    BY <2>1, <1>domp, ExceptSame
+  <2>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+    BY <2>2, <1>domp, ExceptSame
+  <2>3. QED
+    BY <2>1, <2>2, <1>wpcdisj
+<1>1. TypeOK'
+  <2>a. snapshots' \in Seq(SnapshotRec)
+    BY <1>unchsnap DEF IndInv1, TypeOK
+  <2>b. wPc' \in [Writers -> {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"}]
+    <3>rng. wPc \in [Writers -> {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"}]
+      BY DEF IndInv1, TypeOK
+    <3>1. CASE wPc' = [wPc EXCEPT ![w] = "Advance"]
+      BY <3>1, <3>rng, ExceptType
+    <3>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+      BY <3>2, <3>rng, ExceptType
+    <3>3. QED
+      BY <3>1, <3>2, <1>wpcdisj
+  <2>c. \A w0 \in Writers : wLocal'[w0].baseVersion \in Nat /\ wLocal'[w0].nextRowId \in Nat
+             /\ (wLocal'[w0].proposed = NoProposal \/ wLocal'[w0].proposed \in SnapshotRec)
+    <3> SUFFICES ASSUME NEW w0 \in Writers
+                 PROVE  wLocal'[w0].baseVersion \in Nat /\ wLocal'[w0].nextRowId \in Nat
+                        /\ (wLocal'[w0].proposed = NoProposal \/ wLocal'[w0].proposed \in SnapshotRec)
+      OBVIOUS
+    <3>1. CASE w0 = w
+      BY <3>1, <1>wlatw DEF IndInv1, TypeOK
+    <3>2. CASE w0 # w
+      <4>a. wLocal'[w0] = wLocal[w0]
+        <5>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                               [version |-> wLocal[w].baseVersion,
+                                nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                                segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                     [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+          BY <5>1, <3>2, ExceptOther
+        <5>2. CASE wLocal' = wLocal
+          BY <5>2
+        <5>3. QED
+          BY <5>1, <5>2, <1>disj
+      <4>b. QED
+        BY <4>a DEF IndInv1, TypeOK
+    <3>3. QED
+      BY <3>1, <3>2
+  <2>d. rPc' \in [Readers -> {"ReadPtr", "ReadSnap", "Done", "Failed_RetriesExhausted", "Failed_DefiniteFailure"}]
+    BY <1>unchsnap DEF IndInv1, TypeOK
+  <2>e. \A r0 \in Readers : rLocal'[r0].retries \in Nat /\ rLocal'[r0].ptrVersion \in Nat
+             /\ (rLocal'[r0].result = NoResult \/ rLocal'[r0].result = NoCommitsYet \/ rLocal'[r0].result \in SnapshotRec)
+    BY <1>unchsnap DEF IndInv1, TypeOK
+  <2>f. QED
+    BY <2>a, <2>b, <2>c, <2>d, <2>e DEF TypeOK
+<1>2. WriterSuccessIsCommitted'
+  <2> SUFFICES ASSUME NEW w0 \in Writers, wPc'[w0] = "Done"
+               PROVE  \E i \in 1..Len(snapshots') : snapshots'[i] = wLocal'[w0].proposed
+    BY DEF WriterSuccessIsCommitted
+  <2>1. CASE w0 = w
+    BY <2>1, <1>wpcatw
+  <2>2. CASE w0 # w
+    <3>a. wPc'[w0] = wPc[w0]
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Advance"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. QED
+        BY <4>1, <4>2, <1>wpcdisj
+    <3>b. wPc[w0] = "Done"
+      BY <3>a, <2>2
+    <3>c. \E i \in 1..Len(snapshots) : snapshots[i] = wLocal[w0].proposed
+      BY <3>b DEF IndInv1, WriterSuccessIsCommitted
+    <3>d. wLocal'[w0] = wLocal[w0]
+      <4>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                             [version |-> wLocal[w].baseVersion,
+                              nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                              segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                   [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wLocal' = wLocal
+        BY <4>2
+      <4>3. QED
+        BY <4>1, <4>2, <1>disj
+    <3>e. QED
+      BY <3>c, <3>d, <1>unchsnap
+  <2>3. QED
+    BY <2>1, <2>2
+<1>3. ReaderSeesOnlyCommitted'
+  BY <1>unchsnap DEF IndInv1, ReaderSeesOnlyCommitted
+<1>4. FnDomains'
+  <2>a. DOMAIN wLocal' = Writers
+    <3>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                           [version |-> wLocal[w].baseVersion,
+                            nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                            segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                 [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+      BY <3>1, <1>domw, ExceptDomain
+    <3>2. CASE wLocal' = wLocal
+      BY <3>2, <1>domw
+    <3>3. QED
+      BY <3>1, <3>2, <1>disj
+  <2>b. DOMAIN rLocal' = Readers
+    BY <1>unchsnap DEF IndInv1, FnDomains
+  <2>c. QED
+    BY <2>a, <2>b DEF FnDomains
+<1>5. BaseVersionBounded'
+  <2> SUFFICES ASSUME NEW w0 \in Writers PROVE wLocal'[w0].baseVersion <= Len(snapshots')
+    BY DEF BaseVersionBounded
+  <2>1. CASE w0 = w
+    <3>a. wLocal'[w].baseVersion = wLocal[w].baseVersion
+      <4>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                             [version |-> wLocal[w].baseVersion,
+                              nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                              segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                   [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+        BY <4>1, <1>domw, ExceptProposedAt
+      <4>2. CASE wLocal' = wLocal
+        BY <4>2
+      <4>3. QED
+        BY <4>1, <4>2, <1>disj
+    <3>b. QED
+      BY <3>a, <2>1, <1>unchsnap DEF IndInv1, BaseVersionBounded
+  <2>2. CASE w0 # w
+    <3>a. wLocal'[w0] = wLocal[w0]
+      <4>1. CASE wLocal' = [wLocal EXCEPT ![w].proposed =
+                             [version |-> wLocal[w].baseVersion,
+                              nextRowId |-> wLocal[w].nextRowId + RowIdCounts[w],
+                              segments |-> Append(IF wLocal[w].baseVersion = 0 THEN <<>> ELSE snapshots[wLocal[w].baseVersion].segments,
+                                                   [base |-> wLocal[w].nextRowId, count |-> RowIdCounts[w], delVer |-> 0])]]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wLocal' = wLocal
+        BY <4>2
+      <4>3. QED
+        BY <4>1, <4>2, <1>disj
+    <3>b. QED
+      BY <3>a, <1>unchsnap DEF IndInv1, BaseVersionBounded
   <2>3. QED
     BY <2>1, <2>2
 <1>6. QED
