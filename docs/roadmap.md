@@ -214,8 +214,8 @@ Non-goals and Open questions still leave genuinely open:
   Starling vs. an untested alternative). Source: `CLAUDE.md`'s own mission
   statement ("the warm-tier graph blob family is in-scope but explicitly
   second") and RFC 0010 Non-goals/Open questions ("entirely untouched by
-  this RFC"). **Status: RFC drafted, not yet approved**
-  (`rfcs/0014-graph-blob-family.md`, `docs/ledger.md`, 2026-08-20) — a
+  this RFC"). **Status: Approved (2026-08-20)**
+  (`rfcs/0014-graph-blob-family.md`, `docs/ledger.md`) — a
   full new blob family, the same weight RFC 0010 itself carried for the
   cluster family, registering `family_id = 5` ("graph") with two blob
   types (graph node records; node-order permutation directory), grounded
@@ -244,20 +244,28 @@ Non-goals and Open questions still leave genuinely open:
   figures, quantified in the RFC's own worked example (a 5-node graph
   trace: 2 real hops, 4 real fetches) and Napkin math (an honest
   worst-case bound reaching the tens of thousands of fetches at realistic
-  `R` and hop counts, still one to four orders of magnitude below the
-  5–20-second cold-object-storage baseline this family exists to escape,
-  per `CLAUDE.md` §7's own calibration line). Left Draft deliberately, per
-  `CLAUDE.md` §3 — the RFC's own Status bullet names three specific
-  reasons this design (a real, STRAND-original physical-slot-addressing
-  scheme built on top of, not read directly out of, either cited paper)
-  needs an independent adversarial pass before Approval, not a
-  self-declaration by the drafting session. No crate code was written;
-  the next step is that independent review, then implementation (real
-  Vamana/BNF construction code, a `bench/` measurement replacing this
-  RFC's own literature-translated arithmetic — both named in the RFC's own
-  Open questions). Depends on: nothing technically, but sequencing it
-  after M2-1/M2-2 was followed here so the cluster family's own remaining
-  loose ends didn't compete for the same design attention.
+  `R` and hop counts). **Left Draft when first written, now Approved**
+  following an independent adversarial review distinct from the drafting
+  session, per `CLAUDE.md` §3 — every citation against both papers
+  independently re-fetched and confirmed byte-accurate, the worked example
+  independently reproduced from scratch, and one real arithmetic defect
+  found and fixed: the pessimistic `10,000`-fetch warm-tier bound had been
+  compared directly against `CLAUDE.md` §7's `5–20`-second cold figure as
+  if the same fetch-count scale, when that figure calibrates a
+  `50`–`200`-fetch pattern; corrected to the true cold-equivalent
+  arithmetic for `10,000` fetches (≈`1,000` seconds), yielding a stronger,
+  correctly computed ≈2.5–3-orders-of-magnitude gap rather than the
+  erroneous "one to four" an earlier draft stated. Two further, non-
+  blocking tightenings applied (a third node-order-permutation candidate
+  named in Design §4; the Invariant-11 checklist's provenance argument
+  reframed against invariant 11's actual text). Nothing about the core
+  design needed to change. No crate code was written; the next step is
+  implementation (real Vamana/BNF construction code, a `bench/`
+  measurement replacing this RFC's own literature-translated arithmetic —
+  both named in the RFC's own Open questions). Depends on: nothing
+  technically, but sequencing it after M2-1/M2-2 was followed here so the
+  cluster family's own remaining loose ends didn't compete for the same
+  design attention.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**

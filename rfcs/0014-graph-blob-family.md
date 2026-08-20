@@ -1,30 +1,40 @@
 # RFC 0014: Graph blob family — warm-tier DiskANN/Vamana index
 
-- **Status:** Draft. This RFC's own inline review (below, "How this could be
-  wrong") is real and substantive, but it is written by the same session
-  that drafted the design, not by an independent second pass — per
-  `CLAUDE.md` §3's "agent designs, agent implements — but not in the same
-  breath" principle, that makes it a self-review, not the adversarial
-  review Approval requires. Three concrete reasons this particular RFC
-  needs a reader who did not write it, stated precisely rather than
-  generically: **first**, Design §2's physical-slot-indexed adjacency
-  representation is a real STRAND-original container-layer decision built
-  *on top of* two cited papers, not read directly out of either of them —
-  DiskANN's own on-disk layout indexes by point ID with no permutation, and
-  neither paper specifies how a reader resolves a vertex ID to a physical
-  block offset after Starling's own block shuffling; this RFC's resolution
-  (Design §2, §3) is this session's own design, and the exact place
-  `CLAUDE.md` §3 says most needs an outside reader. **Second**, Design §5's
-  decision to ship v0.1 with no in-memory compressed-code cache has a real,
-  quantified, worse-than-DiskANN's-own-published-numbers round-trip cost
-  (Napkin math, Worked example) that this session found only by tracing a
-  worked example by hand, not by citing a source that validates it — an
-  independent pass may weigh that trade differently. **Third**, no
-  `bench/` measurement exists for this family yet (pure design-phase work,
-  per this task's own scope: no crate code was written), so every latency
-  figure below is a literature translation, not a STRAND-measured result,
-  unlike RFC 0010's own Discussion amendments, which added real `bench/`
-  numbers before that RFC's design claims were treated as settled.
+- **Status:** Approved (2026-08-20), following an independent adversarial
+  review distinct from the session that drafted this RFC, per `CLAUDE.md`
+  §3's "not in the same breath" principle. That review independently
+  re-fetched both cited primary sources (the real DiskANN NeurIPS 2019 and
+  Starling SIGMOD 2024 papers) and confirmed every load-bearing quote and
+  figure byte-accurate — the pseudocode, the SIFT1B construction
+  parameters, the `OR(G)` locality figures, the 43.9× throughput claim,
+  Theorem 4.1's NP-hardness statement — and independently reproduced the
+  5-node worked example's full byte layout and traced query from scratch.
+  It found one real arithmetic defect, now fixed: the Napkin math section
+  compared this family's own pessimistic 10,000-fetch warm-tier cost
+  against `CLAUDE.md` §7's `5–20`-second cold-path figure as though they
+  were the same fetch-count scale, when that figure calibrates a
+  `50`–`200`-fetch pattern, not a `10,000`-fetch one — corrected to the
+  true cold-equivalent arithmetic for this pattern (`10,000` fetches ×
+  `~100ms` ≈ `1,000` seconds), which supports a stronger, correctly
+  computed claim (roughly 2.5–3 orders of magnitude, not the "one to four"
+  an earlier draft stated). Two further, non-blocking tightenings were
+  also applied: a third node-order-permutation candidate (a plain
+  degree/BFS-order heuristic) is now named and weighed alongside
+  cluster-order reuse in Design §4, and the Invariant-11 checklist's
+  stochastic-transform-provenance argument is reframed against invariant
+  11's actual byte-determinism-across-implementations text rather than a
+  narrower "what a reader must reproduce" paraphrase. Nothing about the
+  core design — the physical-slot addressing, the BNF default, the
+  `rebuild` merge strategy, or the Indri/Galago nearest-grave pick —
+  needed to change; the review found these already sound. The three
+  reasons this RFC was originally left in Draft (physical-slot addressing
+  as original STRAND design; the no-cache v0.1 cost found by hand-tracing,
+  not sourced; no `bench/` measurement yet) remain true and are not
+  resolved by Approval — Approval means the design and its arithmetic are
+  now independently verified, not that its performance claims are
+  measured. A real `bench/` measurement replacing the literature-translated
+  arithmetic remains named, explicitly, as follow-on work (Open questions,
+  below).
 - **Milestone:** M2 — Vectors, cluster-first (`docs/milestones.md`), the
   "warm-tier graph blob family (persisted-permutation node order, ordering
   algorithm per R1's evidence)" named there as "in-scope but explicitly
@@ -351,6 +361,20 @@ edges across distant physical regions — the opposite of what a locality
 metric like `OR(G)` wants — while Starling's BNF algorithm optimizes
 directly against the graph's own *real, already-built* edge set, long-range
 edges included, not a proxy for it.
+
+**A third candidate, named rather than silently skipped: a simple
+degree- or BFS-order heuristic** (placing nodes by traversal order from an
+arbitrary root, or by descending degree) — cheaper than BNF's block-shuffle
+pass and, unlike cluster-order reuse, self-contained within the graph
+family alone. This RFC does not register it because no source vendored
+here measures it against `OR(G)` or any other locality metric either, so
+it fails the same "First" objection above without offering cluster-order
+reuse's construction-cost-sharing upside in exchange; Starling's own
+comparison against graph-partitioning-based reordering (KGGGP, BNF beating
+it by roughly 40% on `OR(G)`, `references/starling-sigmod2024.md` §4.1,
+Remarks) is the closest measured proxy this project has for how a
+structure-driven-but-not-locality-optimized ordering scheme performs
+against BNF, and BNF wins there too.
 
 **The registered default: Starling's BNF (Block Neighbor Frequency),
 Algorithm II of `references/starling-sigmod2024.md` §4.1**, transcribed in
@@ -695,13 +719,23 @@ though, the *order of magnitude* stays the right side of the line this
 family exists to be on: `10,000` fetches × `~100–300μs` (DiskANN's own
 retail-SSD figure) is on the order of `1–3` seconds — slow relative to
 DiskANN's own `<3ms` published figure (which depends on the compressed-code
-cache and tuned entry points this RFC defers, Non-goals), but still one to
-four orders of magnitude below the `5–20` seconds `CLAUDE.md` §7 states for
-the equivalent *cold*, object-storage-latency version of the same
-dependent-fetch pattern. The gap between "slower than DiskANN's own tuned
-system" and "the cold-tier baseline this family exists to escape" is real
-headroom this RFC's v0.1 scope has not spent, not a claim that v0.1's
-unoptimized reader is fast.
+cache and tuned entry points this RFC defers, Non-goals), but the right
+comparison for "is this still warm-tier, not cold-tier" is the true
+cold-equivalent cost of this *same* fetch pattern, not `CLAUDE.md` §7's
+`5–20` second figure as written — that figure calibrates a `50`–`200`-fetch
+cold pattern at `~100ms`/fetch (`50 × 100ms = 5s`, `200 × 100ms = 20s`), a
+different fetch count than this RFC's own `10,000`-fetch pessimistic case,
+so citing it directly here would compare two different scales as though
+they were one. The correct cold-equivalent arithmetic for *this* pattern is
+`10,000` fetches × `~100ms` (`CLAUDE.md` §7's own object-storage round-trip
+figure) ≈ `1,000` seconds — against which the `1–3` second warm-tier
+pessimistic estimate above is roughly **2.5 to 3 orders of magnitude
+faster** (`1,000s / 3s ≈ 333×`, `1,000s / 1s = 1,000×`), a stronger and
+correctly computed version of the claim an earlier draft of this section
+got wrong by citing the mismatched `5–20` second figure directly. The gap
+between "slower than DiskANN's own tuned system" and "the cold-tier
+baseline this family exists to escape" is real headroom this RFC's v0.1
+scope has not spent, not a claim that v0.1's unoptimized reader is fast.
 
 **Node-record byte cost, per vector, at RFC 0010's own 768-dimension
 convention, `R = 128` (DiskANN's own SIFT1B single-index parameter,
@@ -753,16 +787,23 @@ input and an occasional row-id-seeded query, never the per-hop hot path.
   (Design §2) — not left to writer discretion.
 - **Stochastic-transform provenance:** **not applicable to this family's
   wire bytes**, a real distinction from RFC 0010's RaBitQ rotation worth
-  stating precisely rather than silently skipping. Invariant 11's
-  provenance requirement targets a transform a *reader* must reproduce
-  bit-exactly at read time (RaBitQ's rotation is applied to every query
-  vector); Vamana's own randomness (Algorithm 3's random `R`-regular
-  initial graph, its random permutation `σ` of construction order) is
-  entirely construction-time — it shapes the final, deterministic graph
-  structure that gets persisted, but no reader ever re-executes it. This is
-  the same category RFC 0010's own Non-goals placed k-means centroid
-  computation in: construction-time randomness producing a fixed output,
-  not a read-time transform.
+  stating precisely rather than silently skipping. Invariant 11's actual
+  text is about byte-determinism across independent *implementations*
+  ("two independent implementations given the same logical input MUST
+  produce the same index," `CLAUDE.md` §5) — RaBitQ's rotation needs
+  pinned provenance because it is a fixed transform baked into the format
+  and reused at both write and query time, so two independent writers (or
+  a writer and a later reader re-deriving it) must agree on its exact
+  matrix, not merely its distribution. Vamana's own randomness (Algorithm
+  3's random `R`-regular initial graph, its random permutation `σ` of
+  construction order) is a different shape entirely: it is consumed once,
+  at construction time, to reach *one* valid graph among many — two
+  independent implementations building from the same logical input are
+  not required to reach the *same* graph, only a graph the model's own
+  invariants hold for, exactly as RFC 0010's own Non-goals already settled
+  for k-means centroid computation (an optimization with many valid local
+  optima, not a value invariant 11 pins). This RFC follows that
+  already-approved precedent rather than establishing a new one.
 - **Golden files:** unlike RFC 0010's own worked example, which had to mark
   97% of its posting-list bytes opaque (a real, working quantization
   encoder was required to fill them), **every byte of this RFC's worked

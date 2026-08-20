@@ -96,14 +96,12 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   only nodes it expands — quantified in the RFC's own worked example (a
   5-node graph: 2 real hops, 4 real fetches) and Napkin math (an honest
   worst-case bound reaching the tens of thousands of fetches at realistic
-  `R` and hop-count figures, still one to four orders of magnitude below
-  the 5–20-second cold-object-storage baseline this family exists to
-  escape). Left Draft deliberately per `CLAUDE.md` §3 — the RFC's own
-  Status bullet names three specific reasons (a real, STRAND-original
-  physical-slot-addressing scheme built on top of, not read out of,
-  either cited paper; the un-benchmarked performance gap just named; no
-  `bench/` measurement exists yet for this family) this design needs an
-  independent adversarial pass before Approval. No crate code was
+  `R` and hop-count figures — roughly 2.5–3 orders of magnitude below the
+  true cold-equivalent cost of that same fetch count, per the corrected
+  arithmetic in the RFC's own dedicated ledger entry, below). Left Draft
+  when first written, now **Approved (2026-08-20)** following an
+  independent adversarial review, per `CLAUDE.md` §3 — full account in
+  this file's own dedicated M2-3 entry, below. No crate code was
   written — the deliverable is the RFC draft, per this task's own
   instruction and `CLAUDE.md` §3. **Note redirected
   from R9's ALP/GPU sub-item (2026-08-19, `docs/roadmap.md` X-6):** ALP
@@ -2981,9 +2979,17 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   own cited "hundreds of hops" unoptimized-entry-point figure at
   tens-of-millions scale) to a worst-case, no-source-quantifies-real-
   overlap bound reaching the tens of thousands of fetches — slower than
-  DiskANN's own published `<3ms` figure by orders of magnitude, but still
-  one to four orders of magnitude below the `5–20`-second cold-object-
-  storage baseline `CLAUDE.md` §7 itself uses for calibration, so the
+  DiskANN's own published `<3ms` figure by orders of magnitude, but the
+  right comparison for the `tier: warm`-not-cold classification is this
+  same pattern's own true cold-equivalent cost, not `CLAUDE.md` §7's
+  `5–20`-second figure directly (that figure calibrates a `50`–`200`-fetch
+  cold pattern, a different fetch-count scale than this RFC's own
+  `10,000`-fetch pessimistic case — an earlier draft compared the two
+  directly and got "one to four orders of magnitude," an error an
+  independent adversarial review caught and fixed). The corrected
+  cold-equivalent arithmetic (`10,000` fetches × `~100ms` ≈ `1,000`
+  seconds) against the `1–3`-second warm-tier pessimistic estimate yields
+  a stronger, correctly computed **≈2.5–3 orders of magnitude**, so the
   family-level `tier: warm`-not-cold classification still holds even
   though this RFC's own v0.1 scope leaves real, named performance on the
   table (an in-memory compressed-code cache and a navigation-graph
@@ -2997,12 +3003,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   family's v0.1 scope to leave anything opaque — a stronger starting
   position for `conformance/graph/` golden files than RFC 0010 had at its
   own Approval. Invariant 11's stochastic-transform-provenance item is
-  argued, not silently skipped, to be inapplicable here: Vamana's own
-  randomness (Algorithm 3's random initial graph, random construction
-  order) is construction-time only, shaping a final deterministic output
-  no reader ever re-executes — a different category from RaBitQ's
-  per-query rotation, which invariant 11's provenance rule actually
-  targets.
+  argued, not silently skipped, to be inapplicable here: invariant 11's
+  actual text is about byte-determinism across independent
+  *implementations* given the same logical input, and RaBitQ's rotation
+  needs pinned provenance because it is a fixed transform reused at both
+  write and query time — Vamana's own randomness (Algorithm 3's random
+  initial graph, random construction order) is consumed once, at
+  construction time, to reach one valid graph among many, the same
+  category RFC 0010's own Non-goals already placed k-means centroid
+  computation in, not a new precedent.
 
   **Nearest grave: Indri and Galago** (`docs/lineage.md`), argued as the
   sharpest-fitting pick rather than a generic one: `CLAUDE.md`'s own
@@ -3015,22 +3024,40 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   warm-tier deployment already has purpose-built graph-ANN libraries with
   years of tuning this v0.1 registration does not match.
 
-  **Left Draft deliberately, per `CLAUDE.md` §3.** The RFC's own Status
-  bullet names three specific reasons, not a generic disclaimer: the
-  physical-slot-addressing scheme is real, STRAND-original design built on
-  top of, not read directly out of, either cited paper; the compressed-
-  code-cache gap just described is a real, quantified performance
-  regression this session found only by tracing an example by hand; and no
-  `bench/` measurement exists yet for this family, so every latency figure
-  in the RFC is literature-translated arithmetic, not a STRAND-measured
-  result. No crate code was written — the deliverable is the RFC draft,
-  per this task's own instruction and `CLAUDE.md` §3. `docs/roadmap.md`'s
-  M2-3 entry and this file's own R1 entry (above) are both updated in
-  place rather than left stale. Depends on: nothing for the RFC itself; an
-  independent adversarial review, then implementation (real Vamana/BNF
-  construction code and a `bench/` measurement replacing this RFC's own
-  literature-translated arithmetic, both named in the RFC's own Open
-  questions) are the next steps.
+  **Left Draft deliberately when first written, per `CLAUDE.md` §3.** The
+  RFC's own original Status bullet named three specific reasons, not a
+  generic disclaimer: the physical-slot-addressing scheme is real,
+  STRAND-original design built on top of, not read directly out of,
+  either cited paper; the compressed-code-cache gap just described is a
+  real, quantified performance regression this session found only by
+  tracing an example by hand; and no `bench/` measurement exists yet for
+  this family, so every latency figure in the RFC is literature-translated
+  arithmetic, not a STRAND-measured result. No crate code was written —
+  the deliverable was the RFC draft, per this task's own instruction and
+  `CLAUDE.md` §3.
+
+  **Addendum, 2026-08-20 — independent adversarial review completed, RFC
+  Approved.** A session distinct from the one that drafted this RFC
+  independently re-fetched both cited primary sources and confirmed every
+  load-bearing quote and figure byte-accurate, and independently
+  reproduced the worked example's full byte layout and traced query from
+  scratch. It found one real, required fix — the arithmetic error this
+  entry's own text, above, has already been corrected to reflect (the
+  `10,000`-fetch pessimistic bound compared against a mismatched
+  `50`–`200`-fetch cold-path figure, corrected to the true cold-equivalent
+  arithmetic, ≈2.5–3 orders of magnitude rather than the erroneous "one to
+  four") — plus two non-blocking tightenings (a third node-order-
+  permutation candidate named in Design §4; the Invariant-11 provenance
+  argument reframed against invariant 11's actual text, both reflected
+  above). Nothing about the core design — physical-slot addressing, the
+  BNF default, the `rebuild` merge strategy, the Indri/Galago
+  nearest-grave pick — needed to change; the review found these already
+  sound. `docs/roadmap.md`'s M2-3 entry and this file's own R1 entry
+  (above) are both updated to Approved. Depends on: nothing further for
+  the RFC itself; implementation (real Vamana/BNF construction code and a
+  `bench/` measurement replacing this RFC's own literature-translated
+  arithmetic, both named in the RFC's own Open questions) is the next
+  step.
 - **DST cross-validation harness (Workflow II) built and run — M3-3,
   2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
   TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and
