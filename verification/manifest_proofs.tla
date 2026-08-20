@@ -951,4 +951,233 @@ THEOREM ProposeDeletionVectorCommitStep1 ==
 <1>7. QED
   BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
 
+THEOREM TryAdvancePointerStep1 ==
+    ASSUME IndInv1, NEW w \in Writers, TryAdvancePointer(w)
+    PROVE  IndInv1'
+<1>disj. \/ /\ Len(snapshots) # wLocal[w].baseVersion
+            /\ wPc' = [wPc EXCEPT ![w] = "Read"]
+            /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+         \/ /\ Len(snapshots) = wLocal[w].baseVersion
+            /\ snapshots' = Append(snapshots, wLocal[w].proposed)
+            /\ wPc' = [wPc EXCEPT ![w] = "Done"]
+            /\ UNCHANGED <<wLocal, rPc, rLocal>>
+         \/ /\ Len(snapshots) = wLocal[w].baseVersion
+            /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+            /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+         \/ /\ Len(snapshots) = wLocal[w].baseVersion
+            /\ wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+            /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+  BY DEF TryAdvancePointer
+<1>wlunch. wLocal' = wLocal /\ rPc' = rPc /\ rLocal' = rLocal
+  BY <1>disj
+<1>domw. DOMAIN wLocal = Writers
+  BY DEF IndInv1, FnDomains
+<1>domp. DOMAIN wPc = Writers
+  BY DEF IndInv1, TypeOK
+<1>propw. wLocal[w].proposed \in SnapshotRec
+  BY DEF IndInv1, ProposedIsReal, TryAdvancePointer
+<1>snaplen. Len(snapshots) <= Len(snapshots')
+  <2>1. CASE snapshots' = Append(snapshots, wLocal[w].proposed)
+    <3>a. snapshots \in Seq(SnapshotRec)
+      BY DEF IndInv1, TypeOK
+    <3>b. QED
+      BY <2>1, <3>a, <1>propw, AppendProperties
+  <2>2. CASE snapshots' = snapshots
+    BY <2>2
+  <2>3. QED
+    BY <2>1, <2>2, <1>disj
+<1>snappres. \A i \in 1..Len(snapshots) : snapshots'[i] = snapshots[i]
+  <2>1. CASE snapshots' = Append(snapshots, wLocal[w].proposed)
+    <3>a. snapshots \in Seq(SnapshotRec)
+      BY DEF IndInv1, TypeOK
+    <3>b. QED
+      BY <2>1, <3>a, <1>propw, AppendProperties
+  <2>2. CASE snapshots' = snapshots
+    BY <2>2
+  <2>3. QED
+    BY <2>1, <2>2, <1>disj
+<1>wpcdisj. \/ wPc' = [wPc EXCEPT ![w] = "Read"]
+            \/ wPc' = [wPc EXCEPT ![w] = "Done"]
+            \/ wPc' = [wPc EXCEPT ![w] = "Failed"]
+            \/ wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+  BY <1>disj
+<1>1. TypeOK'
+  <2>a. snapshots' \in Seq(SnapshotRec)
+    <3>1. CASE snapshots' = Append(snapshots, wLocal[w].proposed)
+      <4>a. snapshots \in Seq(SnapshotRec)
+        BY DEF IndInv1, TypeOK
+      <4>b. QED
+        BY <3>1, <4>a, <1>propw, AppendProperties
+    <3>2. CASE snapshots' = snapshots
+      BY <3>2 DEF IndInv1, TypeOK
+    <3>3. QED
+      BY <3>1, <3>2, <1>disj
+  <2>b. wPc' \in [Writers -> {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"}]
+    <3>1. CASE wPc' = [wPc EXCEPT ![w] = "Read"]
+      BY <3>1, <1>domp, ExceptType DEF IndInv1, TypeOK
+    <3>2. CASE wPc' = [wPc EXCEPT ![w] = "Done"]
+      BY <3>2, <1>domp, ExceptType DEF IndInv1, TypeOK
+    <3>3. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+      BY <3>3, <1>domp, ExceptType DEF IndInv1, TypeOK
+    <3>4. CASE wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+      BY <3>4, <1>domp, ExceptType DEF IndInv1, TypeOK
+    <3>5. QED
+      BY <3>1, <3>2, <3>3, <3>4, <1>wpcdisj
+  <2>c. \A w0 \in Writers : wLocal'[w0].baseVersion \in Nat /\ wLocal'[w0].nextRowId \in Nat
+             /\ (wLocal'[w0].proposed = NoProposal \/ wLocal'[w0].proposed \in SnapshotRec)
+    BY <1>wlunch DEF IndInv1, TypeOK
+  <2>d. rPc' \in [Readers -> {"ReadPtr", "ReadSnap", "Done", "Failed_RetriesExhausted", "Failed_DefiniteFailure"}]
+    BY <1>wlunch DEF IndInv1, TypeOK
+  <2>e. \A r0 \in Readers : rLocal'[r0].retries \in Nat /\ rLocal'[r0].ptrVersion \in Nat
+             /\ (rLocal'[r0].result = NoResult \/ rLocal'[r0].result = NoCommitsYet \/ rLocal'[r0].result \in SnapshotRec)
+    BY <1>wlunch DEF IndInv1, TypeOK
+  <2>f. QED
+    BY <2>a, <2>b, <2>c, <2>d, <2>e DEF TypeOK
+<1>2. WriterSuccessIsCommitted'
+  <2> SUFFICES ASSUME NEW w0 \in Writers, wPc'[w0] = "Done"
+               PROVE  \E i \in 1..Len(snapshots') : snapshots'[i] = wLocal'[w0].proposed
+    BY DEF WriterSuccessIsCommitted
+  <2>1. CASE w0 = w
+    <3>a. snapshots' = Append(snapshots, wLocal[w].proposed)
+      (* <1>disj's branches are full conjunctions; a CASE naming only the   *)
+      (* wPc' conjunct of the "Done" branch (as an earlier draft of this    *)
+      (* proof did) does not carry that branch's sibling snapshots' fact    *)
+      (* along with it -- found the hard way, confirmed genuinely unprovable*)
+      (* rather than merely flaky. Matching the branch's FULL statement in  *)
+      (* each CASE (as done throughout the rest of this file) fixes it.    *)
+      <4>1. CASE Len(snapshots) # wLocal[w].baseVersion /\ wPc' = [wPc EXCEPT ![w] = "Read"]
+                 /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+        BY <4>1, <2>1, <1>domp, ExceptSame
+      <4>2. CASE Len(snapshots) = wLocal[w].baseVersion /\ snapshots' = Append(snapshots, wLocal[w].proposed)
+                 /\ wPc' = [wPc EXCEPT ![w] = "Done"] /\ UNCHANGED <<wLocal, rPc, rLocal>>
+        BY <4>2
+      <4>3. CASE Len(snapshots) = wLocal[w].baseVersion /\ wPc' = [wPc EXCEPT ![w] = "Failed"]
+                 /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+        BY <4>3, <2>1, <1>domp, ExceptSame
+      <4>4. CASE Len(snapshots) = wLocal[w].baseVersion /\ wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+                 /\ UNCHANGED <<snapshots, wLocal, rPc, rLocal>>
+        BY <4>4, <2>1, <1>domp, ExceptSame
+      <4>5. QED
+        BY <4>1, <4>2, <4>3, <4>4, <1>disj
+    <3>b. snapshots \in Seq(SnapshotRec)
+      BY DEF IndInv1, TypeOK
+    (* Split into two atomic facts (membership, then the value at that      *)
+    (* index) rather than one conjunction, and prove the goal's existential *)
+    (* witness explicitly -- the combined single-step form here reliably    *)
+    (* defeated every backend across two separate `tlapm` runs even though  *)
+    (* each half is easy alone; same lesson as <1>revok elsewhere in this   *)
+    (* file, that backends need existential witnesses spelled out, not left *)
+    (* to be inferred from a bundle of hypotheses.                         *)
+    <3>c1. Len(snapshots) + 1 \in 1..Len(snapshots')
+      BY <3>a, <3>b, <1>propw, AppendProperties
+    <3>c2. snapshots'[Len(snapshots) + 1] = wLocal[w].proposed
+      BY <3>a, <3>b, <1>propw, AppendProperties
+    <3>d. wLocal'[w0].proposed = wLocal[w].proposed
+      BY <2>1, <1>wlunch
+    <3>e. QED
+      BY <3>c1, <3>c2, <3>d
+  <2>2. CASE w0 # w
+    <3>a. wPc'[w0] = wPc[w0]
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Read"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Done"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. CASE wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+        BY <4>4, <2>2, ExceptOther
+      <4>5. QED
+        BY <4>1, <4>2, <4>3, <4>4, <1>wpcdisj
+    <3>b. wPc[w0] = "Done"
+      BY <3>a, <2>2
+    <3>c. \E i \in 1..Len(snapshots) : snapshots[i] = wLocal[w0].proposed
+      BY <3>b DEF IndInv1, WriterSuccessIsCommitted
+    <3>d. wLocal'[w0] = wLocal[w0]
+      BY <1>wlunch
+    <3>e. QED
+      <4> PICK i \in 1..Len(snapshots) : snapshots[i] = wLocal[w0].proposed
+        BY <3>c
+      <4>i1. i \in 1..Len(snapshots')
+        BY <1>snaplen
+      <4>i2. snapshots'[i] = wLocal'[w0].proposed
+        BY <1>snappres, <3>d
+      <4>qed. QED
+        BY <4>i1, <4>i2
+  <2>3. QED
+    BY <2>1, <2>2
+<1>3. ReaderSeesOnlyCommitted'
+  <2> SUFFICES ASSUME NEW r \in Readers, rPc'[r] = "Done", rLocal'[r].result # NoCommitsYet
+               PROVE  \E i \in 1..Len(snapshots') : snapshots'[i] = rLocal'[r].result
+    BY DEF ReaderSeesOnlyCommitted
+  <2>a. rPc[r] = "Done" /\ rLocal[r].result # NoCommitsYet
+    BY <1>wlunch
+  <2>b. \E i \in 1..Len(snapshots) : snapshots[i] = rLocal[r].result
+    BY <2>a DEF IndInv1, ReaderSeesOnlyCommitted
+  (* Same lesson as WriterSuccessIsCommitted's w0#w case above: the         *)
+  (* combined `BY <2>b, <1>snappres, <1>wlunch` reliably failed to close    *)
+  (* the goal's existential on its own; PICK-ing the witness out of <2>b    *)
+  (* explicitly and re-proving membership/value at that witness fixes it.  *)
+  <2>c. QED
+    <3> PICK i \in 1..Len(snapshots) : snapshots[i] = rLocal[r].result
+      BY <2>b
+    <3>i1. i \in 1..Len(snapshots')
+      BY <1>snaplen
+    <3>i2. snapshots'[i] = rLocal'[r].result
+      BY <1>snappres, <1>wlunch
+    <3>qed. QED
+      BY <3>i1, <3>i2
+<1>4. FnDomains'
+  <2>a. DOMAIN wLocal' = Writers
+    BY <1>wlunch, <1>domw
+  <2>b. DOMAIN rLocal' = Readers
+    BY <1>wlunch DEF IndInv1, FnDomains
+  <2>c. QED
+    BY <2>a, <2>b DEF FnDomains
+<1>5. BaseVersionBounded'
+  <2> SUFFICES ASSUME NEW w0 \in Writers PROVE wLocal'[w0].baseVersion <= Len(snapshots')
+    BY DEF BaseVersionBounded
+  <2>a. wLocal'[w0].baseVersion = wLocal[w0].baseVersion
+    BY <1>wlunch
+  <2>b. wLocal[w0].baseVersion <= Len(snapshots)
+    BY DEF IndInv1, BaseVersionBounded
+  (* The plain `BY <2>b, <1>snaplen` combination (transitivity of <=)       *)
+  (* reliably failed here even though the same shape of fact proves         *)
+  (* trivially with OBVIOUS when `wLocal[w0].baseVersion \in Nat` is an     *)
+  (* explicit hypothesis -- confirmed in isolation. Without it, tlapm's     *)
+  (* backends apparently will not commit to <= transitivity axioms for an   *)
+  (* untyped term, even though `<2>b`'s own `<=` establishes the same fact  *)
+  (* implicitly (BaseVersionBounded's domain is Nat by TypeOK).            *)
+  <2>bnat. wLocal[w0].baseVersion \in Nat
+    BY DEF IndInv1, TypeOK
+  <2>c. wLocal[w0].baseVersion <= Len(snapshots')
+    BY <2>b, <2>bnat, <1>snaplen
+  <2>d. QED
+    BY <2>a, <2>c
+<1>6. ProposedIsReal'
+  <2> SUFFICES ASSUME NEW w0 \in Writers, wPc'[w0] \in {"Advance", "ResolveAmbiguity", "Done"}
+               PROVE  wLocal'[w0].proposed \in SnapshotRec
+    BY DEF ProposedIsReal
+  <2>1. CASE w0 = w
+    BY <2>1, <1>wlunch, <1>propw
+  <2>2. CASE w0 # w
+    <3>a. wPc'[w0] = wPc[w0]
+      <4>1. CASE wPc' = [wPc EXCEPT ![w] = "Read"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE wPc' = [wPc EXCEPT ![w] = "Done"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE wPc' = [wPc EXCEPT ![w] = "Failed"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. CASE wPc' = [wPc EXCEPT ![w] = "ResolveAmbiguity"]
+        BY <4>4, <2>2, ExceptOther
+      <4>5. QED
+        BY <4>1, <4>2, <4>3, <4>4, <1>wpcdisj
+    <3>b. wLocal'[w0] = wLocal[w0]
+      BY <1>wlunch
+    <3>c. QED
+      BY <3>a, <3>b DEF IndInv1, ProposedIsReal
+  <2>3. QED
+    BY <2>1, <2>2
+<1>7. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+
 =============================================================================
