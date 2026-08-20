@@ -1014,3 +1014,162 @@ inclusive boundary and one millisecond past it, the count-only floor, the
 union case, and the always-retain-current floor) and
 `crates/strand-core/src/manifest.rs`'s updated `SnapshotMetadata`
 round-trip test.
+
+**M3-5: the orphan-sweep tool — the retention-window parameter resolved as
+its own sweep-time argument, not a `TableMetadata` field (2026-08-19).**
+`docs/roadmap.md`'s M3-5 implements `strand-tools sweep`
+(`crates/strand-tools/src/orphan_sweep.rs`), the already-normative rule
+`spec/manifest.md`'s "Orphan files" paragraph and `CLAUDE.md` §6 both
+state: "list the prefix, subtract everything referenced by retained
+snapshots, delete the remainder older than the retention window." M3-4
+left this tool exactly one pure function to call
+(`table_metadata::retained_snapshots`) and one real gap unresolved: that
+rule names "the retention window" as if it were a single, already-defined
+quantity, but nothing in the approved shape says what it is.
+`RetentionPolicy` (`min_snapshots_to_keep`/`max_snapshot_age_millis`) is
+defined for exactly one purpose — which *snapshots* stay eligible for a
+reader that loaded them a while ago to keep working — and every field on
+it is snapshot-scoped. The Orphan files rule's "retention window" protects
+something else: a writer's segment and snapshot objects, written but not
+yet pointed at, from a sweep that happens to run while that writer's
+commit is still in flight (`CLAUDE.md` §6's own framing: a writer "loses
+the pointer CAS" and its already-written objects become orphans exactly
+at that moment). A crashed or racing writer's in-flight window is
+typically seconds; a table's snapshot-retention policy is typically days.
+Reusing one field for both would force every table's `RetentionPolicy` to
+either be safe for orphan-protection purposes (measured in seconds — far
+too short a horizon for its real, snapshot-retention purpose) or
+convenient for snapshot retention (measured in days — meaning a sweep
+using it as the orphan-safety margin would refuse to remove a crashed
+writer's junk for days after every crash, no real safety benefit past the
+first few minutes).
+
+Resolved by grounding against real prior art rather than picking a number
+from memory (`CLAUDE.md` §3): Apache Iceberg's `remove_orphan_files`
+action takes its own `older_than` parameter (default **3 days ago**),
+entirely independent of `expire_snapshots`'s retention properties (whose
+own `older_than`-equivalent, `history.expire.max-snapshot-age-ms`,
+defaults to 5 days) — two separately documented parameters with two
+different defaults, not one knob doing double duty
+(`references/iceberg-remove-orphan-files-procedure.md`, fetched
+2026-08-19). STRAND's sweep follows the same split: `sweep_orphans`'s
+`retention_window_millis` is a parameter to the sweep call (and
+`strand-tools sweep --retention-window-secs`, defaulting to
+`DEFAULT_RETENTION_WINDOW_MILLIS` = Iceberg's own 3-day default), never a
+field read out of `TableMetadata`. No wire-format change follows from
+this: `TableMetadata`/`RetentionPolicy` are unmodified, and this is an
+implementation-strategy decision for a CLI tool consuming an
+already-normative pure function, not new format content — but it is
+exactly the kind of implementation-revealed gap `CLAUDE.md` §3 says gets
+argued out here rather than picked silently inside the tool.
+`spec/manifest.md`'s "Orphan files" paragraph is updated to state the
+split normatively, so a second implementation's sweep tool has the same
+answer to "which window" without re-deriving it.
+
+*A second, narrower gap: which listed snapshot objects feed
+`retained_snapshots` — and a real bug this task's own test-writing caught
+before it shipped.* A real listing of `_strand/snapshots/` can contain,
+at the very same version number, both the one real snapshot object a
+commit's pointer CAS actually won and one or more objects a losing
+attempt wrote first (`propose_snapshot` writes the snapshot object before
+the pointer race is decided, `manifest.rs` above) — nothing in the wire
+format marks which is which. The first implementation of this sweep
+picked "current" the way `retained_snapshots` itself does internally —
+the highest version number among whatever snapshot objects were fed to
+it — applied naively to *every* listed `_strand/snapshots/` object. That
+is unsound, not merely imprecise, and the M0 crash-test pattern this
+RFC's own `orphaned_writer_crash_is_harmless_to_readers` established
+proves it directly: a writer that crashes after writing its snapshot
+object but before its pointer CAS lands leaves an orphan whose version is
+exactly `true_current.version + 1` (the version is computed from the
+state read at the *start* of the attempt), and nothing advances the real
+pointer to catch up if that writer never retries. A raw listing can
+therefore contain an orphan whose version number is strictly **higher**
+than the real current snapshot's — feeding it into `retained_snapshots`
+alongside everything else would misidentify that orphan as current and
+protect its referenced files indefinitely, the exact failure this tool
+exists to prevent. Writing
+`sweep_removes_an_old_orphan_and_leaves_referenced_files_untouched`
+(this exact crash shape, orphan version deliberately higher than the
+real current) caught this before any real-MinIO test ran, per this
+project's own "tests are not optional" rule (`CLAUDE.md` §3): the first
+implementation failed that test outright.
+
+The fix: resolve "current" authoritatively via the real CAS pointer
+(`strand_core::manifest::read_snapshot`, the same function every
+conforming reader uses) rather than inferring it from a listing. Any
+listed snapshot object whose version exceeds `real_current.version` is
+then **provably** an orphan — the pointer is proof no commit ever really
+reached that version — and is excluded from `retained_snapshots`
+entirely; `real_current`'s own segments and deletion vectors are
+protected directly, independent of whether the listing happens to
+include its own object. Every *other* listed snapshot object, with
+version `<= real_current.version`, remains genuinely ambiguous
+(real-historical-and-superseded, or an orphan that lost a same-version
+race) — nothing in the wire format distinguishes those — so all such
+objects are fed to `retained_snapshots` together, which remains safe for
+exactly the reason the withdrawn draft of this paragraph argued: the
+count-based floor operates on a `HashSet<u64>` of version numbers, so a
+same-version orphan cannot displace a real snapshot from the "N most
+recent" set, and at worst it is itself also judged retained for one
+extra sweep cycle — over-protection, never under-protection. What
+changed is bounding the candidate set from above by the one version
+number a sweep can actually prove is real, rather than trusting the
+listing's own maximum. Documented in `orphan_sweep.rs`'s own module doc
+comment at more length, not only here, since a second implementation
+building an equally safe sweep needs this reasoning independent of this
+RFC.
+
+*Which files are always referenced, orphan-eligibility aside.* `_strand/
+current` (the pointer) and `_strand/metadata.json` (table metadata) are
+never orphan-eligible — the current pointer is always live by
+definition, and table metadata is write-once and load-bearing for every
+future sweep's own `RetentionPolicy` read. `sweep_orphans` adds both
+unconditionally to its referenced set before evaluating anything else
+under the swept prefix.
+
+**Implementation.** `crates/strand-core/src/store.rs` gained two new
+traits, the listing and deletion primitives the sweep needs and
+`ConditionalStore`/`RangeGetStore` deliberately don't carry (same
+reasoning as `RangeGetStore`'s own doc comment: the manifest CAS protocol
+never lists or deletes anything, so folding either into
+`ConditionalStore` would force every protocol-logic test double to grow a
+stub it never exercises): `ListableStore` (`list(prefix) -> Vec<
+ListedObject>`, each entry carrying a real `last_modified_millis`) and
+`DeletableStore` (`delete_object`). `InMemoryStore` gained a real
+per-object `last_modified_millis`, stamped by an internal clock on every
+`put_if_absent`/`put_if_match`. `crates/strand-core/src/s3_store.rs`
+implements `ListableStore` via real `ListObjectsV2`, following its
+continuation token internally so a caller sees one flat listing regardless
+of pagination, and converts each object's real `LastModified` via
+`aws_smithy_types::DateTime::to_millis`. `crates/strand-tools/src/
+orphan_sweep.rs`'s `sweep_orphans` is the generic algorithm (`S:
+ConditionalStore + ListableStore + DeletableStore`); `strand-tools sweep`
+(`main.rs`) is the CLI entry point, building a real `S3Store` from the
+standard AWS SDK config-loading chain plus `--endpoint-url`/`--region`
+overrides for MinIO and non-AWS backends, with `--dry-run` (mirroring
+Iceberg's own `remove_orphan_files` `dry_run` parameter) reporting what
+would be deleted without deleting anything.
+
+**Real-MinIO crash-test coverage** (`crates/strand-core/tests/
+s3_store.rs`-style, against a real MinIO container via testcontainers, not
+simulated): `orphan_sweep_removes_a_crashed_writers_orphan_against_real_
+minio` reproduces the exact crash pattern
+`orphaned_writer_crash_is_harmless_to_readers` already established (a
+segment and a snapshot object written, `_strand/current` never updated)
+and confirms a sweep past the retention window removes both while the
+real, pointed-at baseline segment and snapshot survive untouched.
+`orphan_younger_than_the_retention_window_survives_a_sweep_against_real_
+minio` proves the safety-margin half against the same real backend: an
+orphan written moments ago, swept with a retention window comfortably
+larger than the real elapsed time, must still be present afterward.
+
+Verification: `cargo test --workspace` and `cargo clippy --workspace
+--all-targets -- -D warnings`, both clean, alongside
+`crates/strand-core/src/store.rs`'s new `ListableStore`/`DeletableStore`
+tests, `crates/strand-tools/src/orphan_sweep.rs`'s `InMemoryStore`-backed
+unit tests (the crash pattern, the retention-window safety margin,
+`dry_run`, a superseded deletion-vector object swept once its snapshot
+falls out of retention — closing `docs/ledger.md`'s own open item on this
+— and refusal to sweep a table with no table metadata), and the two new
+real-MinIO tests above.

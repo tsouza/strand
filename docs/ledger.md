@@ -2601,6 +2601,83 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   named in `spec/manifest.md` §5 rather than left implicit. M3-5 (the
   orphan-sweep tool) was explicitly out of scope for this session — its
   own roadmap entry records what it now has to build on top of this.
+- **The orphan-sweep tool implemented (M3-5) — 2026-08-19.** `spec/
+  manifest.md`'s "Orphan files" rule (`CLAUDE.md` §6) was already
+  normative — "list the prefix, subtract everything referenced by
+  retained snapshots, delete the remainder older than the retention
+  window" — and M3-4 left it exactly one pure function to call
+  (`table_metadata::retained_snapshots`). Implementing the tool itself
+  surfaced a real gap: the rule names "the retention window" as if
+  already defined, but nothing said what it was or how it related to
+  `RetentionPolicy`. Resolved through RFC 0001's Discussion section per
+  `CLAUDE.md` §3 rather than picked silently inside the tool: the orphan
+  retention window protects something `RetentionPolicy` doesn't (a
+  writer's not-yet-pointed-at objects, safe once its commit window has
+  plausibly closed) and is therefore its own sweep-time parameter
+  (`strand-tools sweep --retention-window-secs`), never a `TableMetadata`
+  field — grounded against Apache Iceberg's own `remove_orphan_files`
+  action, which takes its own separate `older_than` parameter (default 3
+  days ago) entirely independent of `expire_snapshots`'s retention
+  properties (`references/iceberg-remove-orphan-files-procedure.md`,
+  fetched fresh, not from memory). `DEFAULT_RETENTION_WINDOW_MILLIS`
+  mirrors that same 3-day default. A second, narrower gap — a real
+  listing of `_strand/snapshots/` can hold, at the same version number,
+  both the snapshot object a commit's pointer CAS actually won and one or
+  more objects a losing attempt wrote first, with nothing in the wire
+  format distinguishing them — surfaced a real bug this task's own
+  test-writing caught before anything shipped: a first draft picked
+  "current" as "the highest version number in the listing," which a real
+  crashed-writer orphan (version `true_current + 1`, since nothing ever
+  advances the pointer to catch up) can exceed, misidentifying the orphan
+  as current and protecting its files forever — `sweep_removes_an_old_
+  orphan_and_leaves_referenced_files_untouched` failed outright against
+  that draft. Fixed by resolving "current" from the real CAS pointer
+  (`manifest::read_snapshot`) rather than inferring it, excluding any
+  listed snapshot object whose version exceeds the real current version
+  from `retained_snapshots` entirely (provably orphaned), and feeding
+  only the genuinely ambiguous remainder (version `<=` real current) to
+  it — safe by the same count-floor dedup-by-version-number argument as
+  before, now argued from a version ceiling a sweep can actually prove
+  rather than one merely observed in a listing. Full reasoning in
+  `orphan_sweep.rs`'s own module doc comment and the RFC.
+
+  **Implementation**: `crates/strand-core/src/store.rs` gained
+  `ListableStore` (`list(prefix) -> Vec<ListedObject>`, each entry
+  carrying a real `last_modified_millis`) and `DeletableStore`
+  (`delete_object`) — kept separate from `ConditionalStore`, the same
+  reasoning as `RangeGetStore`: the manifest CAS protocol never lists or
+  deletes anything, so folding either in would force every protocol-logic
+  test double to grow an unused stub. `InMemoryStore` gained a real
+  per-object `last_modified_millis`. `crates/strand-core/src/s3_store.rs`
+  implements both for `S3Store`: `list` via real `ListObjectsV2`,
+  following its continuation token internally so callers see one flat
+  listing, converting each object's `LastModified` via
+  `aws_smithy_types::DateTime::to_millis`; `delete_object` reuses the
+  existing `delete`. `crates/strand-tools/src/orphan_sweep.rs`'s
+  `sweep_orphans` is the generic algorithm (`ConditionalStore +
+  ListableStore + DeletableStore`); `strand-tools sweep` (`main.rs`) is
+  the CLI entry point, building a real `S3Store` from the standard AWS SDK
+  config chain plus `--endpoint-url`/`--region` overrides for MinIO, with
+  `--dry-run` (mirroring Iceberg's own `remove_orphan_files` `dry_run`
+  parameter).
+
+  **Real-MinIO verification**, matching this layer's own bar rather than
+  stopping at `InMemoryStore`: a crashed-writer-orphan sweep reproducing
+  the exact pattern `tests/s3_store.rs`'s
+  `orphaned_writer_crash_is_harmless_to_readers` already established for
+  readers (a segment and snapshot object written, `_strand/current` never
+  updated) — the sweep removes both while the real, pointed-at baseline
+  segment and snapshot survive — and the retention-window safety margin
+  (an orphan written moments ago survives a sweep against the same real
+  backend). Plus `InMemoryStore`-backed unit tests: the same crash
+  pattern, the retention-window margin, `dry_run` reporting without
+  deleting, a superseded deletion-vector object correctly swept once its
+  referencing snapshot falls out of retention (closing this same
+  ledger's earlier-named open item, "the orphan-sweep tool's handling of
+  superseded deletion-vector objects," RFC 0012's entry above), and
+  refusal to sweep a table with no table metadata rather than guess a
+  policy. `cargo test --workspace` and `cargo clippy --workspace
+  --all-targets -- -D warnings` both clean.
 - **M4-5 (`docs/roadmap.md`) — Puffin blob-type packaging RFC drafted, not
   yet approved — 2026-08-20.** `rfcs/0013-puffin-export-sidecar.md`
   answers the scoping question `docs/milestones.md`'s M4 entry left open

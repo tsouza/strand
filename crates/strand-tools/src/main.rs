@@ -15,7 +15,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use strand_tools::{ciff, convert, inspect};
+use strand_tools::{ciff, convert, inspect, orphan_sweep};
 
 #[derive(Parser)]
 #[command(name = "strand-tools")]
@@ -57,6 +57,44 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// The M3-5 orphan sweep (`spec/manifest.md` "Orphan files"): list a
+    /// table's real object-storage prefix, subtract everything referenced
+    /// by its retained snapshots, and delete the remainder that is older
+    /// than the retention window.
+    Sweep {
+        /// S3-compatible bucket the table lives in.
+        #[arg(long)]
+        bucket: String,
+        /// Key prefix under which this table's `_strand/` metadata,
+        /// segments, and deletion vectors all live. Defaults to the bucket
+        /// root — the convention every existing test in this repository
+        /// uses (one table per bucket). Pass an explicit prefix for a
+        /// bucket that hosts more than one table.
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Override endpoint (MinIO, or any non-AWS S3-compatible store).
+        /// When set, requests use path-style addressing, matching MinIO's
+        /// requirement (`crates/strand-core/tests/s3_store.rs`).
+        #[arg(long = "endpoint-url")]
+        endpoint_url: Option<String>,
+        /// AWS region. Falls back to the standard SDK provider chain
+        /// (environment, profile, IMDS) when omitted.
+        #[arg(long)]
+        region: Option<String>,
+        /// How long an unreferenced object must sit before it is eligible
+        /// for deletion — the safety margin against a race with a commit
+        /// still in flight (`spec/manifest.md` "Orphan files"). Defaults
+        /// to Apache Iceberg's own `remove_orphan_files` default of 3
+        /// days (`references/iceberg-remove-orphan-files-procedure.md`).
+        #[arg(
+            long = "retention-window-secs",
+            default_value_t = orphan_sweep::DEFAULT_RETENTION_WINDOW_MILLIS / 1000
+        )]
+        retention_window_secs: u64,
+        /// Report what would be deleted without deleting anything.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -73,6 +111,21 @@ fn main() -> ExitCode {
             field,
             output,
         } => run_convert_ciff(&ciff_file, &field, &output),
+        Command::Sweep {
+            bucket,
+            prefix,
+            endpoint_url,
+            region,
+            retention_window_secs,
+            dry_run,
+        } => run_sweep(
+            &bucket,
+            &prefix,
+            endpoint_url.as_deref(),
+            region.as_deref(),
+            retention_window_secs,
+            dry_run,
+        ),
     }
 }
 
@@ -116,6 +169,76 @@ fn run_convert_ciff(
             ExitCode::FAILURE
         }
     }
+}
+
+fn run_sweep(
+    bucket: &str,
+    prefix: &str,
+    endpoint_url: Option<&str>,
+    region: Option<&str>,
+    retention_window_secs: u64,
+    dry_run: bool,
+) -> ExitCode {
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("error: could not start an async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let client = runtime.block_on(async {
+        let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
+        if let Some(region) = region {
+            loader = loader.region(aws_config::Region::new(region.to_string()));
+        }
+        if let Some(endpoint_url) = endpoint_url {
+            loader = loader.endpoint_url(endpoint_url);
+        }
+        let config = loader.load().await;
+        let mut s3_config = aws_sdk_s3::config::Builder::from(&config);
+        if endpoint_url.is_some() {
+            // MinIO (and most non-AWS S3-compatible stores) require
+            // path-style addressing — the same setting
+            // `tests/s3_store.rs`'s `start_store` uses.
+            s3_config = s3_config.force_path_style(true);
+        }
+        aws_sdk_s3::Client::from_conf(s3_config.build())
+    });
+
+    let store = strand_core::s3_store::S3Store::new(client, bucket);
+    let retention_window_millis = retention_window_secs.saturating_mul(1000);
+    let now_millis = orphan_sweep::now_millis();
+
+    let outcome = match orphan_sweep::sweep_orphans(
+        &store,
+        prefix,
+        retention_window_millis,
+        now_millis,
+        dry_run,
+    ) {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let verb = if dry_run { "would delete" } else { "deleted" };
+    println!(
+        "{verb} {} object(s), retained {} referenced object(s), skipped {} object(s) within the retention window",
+        outcome.deleted.len(),
+        outcome.retained_referenced.len(),
+        outcome.skipped_within_window.len(),
+    );
+    for key in &outcome.deleted {
+        println!("  {verb}: {key}");
+    }
+    for key in &outcome.skipped_within_window {
+        println!("  skipped (within retention window): {key}");
+    }
+
+    ExitCode::SUCCESS
 }
 
 fn run_convert(index_dir: &std::path::Path, field: &str, output: &std::path::Path) -> ExitCode {

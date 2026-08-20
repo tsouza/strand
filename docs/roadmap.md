@@ -391,18 +391,28 @@ Non-goals and Open questions still leave genuinely open:
   open, unlike the CAS protocol's own `tests/s3_store.rs` coverage.
 - **M3-5** — The orphan-sweep tool (`strand-tools`). Source:
   `docs/milestones.md` M3 entry; `spec/manifest.md`'s "Orphan files" rule,
-  already stated, unimplemented. Status: open — M3-4's dependency is now
-  satisfied (`table_metadata::retained_snapshots` gives this tool exactly
-  the "which files are still referenced" answer it needs: list the
-  `_strand/snapshots/` and `_strand/current`-derived prefix, read every
-  snapshot object found, call `retained_snapshots` with the table's real
-  `RetentionPolicy` and a real clock reading, union every retained
-  snapshot's `segments[].path`/`deletion_vector.path` plus the retained
-  snapshot object paths themselves, and delete anything else older than
-  the retention window). Still more valuable once M3-1 (compaction)
-  exists to produce orphans at realistic volume, and still needs its own
-  real-MinIO crash-test coverage, matching the rest of this layer's
-  verification bar.
+  already stated, now implemented. Status: **done, 2026-08-19**
+  (`crates/strand-tools/src/orphan_sweep.rs`'s `sweep_orphans`, the
+  `strand-tools sweep` CLI subcommand). Implementing this surfaced a real
+  gap the stated rule left open — "the retention window" named as if
+  already defined, but nothing said what it was, or how it related to
+  `RetentionPolicy` — resolved through RFC 0001's Discussion section
+  (2026-08-19) rather than picked silently: the orphan retention window is
+  its own sweep-time parameter (`--retention-window-secs`, defaulting to
+  Apache Iceberg's own `remove_orphan_files` default of 3 days,
+  `references/iceberg-remove-orphan-files-procedure.md`), never a
+  `TableMetadata` field, since it protects something `RetentionPolicy`
+  doesn't (an in-flight writer's not-yet-pointed-at objects, not snapshot
+  eligibility). `crates/strand-core/src/store.rs` gained the `ListableStore`/
+  `DeletableStore` traits (`S3Store` implements both — real `ListObjectsV2`
+  pagination and object deletion) the sweep needs beyond
+  `ConditionalStore`/`RangeGetStore`. Verified against real MinIO
+  (matching this layer's own verification bar): a crashed-writer-orphan
+  sweep (the same pattern `tests/s3_store.rs`'s
+  `orphaned_writer_crash_is_harmless_to_readers` established, now for the
+  sweep instead of a reader) and the retention-window safety margin (a
+  young, unreferenced orphan survives). Still more valuable at realistic
+  volume once M3-1 (compaction) lands.
 - **M3-6** — End-to-end hybrid RRF fusion across both blob families over
   one row-ID space. Source: `docs/milestones.md` M3 entry — this is the
   project's actual thesis, exercised for the first time. **A real,
