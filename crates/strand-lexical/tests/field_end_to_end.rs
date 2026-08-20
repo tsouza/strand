@@ -143,6 +143,56 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
         reader.phrase_query(&["dog", "giraffe"]).is_empty(),
         "a real miss must yield no matches"
     );
+
+    // all_postings is the full field-level table scan strand-datafusion's
+    // TableProvider is built on: every (term, doc_ordinal, term_freq) the
+    // field's blobs actually store, not a point lookup. Cross-check it
+    // against the same lookup() results already verified above.
+    let mut all: Vec<(String, u32, u32)> = reader.all_postings().collect();
+    all.sort();
+    let mut dog_rows: Vec<(u32, u32)> = all
+        .iter()
+        .filter(|(t, _, _)| t == "dog")
+        .map(|(_, d, tf)| (*d, *tf))
+        .collect();
+    dog_rows.sort();
+    assert_eq!(
+        dog_rows,
+        vec![(0, 1), (2, 1)],
+        "\"dog\" occurs once each in docs 0 and 2"
+    );
+
+    let cat_rows: Vec<(u32, u32)> = all
+        .iter()
+        .filter(|(t, _, _)| t == "cat")
+        .map(|(_, d, tf)| (*d, *tf))
+        .collect();
+    assert_eq!(
+        cat_rows,
+        vec![(1, 1), (2, 1)],
+        "\"cat\" occurs once each in docs 1 and 2"
+    );
+
+    // Every term all_postings names must be one the term dictionary really
+    // has, and every row's term_freq must equal what lookup() itself
+    // reports for that (term, doc) pair -- the same data, two paths.
+    for (term, doc_ordinal, term_freq) in &all {
+        let matches = reader
+            .lookup(term)
+            .expect("all_postings never invents a term");
+        let expected = matches
+            .iter()
+            .find(|(d, _)| d == doc_ordinal)
+            .map(|(_, tf)| *tf)
+            .expect("all_postings never invents a (term, doc) pair lookup() doesn't have");
+        assert_eq!(*term_freq, expected);
+    }
+
+    let total_rows = all.len();
+    assert!(
+        total_rows > 0,
+        "a real field with real documents must yield real rows"
+    );
 }
 
 #[test]

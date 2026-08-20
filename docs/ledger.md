@@ -2735,3 +2735,96 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   types with the Iceberg project itself. No crate code was written — the
   deliverable is the RFC draft, per this task's own instruction and
   `CLAUDE.md` §3.
+- **M5-1 (`docs/roadmap.md`) — thin, read-only DataFusion `TableProvider`
+  over STRAND's lexical family, lexical-only slice done 2026-08-20.**
+  `docs/roadmap.md`'s own M5-1 text scopes the first pass to "read
+  lexical blobs as early slices," not the vector family; this is that
+  slice, not the whole of M5.
+
+  **Grounding.** DataFusion's `TableProvider` trait was fetched live from
+  the real, current source (`apache/datafusion` tag `55.0.0`,
+  `datafusion/session/src/table.rs`) rather than implemented from memory
+  (`CLAUDE.md` §3), now vendored in
+  `references/datafusion-tableprovider-trait-55.0.0.md`. This caught a
+  real error: an initial WebFetch summary of docs.rs's rendered page
+  invented a required `as_any` method the real trait does not have and
+  named a `MemoryExec` type that does not exist in `55.0.0` (renamed/
+  restructured to `MemorySourceConfig` + `DataSourceExec` some releases
+  ago) — both corrected against the actual trait definition and against
+  `datafusion/catalog/src/memory/table.rs`'s real `MemTable::scan`, which
+  is this crate's own `scan()`'s direct model.
+
+  **New crate.** `crates/strand-datafusion` (`datafusion = "55.0.0"`
+  pinned in `Cargo.toml`, the same real-version discipline as
+  `icu_segmenter = "2.3.0"` elsewhere in this project), added to the
+  workspace's `members` and `default-members` — a heavy compile with no
+  external-service requirement, unlike `bench/`'s AWS SDK, so it follows
+  `strand-tools`'s `tantivy` precedent rather than `bench/`'s exclusion.
+  `StrandLexicalTable` (`crates/strand-datafusion/src/lexical_table.rs`)
+  opens one field of one resident segment's bytes (footer → hotcache →
+  `FieldReader::open_by_name`, the same cold-open path
+  `crates/strand-lexical/tests/field_end_to_end.rs` already proved) and
+  materializes every row up front into one Arrow `RecordBatch`; `scan()`
+  itself never decodes anything, only hands DataFusion's own
+  `MemorySourceConfig`/`DataSourceExec` the already-built batch, honoring
+  projection pushdown for free.
+
+  **Schema, and its honest limits.** Three columns —
+  `row_id` (`UInt64`), `term` (`Utf8`), `term_freq` (`UInt32`) — one row
+  per real `(document, term)` co-occurrence, a sparse term-document
+  matrix in coordinate form rather than document reconstruction. Sourced
+  from two small, additive, non-format-changing reads added to
+  `strand-lexical` for this task. Neither changes any wire format, so
+  neither is a format-design decision RFC 0005/0008's own approved text
+  didn't already settle — no RFC is owed: `TermDictionary::iter` (a plain-`Iterator`
+  wrapper over `fst::Map`'s own `Streamer`, `crates/strand-lexical/src/
+  term_dictionary.rs`) and `FieldReader::all_postings` (a full
+  term-dictionary-to-postings table scan, decode failures skipped per
+  term rather than panicking, `crates/strand-lexical/src/field.rs`).
+  `row_id = hotcache.row_id_base + doc_ordinal` is stated as a direct,
+  unambiguous reading of `spec/row-ids.md` §1's already-normative
+  arithmetic ("`local_ordinal = row_id - row_id_base` is the one
+  arithmetic every reader needs"), not a new design decision — no RFC
+  is owed for it either. Two real absences are named rather than
+  silently dropped, both argued in `lexical_table.rs`'s own doc comment:
+  no document-text column (the lexical blobs never store raw content at
+  all) and no `doc_length` column (per `field.rs`'s own pre-existing doc
+  comment, document length is not a registered blob anywhere in the spec
+  today — it exists only as an in-memory `Vec<u32>` returned to the
+  *writer* at build time, the same reason `search_bm25` already takes it
+  as a caller-supplied slice rather than a blob read).
+
+  **Proof.** `crates/strand-datafusion/tests/lexical_table_sql.rs`: a
+  real segment (the same three-document corpus `field_end_to_end.rs`
+  uses) built, committed through `strand-core`'s real manifest, opened as
+  a `StrandLexicalTable`, registered on a real
+  `datafusion::prelude::SessionContext`, and queried with real SQL
+  through DataFusion's own engine — a `WHERE term = 'park'` equality
+  scan asserting exact `row_id`s (`row_id_base + doc_ordinal`, not the
+  bare ordinal), a `GROUP BY term` / `COUNT(*)` aggregate reproducing
+  hand-computed document frequencies, and a clean-error case
+  (`LexicalTableError::Field`) for a field name never built into the
+  segment. A new `strand-lexical` test,
+  `field_end_to_end.rs`'s extension to its existing end-to-end test,
+  cross-checks `all_postings` against `lookup`'s already-verified
+  results. `cargo test --workspace` and `cargo clippy --workspace
+  --all-targets -- -D warnings` both clean.
+
+  **Explicit non-goals for this slice**, named in
+  `crates/strand-datafusion/src/lib.rs`'s and `lexical_table.rs`'s own
+  doc comments rather than silently dropped: the vector family
+  (`crates/strand-vector`); multi-segment tables (reading a manifest
+  snapshot's several `SegmentRef`s as one logical table — mechanical
+  given disjoint row-ID ranges per `spec/row-ids.md` §1, but unbuilt);
+  deletion-vector filtering (invariant 2 — a resident segment's
+  tombstoned row-IDs are not consulted, so every row `all_postings`
+  yields is returned regardless); multi-field tables (joining several
+  fields of one segment into one wider table); and filter/limit pushdown
+  into the decode step (`supports_filters_pushdown` is left at its
+  `Unsupported`-for-everything default — the term dictionary could
+  resolve an equality filter with one FST lookup instead of a full field
+  scan, a real optimization for a later pass, not required for a first,
+  honest, correct `TableProvider` under this milestone's "thin" mandate,
+  `CLAUDE.md` §1). `docs/roadmap.md`'s M5-1 entry and M5-2's dependency
+  note are both updated to reflect this slice as done and to name what of
+  M5-1 M5-2's hybrid-fusion benchmark still needs.
