@@ -3997,3 +3997,63 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `cargo check --workspace --all-targets`, `cargo clippy --workspace
   --all-targets -- -D warnings`, `cargo fmt --check`, and `cargo test
   --workspace` all clean.
+- **Settled: code row-IDs stay file-granular; symbols are not promoted to
+  row-ID granularity — 2026-08-20.** An exploratory design pass (research
+  → design → independent adversarial critique, prompted by the domain-
+  scoping decision above) considered whether STRAND's row-ID space should
+  address source code at symbol (function/class) granularity instead of
+  per-file, to match how code search and code embeddings naturally want
+  to address content. The design and its critique independently agreed
+  on the answer, and the answer holds on `spec/row-ids.md` §3's own text
+  alone, with no external research dependency: **no** — row-IDs stay
+  file-granular, unchanged.
+
+  **The argument, verified directly against the real spec text rather
+  than taken on trust from the exploratory pass's own summary.**
+  `spec/row-ids.md` §3 names exactly three merge strategies (concatenate
+  + remap, rebuild, rebalance) and states plainly what each preserves:
+  "a merge rewrites *pointers*, never *identities*." None has an answer
+  for what should happen to a symbol's own identity across a rename or a
+  body edit — a real gap no real system surveyed during that pass
+  actually solves either (Zoekt and ctags recompute symbol positions
+  wholesale, with no persisted identity across a re-index at all; SCIP's
+  own answer, a name-derived string, is rename-fragile by construction
+  and explicitly undefined across file boundaries for local symbols).
+  Second, the row-ID space is shared across every blob family — invariant
+  1's whole point — so inflating it for symbol granularity would tax
+  families that don't need it (doc-length arrays, deletion vectors,
+  lexical postings all dense-index by row-ID whether or not the row is
+  code). Third, and independently confirmed by reading RFC 0001's own
+  "Alternatives considered" section directly (`rfcs/0001-container-
+  rowid-manifest.md`, "Row-ID as a content hash instead of an assigned
+  sequential range. Rejected"): this format already rejected
+  content-derived row-IDs once, for the same underlying reason —
+  `local_ordinal = row_id - row_id_base`'s cheap arithmetic depends on a
+  row-ID space that is a stable, assigned range, not one keyed to
+  something inside the document that can itself change.
+
+  **What is settled here, and what explicitly is not.** Settled: the
+  row-ID *granularity* question — file, not symbol, per the reasoning
+  above. Not settled, and deliberately not decided by this entry: how
+  symbol-level search and per-symbol embedding actually get delivered.
+  The exploratory pass's own recommended mechanism — a secondary
+  `symbol-spans` blob, keyed to a file's existing row via the `field_id`
+  disambiguation mechanism (RFC 0001's Task X-1, already built for
+  exactly this kind of secondary addressing), plus a separate
+  symbol-granular vector `blob_type_id` under RFC 0010 for per-symbol
+  embedding search — is a real, plausible direction but is explicitly
+  **not RFC-ready**: its own critique found it leaned on real but
+  unvendored research (Zoekt/SCIP/tree-sitter/ctags licensing and
+  behavior, checked out accurate on independent re-verification but not
+  yet fetched into `references/`, tracked as `docs/roadmap.md`'s own D-4
+  item), understated a real breaking change to the flat-vector blob's
+  strictly-dense one-vector-per-row-ID contract (`spec/vectors.md` §5/§7)
+  that a one-file-to-many-symbols relationship genuinely violates and
+  that needs its own real design pass (an offset table or equivalent,
+  not yet designed), and never demonstrated that per-symbol embedding
+  actually improves code-search relevance over file-level embedding —
+  a real, load-bearing premise for the vector-blob half of that idea with
+  no cited evidence either way. `docs/roadmap.md`'s D-1 through D-4 items
+  remain the tracked path toward eventually making that half RFC-ready;
+  this entry closes only the row-ID-granularity question, which needed
+  no further research to answer.
