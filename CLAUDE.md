@@ -51,8 +51,13 @@ code. These are related but not identical: both mix natural-language words with
 structured symbols and are hard to tokenize with a plain prose analyzer, but code
 additionally carries full natural-language spans (comments, docstrings) that want
 prose-shaped analysis embedded inside code-shaped analysis — a real, harder problem
-than either domain alone, and a driver for this project's own analyzer-descriptor
-design (invariant 6) rather than an afterthought. This scoping decision shapes which
+than either domain alone. Invariant 6's own pluggable, per-blob analyzer-descriptor
+design (§5) already makes registering a logs-and-code profile possible at all, rather
+than requiring a format change to accommodate one — but invariant 6 commits to
+per-blob pluggability, not per-span mixed-analysis policy within one blob, so the
+mixed-analysis problem itself is real, new design surface this scoping decision
+opens, not something already solved (`docs/ledger.md`'s own entry states this
+precisely). This scoping decision shapes which
 analyzer profiles this project builds as defaults, which corpora ground its
 benchmarks, and which embedding conventions its vector family assumes — it does not
 change the format's own generality: nothing in the container, row-ID, or manifest

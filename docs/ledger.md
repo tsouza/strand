@@ -3840,25 +3840,53 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   **What does and does not change, stated precisely so the decision
   is not read as bigger or smaller than it is.** Does NOT change: the
   container, row-ID, or manifest layer — nothing in any of the format's
-  already-approved RFCs (0001, 0005–0012, 0014) is telemetry-specific,
-  and none of it needs revisiting on format-correctness grounds. Does
-  change, as real, concrete follow-on work: (1) a real logs-and-code
-  analyzer profile — identifier splitting, log-line structure handling,
-  and the mixed code/comment-span analysis problem named above — becomes
-  needed work, not a hypothetical future option; (2) the benchmark
-  corpora this project measures against need reconsidering — MS MARCO
-  (already vendored, grounding M1-2/M1-7/`msmarco_index.rs` and others)
-  is general passage text, still valid for validating the format's raw
-  mechanics but no longer representative of the target domain, and real
-  log and source-code corpora become the grounding data for analyzer and
+  fourteen already-approved-or-implemented RFCs (0001–0014, checked
+  individually, not assumed) is telemetry-specific, and none of it needs
+  revisiting on format-correctness grounds. Checked directly rather than
+  glossed: `spec/container.md`, `spec/row-ids.md`, and `spec/manifest.md`
+  carry no language/stopword/script-specific assumptions anywhere in
+  their normative text; RFC 0004's analyzer-descriptor *schema* is
+  genuinely pluggable (per-blob stopword/stemmer/script identity, not a
+  hardcoded English analyzer), though its only two existing conformance
+  vectors (`lucene-en-word-only-01.json`, `icu4x-dictionary-zh-01.json`)
+  are English-prose and Chinese-dictionary examples — no log or code
+  vector exists yet, confirming rather than contradicting that a real
+  logs-and-code profile is genuinely new work below. Does change, as
+  real, concrete follow-on work: (1) a real logs-and-code analyzer
+  profile — identifier splitting, log-line structure handling, and the
+  mixed code/comment-span analysis problem named above — becomes needed
+  work, not a hypothetical future option; (2) the benchmark corpora this
+  project measures against need reconsidering — MS MARCO (already
+  vendored, grounding M1-2/M1-7/`msmarco_index.rs` and others) is general
+  passage text, still valid for validating the format's raw mechanics but
+  no longer representative of the target domain, and real log and
+  source-code corpora become the grounding data for analyzer and
   embedding work going forward; (3) the vector family's embedding
   conventions should be revisited against real code-embedding models
   rather than assumed generic; (4) `references/` and `docs/lineage.md`
-  should gain telemetry-adjacent prior art — NOFireAI/ravel (a real,
-  distinct, object-storage-first observability datastore surveyed earlier
-  this session, Apache-2.0, structurally comparable at the storage layer
-  though not a search-index format) is a real, citable comparison point,
-  not yet formally added to `docs/lineage.md`.
+  should gain telemetry-adjacent prior art — NOFireAI/ravel (surveyed
+  conversationally earlier this session, not yet vendored into
+  `references/`; its license is now independently confirmed
+  Apache-2.0 via GitHub's license API, `gh api repos/NOFireAI/ravel`,
+  matching this project's own standing verification practice for RaBitQ/
+  FastLanes; its README's own self-description, "a distributed
+  OpenTelemetry-native columnar datastore whose only backend is object
+  storage," is reported here as its own claim, not independently
+  re-verified against its own code) is a real, citable comparison point
+  at the object-storage-first storage-layer level, not a search-index
+  format itself — not yet formally added to `docs/lineage.md`.
+
+  **A precision note on invariant 6's own role in this decision**, since
+  an earlier draft of `CLAUDE.md`'s own new paragraph read slightly more
+  confident than this actually is: invariant 6's real text (`CLAUDE.md`
+  §5) commits to per-*blob* pluggable analyzer descriptors, not per-*span*
+  mixed-analysis policy within one blob — it anticipated the general
+  shape (pluggable, not hardcoded-English) that makes a logs-and-code
+  profile possible to register at all, but the harder mixed-analysis
+  problem this entry names above (prose-shaped spans embedded inside
+  code-shaped tokens) is real, new design surface invariant 6 does not
+  already solve, named honestly here rather than claimed as already
+  covered.
 
   A concrete downstream task list, decomposing this into completable
   work items the way `docs/roadmap.md` already does for every other
