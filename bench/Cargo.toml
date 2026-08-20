@@ -75,6 +75,10 @@ path = "src/term_dict_size.rs"
 name = "cjk-segmentation-bakeoff"
 path = "src/cjk_segmentation_bakeoff.rs"
 
+[[bin]]
+name = "multi-segment-query"
+path = "src/multi_segment_query.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }

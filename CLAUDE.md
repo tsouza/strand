@@ -455,6 +455,32 @@ the order of a hundred segments) that makes the amplification a measured curve.
 Whether the manifest should carry optional per-segment summary metadata to prune that
 curve is R10, an open question, not a v0.1 feature.
 
+**The multi-segment benchmark's without-compaction partial version is real and
+measured; the full version stays open.** M3-1 (compaction) has not been built yet,
+so the realistic multi-segment shape above — a hundred segments reached through
+commits *and* merges — cannot be exercised yet. What can be, and was
+(`docs/roadmap.md` M3-7): the same 12,800-document corpus committed as 1, 16, and
+128 independent segments via repeated small `manifest::commit` calls with no merge
+step, queried cold and warm against real MinIO
+(`bench/src/multi_segment_query.rs`, `bench/results/multi-segment-query-partial.json`;
+run: `cargo run -p strand-bench --bin multi-segment-query`). Cold GETs were exactly
+`2 + segment_count` at every point — 3, 18, 130 at 1/16/128 segments — a real,
+asserted confirmation that this paragraph's own O(segments) claim holds exactly, not
+approximately, when nothing prunes segments at query time. Cold bytes fetched also
+grew on the identical total document count (643,158 → 713,164 → 1,291,500 bytes,
+~2.0x from 1 to 128 segments), a real measurement of the fixed per-segment overhead
+(footer, hotcache, term dictionary) this section's amplification language describes.
+Cold latency grew too, but not proportionally to GET count at every step (1→16
+segments: 6x the GETs, 1.5x the p50 latency; 16→128: 7.2x the GETs, 9.6x the p50
+latency) — this ran on MinIO on localhost with no injected network latency, the
+same limitation `bench/src/cold_open.rs` already carries, so it is not a claim
+about real S3's round-trip-bound regime. What this does NOT confirm, per this
+document's own rule that a number is stated honestly rather than smoothed: warm
+(zero-GET, cached) query latency did not grow monotonically with segment count in
+this run (44.8ms → 11.8ms → 57.2ms p50), and it does not settle R10 — R10 remains
+fed by, and gated on, M3-7's full, post-compaction version, which this partial run
+is not.
+
 ---
 
 ## 8. Repository shape
