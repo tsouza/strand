@@ -497,6 +497,57 @@ impl<'a> FieldReader<'a> {
         Some(ordinals.into_iter().zip(all_positions).collect())
     }
 
+    /// Enumerates every `(term, doc_ordinal, term_freq)` triple this field's
+    /// term dictionary and postings actually store — a full field-level
+    /// table scan, not a point lookup. This is the read surface
+    /// `strand-datafusion`'s `TableProvider` (roadmap item M5-1) is built
+    /// on: it is, deliberately, everything a resident lexical field can
+    /// answer without a term string in hand already. Two real things this
+    /// does *not* expose, because the blobs themselves do not carry them:
+    /// the document's original text (never stored — `spec/postings.md`,
+    /// `spec/term-dictionary.md` store term statistics and positions, not
+    /// raw content) and each document's length (`dl`), which per this
+    /// module's own doc comment is not a registered blob at all today and
+    /// exists only as `FieldBlobs.doc_lengths`, in memory, at write time.
+    ///
+    /// `doc_ordinal` is the field's local row position (`spec/row-ids.md`
+    /// §1): a caller that also holds this segment's `row_id_base` recovers
+    /// the real global row-ID as `row_id_base + doc_ordinal`.
+    ///
+    /// Decode failures (a malformed `TermInfo` record, a postings slice
+    /// that doesn't decode, an out-of-range offset) are skipped per term
+    /// rather than panicking — this reads bytes that may have arrived over
+    /// the network, and one corrupt term-info record should not take down
+    /// a whole table scan, matching `lookup`'s own existing policy of
+    /// treating a decode failure as "no match" rather than an error.
+    pub fn all_postings(&self) -> impl Iterator<Item = (String, u32, u32)> + '_ {
+        self.term_dict.iter().flat_map(move |(term_bytes, ordinal)| {
+            let term = String::from_utf8_lossy(&term_bytes).into_owned();
+            self.decode_term_postings(ordinal)
+                .into_iter()
+                .map(move |(doc_ordinal, tf)| (term.clone(), doc_ordinal, tf))
+        })
+    }
+
+    /// Decodes one term's full postings list by FST ordinal, or an empty
+    /// list on any malformed input (see `all_postings`'s doc comment on
+    /// why this degrades rather than panics).
+    fn decode_term_postings(&self, ordinal: u64) -> Vec<(u32, u32)> {
+        let Some(info) = self.term_info.get(ordinal) else {
+            return Vec::new();
+        };
+        let start = info.postings_offset as usize;
+        let end = start.saturating_add(info.postings_length as usize);
+        let Some(slice) = self.postings.get(start..end) else {
+            return Vec::new();
+        };
+        let Ok(reader) = PostingsReader::new(slice, info.doc_freq as usize) else {
+            return Vec::new();
+        };
+        let (ordinals, term_freqs) = reader.decode_all();
+        ordinals.into_iter().zip(term_freqs).collect()
+    }
+
     /// Real phrase query resolution (`spec/positions.md` §6): documents
     /// where `terms[0], terms[1], ...` occur at consecutive within-document
     /// positions, in order. Returns an empty result — never an error — if

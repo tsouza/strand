@@ -524,13 +524,40 @@ Non-goals and Open questions still leave genuinely open:
 ## M5 — The consumer
 
 - **M5-1** — A thin, read-only DataFusion `TableProvider` over STRAND
-  segments. Source: `docs/milestones.md` M5 entry. Status: open. Depends
-  on: nothing structurally to *start* (can read lexical blobs as early
-  slices) — full scope depends on M2/M3 blob families being stable.
+  segments. Source: `docs/milestones.md` M5 entry. Status: **done, lexical
+  slice (2026-08-20)** — this task's own scope was always "can read
+  lexical blobs as early slices," and that slice is what shipped: a new
+  crate, `crates/strand-datafusion`, whose `StrandLexicalTable` opens one
+  field of one resident segment (footer → hotcache → the same
+  `FieldReader::open_by_name` cold-open path `field_end_to_end.rs` already
+  proved) and exposes `(row_id, term, term_freq)` as a real Apache
+  DataFusion table — `row_id = hotcache.row_id_base + doc_ordinal`, a
+  direct reading of `spec/row-ids.md` §1, not a new design decision.
+  Proven against a real `datafusion::prelude::SessionContext` running real
+  SQL, not a mock: an equality-filter scan, a `GROUP BY`/`COUNT`
+  aggregate reproducing hand-computed document frequencies, and a
+  clean-error case for an unbuilt field name
+  (`crates/strand-datafusion/tests/lexical_table_sql.rs`). DataFusion's
+  `TableProvider` trait and the `MemorySourceConfig`/`DataSourceExec`
+  scan pattern were fetched live from `apache/datafusion` tag `55.0.0`
+  rather than implemented from memory (`CLAUDE.md` §3) — full detail,
+  including a WebFetch summary of docs.rs that had to be corrected against
+  the real source, in `docs/ledger.md`. Full remaining M5 scope, named
+  honestly rather than dropped: the vector family
+  (`crates/strand-vector`), multi-segment tables (mechanical given
+  `spec/row-ids.md` §1's disjoint ranges, but unbuilt), deletion-vector
+  filtering, and multi-field tables — all listed in
+  `crates/strand-datafusion/src/lib.rs`'s and `lexical_table.rs`'s own doc
+  comments, not silently scoped away. Depends on: nothing further for this
+  slice; the remaining scope depends on nothing new technically (M2/M3
+  blob families it would read are already shipped) but is unbuilt work.
 - **M5-2** — The hybrid-fusion benchmark, run through the M5-1
   TableProvider, `CLAUDE.md` §7's fusion workload with its selectivity
   sweep. Source: `docs/milestones.md` M5 entry. Status: **blocked** on
-  M5-1 and M3-6 (hybrid RRF must exist to benchmark).
+  M3-6 (hybrid RRF must exist to benchmark) and on M5-1's still-open
+  vector-family slice — a *hybrid*-fusion benchmark needs both blob
+  families queryable through the TableProvider, and only the lexical
+  slice exists today (M5-1 above).
 - **M5-3** — FAISS adapter. Source: `docs/milestones.md` M5 entry, "per
   R11(b)'s feasibility finding." Status: **unblocked on M4-1(b)**, now
   resolved (`references/r11b-faiss-invertedlists-external-storage-feasibility.md`):

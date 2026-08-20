@@ -266,4 +266,65 @@ impl<D: AsRef<[u8]>> TermDictionary<D> {
     pub fn get(&self, term: &[u8]) -> Option<u64> {
         self.map.get(term)
     }
+
+    /// Enumerates every `(term_bytes, ordinal)` pair in the dictionary, in
+    /// the FST's own key order — unsigned byte order (invariant 11), the
+    /// same order `build_term_dictionary` inserted them in. `get` alone only
+    /// resolves one already-known term; a full-dictionary consumer (a
+    /// `strand-tools inspect` listing, or `strand-datafusion`'s field-level
+    /// table scan, `crates/strand-datafusion`) needs every term, not a point
+    /// lookup. `fst::Map` exposes this via its own `Streamer` trait, one
+    /// key-value pair at a time without materializing the whole dictionary;
+    /// this wraps that as a plain `Iterator` so callers don't need `fst` as
+    /// a direct dependency.
+    pub fn iter(&self) -> impl Iterator<Item = (Vec<u8>, u64)> + '_ {
+        use fst::Streamer;
+        let mut stream = self.map.stream();
+        std::iter::from_fn(move || stream.next().map(|(term, ordinal)| (term.to_vec(), ordinal)))
+    }
+}
+
+#[cfg(test)]
+mod term_dictionary_iter_tests {
+    use super::*;
+
+    #[test]
+    fn iter_yields_every_term_in_byte_order_with_its_ordinal() {
+        let infos = [
+            TermInfo {
+                doc_freq: 1,
+                ..Default::default()
+            },
+            TermInfo {
+                doc_freq: 2,
+                ..Default::default()
+            },
+            TermInfo {
+                doc_freq: 3,
+                ..Default::default()
+            },
+        ];
+        let terms: Vec<(&[u8], TermInfo)> =
+            vec![(b"apple", infos[0]), (b"banana", infos[1]), (b"cherry", infos[2])];
+        let (fst_bytes, _term_info) = build_term_dictionary(&terms).unwrap();
+        let dict = TermDictionary::open(fst_bytes).unwrap();
+
+        let collected: Vec<(Vec<u8>, u64)> = dict.iter().collect();
+        assert_eq!(
+            collected,
+            vec![
+                (b"apple".to_vec(), 0),
+                (b"banana".to_vec(), 1),
+                (b"cherry".to_vec(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn iter_on_an_empty_dictionary_yields_nothing() {
+        let terms: Vec<(&[u8], TermInfo)> = vec![];
+        let (fst_bytes, _term_info) = build_term_dictionary(&terms).unwrap();
+        let dict = TermDictionary::open(fst_bytes).unwrap();
+        assert_eq!(dict.iter().count(), 0);
+    }
 }
