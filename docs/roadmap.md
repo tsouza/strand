@@ -727,8 +727,21 @@ Non-goals and Open questions still leave genuinely open:
   cost.** A throwaway release-mode probe (not shipped) timed
   `build_vamana` directly: `n=500` (1.83s), `n=1,000` (4.30s), `n=2,000`
   (9.60s), `n=4,000` (20.80s), `n=8,000` (47.18s) at `dims=64, R=32,
-  L=64` — consistent with `crate::vamana::robust_prune`'s own documented
-  `O(remaining²·dims)` inner loop, not linear in `n`. At more realistic
+  L=64` — a consistent ~2.2–2.35x-per-doubling growth rate, super-linear
+  in `n` but empirically closer to `O(n^1.15–1.3)` than to a quadratic
+  shape (a 4x-per-doubling signature true `O(n²)` would produce). An
+  earlier version of this entry attributed the super-linear growth to a
+  `robust_prune` complexity claim ("`O(remaining²·dims)`, `crate::
+  vamana`'s own documented" inner loop) that does not actually appear
+  anywhere in `crates/strand-vector/src/vamana.rs`'s real documentation —
+  a fabricated citation, caught by an independent ACPR review and
+  corrected here rather than left standing, per `CLAUDE.md` §2/§3.
+  `robust_prune`'s real loop runs at most `r` iterations (a constant),
+  each doing an `O(|remaining|·dims)` scan, so a single call's own cost
+  is roughly linear in its candidate-set size; the observed growth
+  reflects construction's overall shape (`n` GreedySearch-plus-
+  RobustPrune calls, each touching a growing average neighborhood), not
+  any single call's own asymptotics. At more realistic
   DiskANN-cited values (`dims=128, R=64, L=100`, `references/diskann-
   neurips2019.md`: SIFT1M/GIST1M uses `R=70`; DEEP1M and the SIFT1B
   merge-shard configuration both use `R=64`), `n=2,000` took 80.6s and
