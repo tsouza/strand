@@ -266,6 +266,93 @@ Non-goals and Open questions still leave genuinely open:
   technically, but sequencing it after M2-1/M2-2 was followed here so the
   cluster family's own remaining loose ends didn't compete for the same
   design attention.
+
+  **Implementation, slice 1 of 4 — Vamana graph construction, pure
+  in-memory, no wire format — done (2026-08-20).** `crates/strand-vector/
+  src/vamana.rs`: `greedy_search` (Algorithm 1), `robust_prune` (Algorithm
+  2), and `build_vamana` (Algorithm 3's random-init-then-two-pass loop),
+  transcribed against `references/diskann-neurips2019.md`'s own vendored
+  pseudocode, deliberately scoped to point array indices `0..n` only — no
+  `SegmentBuilder`, no blob, no query path; those are named, separate,
+  later tasks in this same implementation sequence (the node-order
+  permutation/BNF algorithm, the wire-format blobs of Design §§2–3, and
+  the `GreedySearch`/`BeamSearch` query path of Design §5). Two real,
+  named findings, not silently absorbed: **first**, the vendored
+  reference's own Algorithm 2 pseudocode line reads, verbatim, `p* ←
+  argmin_{p' ∈ V} d(p*, p')` — self-referential as written, since `p*` is
+  the value being defined — corrected in the implementation (and in the
+  module's own doc comment, argued from the algorithm's very next line,
+  which only type-checks if the candidate is chosen by distance to `p`,
+  the fixed point being pruned) to the well-known published form, per
+  `CLAUDE.md` §3's instruction to say so rather than silently patch it.
+  **Second**, `RobustPrune`'s `α`-pruning condition (`α · d(p*, p') ≤ d(p,
+  p')`) is a linear inequality over true distance, not a bare comparison,
+  so this crate's dominant squared-Euclidean convention (`crate::kmeans`,
+  `crate::closure`) required squaring `α` too (`α² · d²(p*,p') ≤ d²(p,p')`)
+  at that one comparison site to stay equivalent — a real, subtle
+  correctness trap a squared-distance shortcut can introduce that a plain
+  nearest-neighbor `argmin` cannot, named explicitly in the module's own
+  documentation rather than left implicit. The paper's own undefined
+  "medoid" computation is resolved as an exact `O(n·dims)` computation (the
+  real dataset point nearest the coordinate-wise mean, provably identical
+  to minimizing the sum of squared distances to every other point via the
+  standard variance-decomposition identity), documented as an
+  interpretation choice in the same style `crate::closure`'s own module
+  documentation already established for SPANN's epsilon-ratio ambiguity. A
+  third, smaller bug found and fixed during testing, not merely reported:
+  `robust_prune`'s internal candidate set was originally a `HashSet<usize>`,
+  whose iteration order (and therefore `min_by`'s own tie-break) is
+  randomized per process by Rust's default hasher, independent of the
+  caller's RNG seed — silently non-deterministic exactly at the equidistant
+  ties the RFC's own worked example exercises. Switched to `BTreeSet`
+  (ascending-index iteration, deterministic ties), confirmed by rerunning
+  the affected test three times.
+
+  **Worked-example reproduction: half matched exactly, half honestly
+  diverged with cause traced to ground.** RFC 0014's own 5-node query
+  trace (`dims=2`, `R=2`, entry point `A`, query `(0.9,0.1)`, `L=2`) is
+  reproduced byte-for-byte by `greedy_search` run directly over the RFC's
+  own stated illustrative adjacency list: result `B`, 2 real hops (`A`,
+  `B` expanded), 4 real fetches (`A`, `B`, `C`, `D` — `C` and `D` fetched
+  only to be trimmed away), matching the RFC's own "2 hops, 4 fetches"
+  arithmetic exactly. Running the real `build_vamana` construction
+  algorithm over the same 5 points, by contrast, does not reproduce the
+  RFC's own illustrative topology — expected and stated in the RFC's own
+  text ("a plausible Vamana output for hand-checkability, not a
+  hand-execution of Algorithm 3") — so the implementation instead asserts
+  degree `≤ R` and a correct nearest-neighbor result across 20 seeds, both
+  of which hold. Full reachability from the entry point does not hold at
+  this exact tiny scale: an exploratory 500-seed sweep found the outlier
+  `E=(2,2)` deterministically unreachable in 0/500 runs, traced to real
+  geometry, not flakiness or a bug — `E` is farther from every other point
+  than those points are from each other, so `A`/`B`/`C`/`D`'s own true
+  two nearest neighbors always exclude `E`, and `R=2` leaves no spare slot
+  once the geometrically closer pair is found (the pairwise distances are
+  irrational and pairwise-distinct, so no tie is available for `E` to win).
+  Documented in the test itself as a real consequence of `R=2` being the
+  RFC's own hand-checkability choice, not a realistic construction
+  parameter (DiskANN's own real figures are `R=64`–`128`); full
+  reachability is instead verified at a more realistic scale (below).
+
+  **Larger-scale property tests (`n=40`, `dims=4`, `R=6`, 10 seeds; a
+  separate `n=50`, `dims=8`, `R=8` recall test).** Degree bound and full
+  entry-point reachability both held in every one of the 10 sampled seeds
+  at `n=40`/`R=6` — the realistic-scale confirmation the tiny worked
+  example's own `R=2` cannot give. Recall@10 against brute-force ground
+  truth, measured (not assumed) over 50 random queries against a 50-point
+  graph: **1.0** (every query's true top-10 fully recovered) at the exact
+  seed the test pins; the test's own asserted floor is set well below that
+  observed value (`0.6`) so the test pins a real, measured lower bound
+  rather than an unverified hoped-for one, per this task's own instruction
+  not to assert an unverified threshold.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, and
+  `cargo test --workspace` all clean (10 new tests in
+  `crates/strand-vector/src/vamana.rs`, 0 failures workspace-wide).
+  Depends on: nothing further for this slice; the node-order-permutation
+  (BNF) algorithm, the wire-format blobs (Design §§2–3), and the query
+  path (Design §5) are separate, later slices in this same sequence.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**

@@ -31,3 +31,4 @@ pub mod quantize;
 pub mod quantize_ex;
 pub mod query;
 pub mod rotate;
+pub mod vamana;

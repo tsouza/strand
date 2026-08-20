@@ -3137,6 +3137,90 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `bench/` measurement replacing this RFC's own literature-translated
   arithmetic, both named in the RFC's own Open questions) is the next
   step.
+- **RFC 0014 implementation, slice 1 of 4 — Vamana graph construction,
+  pure in-memory Rust — 2026-08-20.** `crates/strand-vector/src/
+  vamana.rs`; `docs/roadmap.md`'s M2-3 entry carries the full account,
+  this entry the condensed one. Scoped deliberately narrow, matching this
+  task's own brief: `GreedySearch` (Algorithm 1), `RobustPrune` (Algorithm
+  2), and the two-pass Vamana construction loop (Algorithm 3), transcribed
+  against `references/diskann-neurips2019.md`'s own vendored pseudocode,
+  operating on point array indices `0..n` only — no `SegmentBuilder`, no
+  wire-format blob, no query path over physical slots, all three
+  explicitly later slices in this same sequence (`rfcs/0014-graph-blob-
+  family.md` Design §§2–5).
+
+  **Two real grounding findings against the vendored reference, named
+  per `CLAUDE.md` §3 rather than silently patched.** First, Algorithm 2's
+  own transcribed line `p* ← argmin_{p' ∈ V} d(p*, p')` is
+  self-referential nonsense as written (`p*` is the value being defined);
+  the module implements and documents the corrected reading, `argmin_{p'
+  ∈ V} d(p, p')` — the well-known published form, and the only reading
+  the algorithm's own very next line (the `α`-pruning condition, which
+  needs a *fixed* `p` to compare against) is consistent with. Second, the
+  paper leaves "medoid" computation entirely unspecified; resolved as an
+  exact, `O(n·dims)` computation (nearest real point to the coordinate-
+  wise mean, provably identical to minimizing summed squared distance via
+  the standard variance-decomposition identity) and documented as an
+  interpretation choice, the same discipline `crate::closure`'s own
+  module documentation already established for SPANN's epsilon-ratio
+  ambiguity (this file's own M2-1 entry).
+
+  **A real, subtle correctness trap named and closed, not merely
+  avoided by luck.** This crate's dominant squared-Euclidean convention
+  (`crate::kmeans`, `crate::closure`) is safe for ordinary nearest-
+  neighbor `argmin` (squaring is order-preserving) but not for
+  `RobustPrune`'s own α-pruning rule, a linear inequality over true
+  distance (`α · d(p*,p') ≤ d(p,p')`) — squaring both sides correctly
+  requires squaring `α` too (`α² · d²(p*,p') ≤ d²(p,p')`), applied at
+  exactly that one comparison site and documented explicitly as a trap a
+  squared-distance shortcut can introduce silently. A second, real bug
+  was found and fixed during testing: `robust_prune`'s internal candidate
+  set was originally a `HashSet<usize>`, whose iteration order — and
+  therefore `min_by`'s own tie-break — is randomized per process by
+  Rust's default hasher, independent of the caller's RNG seed, silently
+  breaking reproducibility exactly at the equidistant ties the RFC's own
+  worked example exercises; caught by a failing reachability assertion
+  that reproduced with a *different* missing node across repeated runs of
+  the same seed, fixed by switching to a `BTreeSet` (deterministic,
+  ascending-index tie-break), reconfirmed stable across three reruns.
+
+  **Worked-example reproduction: the query trace matched exactly; the
+  construction topology diverged, honestly, with cause traced to real
+  geometry, not asserted away.** `greedy_search` run directly over the
+  RFC's own stated illustrative 5-node adjacency list reproduces its
+  query trace byte-for-byte: result `B`, 2 real hops, 4 real fetches,
+  matching the RFC's own arithmetic exactly. The real `build_vamana`
+  construction algorithm, run over the same 5 points, does not reproduce
+  that illustrative topology — expected, since the RFC's own text already
+  flags it as "a plausible... output... not a hand-execution of Algorithm
+  3." What real construction does reliably give at this scale (20 seeds):
+  degree `≤ R` and a correct nearest-neighbor result, both confirmed.
+  What it does *not* give at this scale: full reachability from the entry
+  point. An exploratory 500-seed sweep found the outlier `E=(2,2)`
+  deterministically unreachable in 0/500 runs — not flakiness, but real
+  geometry: `E` is farther from every other point than those points are
+  from each other, so no core point's true two nearest neighbors ever
+  include it, and `R=2` (the RFC's own hand-checkability choice, not a
+  realistic parameter — DiskANN's own real figures are `R=64`–`128`)
+  leaves it no spare slot. Documented plainly in the test rather than
+  loosened into a vacuous assertion; full reachability is instead
+  verified at a more realistic scale.
+
+  **Larger-scale measurement, not assumption.** At `n=40`, `dims=4`,
+  `R=6`: degree bound and full entry-point reachability both held across
+  all 10 sampled seeds. Recall@10 against brute-force ground truth,
+  measured over 50 random queries at `n=50`, `dims=8`, `R=8`: **1.0**
+  (every query's true top-10 fully recovered) at the pinned seed; the
+  test's own asserted floor (`0.6`) is set well below that observed
+  value, so it pins a real measured lower bound, not an unverified
+  hoped-for threshold, per this task's own explicit instruction.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `cargo
+  test --workspace` all clean. Depends on: nothing further for this
+  slice; the node-order-permutation (BNF) algorithm, the wire-format
+  blobs, and the query path are separate, later slices already named in
+  `docs/roadmap.md`'s M2-3 entry.
 - **DST cross-validation harness (Workflow II) built and run — M3-3,
   2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
   TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and
