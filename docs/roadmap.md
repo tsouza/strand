@@ -1729,11 +1729,15 @@ discipline every other milestone gets in this document.
   `spec/postings.md` §8, `spec/term-dictionary.md` §5, and `spec/filter-bitmaps.md`
   §5 already established applies identically to a `raw-mappable`, `cold-fetchable`
   blob addressed from the hotcache's blob registry. `committed_at_millis` (the
-  existing snapshot-level timestamp) cannot substitute: `CLAUDE.md` §6's own text
-  states batching encourages one shared commit timestamp per batch, which would
-  collapse an hour-spanning batch's real event-time spread to a single decay value
-  against this same worked example's own 1-hour `scale_millis` — a real argument,
-  re-checked against the cited section, not merely asserted.
+  existing snapshot-level timestamp, `spec/manifest.md` line 91: "stamped by the
+  proposing writer," one value per commit, not per row) cannot substitute:
+  `CLAUDE.md` §6 states a production writer batches commits to control segment
+  count, and a single `committed_at_millis` shared by every row in that batch
+  would collapse an hour-spanning batch's real event-time spread to one decay
+  value against this same worked example's own 1-hour `scale_millis` — the
+  batching incentive is `CLAUDE.md` §6's own text; the one-value-per-commit fact
+  it operates on is `spec/manifest.md`'s, cited precisely rather than folded into
+  a single attribution.
 
   **Fix 2 (undisclosed dependency on an open RFC).** The profile-precondition rule
   (a segment declaring `bm25-recency` MUST also declare the event-timestamp blob)
