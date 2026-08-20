@@ -65,6 +65,48 @@ R9 RFC must say plainly. Its license is already resolved, not a candidacy gate:
 `cwida/FastLanes` is confirmed MIT (`CLAUDE.md` §1, `docs/ledger.md` R9),
 Apache-2.0-compatible.
 
+**From NOFireAI/ravel**: a living, real, Apache-2.0 (confirmed via GitHub's license
+API, `references/nofireai-ravel-storage-architecture.md`), actively-developed
+object-storage-first observability datastore for metrics, logs, and traces — not a
+grave, and not a search-index format, but the closest real system this project has
+found at the catalog/commit layer specifically. Its key layout puts every data
+object, commit record, and snapshot part behind a content-addressed, immutable key,
+with exactly one mutable object per tenant per signal — the `HEAD` pointer, updated
+only by version-CAS — which is the same shape as `CLAUDE.md` §6's manifest: immutable
+segments, immutable snapshot metadata, one current pointer, CAS to advance it. Its
+"sealed hours" mechanism (a wall-clock formula plus a proven "seal lemma": once a
+time bucket is provably past every writer's flush deadline plus clock-skew and
+safety margins, one strongly-consistent LIST of that bucket is final forever) and its
+bounded "fold reconcile" pass (a fixed lookback window, defaulted to 26 hours in the
+real source, that catches a late compaction or tombstone landing in an
+already-sealed bucket) are real solutions to a problem STRAND's own manifest layer
+does not yet have to solve, because STRAND has no time-bucketed ingest windows — but
+the shape of the problem (a background summarization pass that must not silently
+miss a late-arriving mutation to already-summarized state) is exactly the shape
+`docs/ledger.md`'s R10 (manifest-level cross-segment navigation) will eventually
+have to answer for segment-count growth. What STRAND does **not** share with ravel:
+ravel is a full telemetry datastore with its own OTLP/Prometheus-Remote-Write
+ingest, PromQL and SQL query engines, alerting, multi-tenancy, and a Kubernetes
+operator — an engine, not a format — where STRAND is a storage format only, with no
+query engine of its own beyond the M5 DataFusion `TableProvider` proof-of-concept.
+The comparison is at the storage/catalog layer alone.
+
+**From Zoekt** (`sourcegraph/zoekt`, forked in 2017 from `google/zoekt`; both
+Apache-2.0, confirmed via GitHub's license API and the repository's own `LICENSE`
+file, `references/zoekt-code-search-engine.md`): the production counter-lesson on
+row granularity for source code, directly relevant to STRAND's narrowed logs/code
+domain. Zoekt indexes source at file granularity — a shard's data is file contents,
+filenames, and content/filename posting lists over a positional-trigram index, with
+symbol information supplied at index time by an external, sandboxed `ctags`
+invocation used purely as a ranking signal ("does the match fall on a symbol
+definition?"), never as a persisted, addressable identity that survives a re-index.
+This independently confirms, from Zoekt's own real design documentation rather than
+from memory, `docs/ledger.md`'s "code row-IDs stay file-granular" settled decision
+and its characterization of Zoekt as a system that "recompute[s] symbol positions
+wholesale, with no persisted identity across a re-index at all." Zoekt is prior art
+for the lexical side specifically — a real, production, trigram-indexed code-search
+engine — not for the manifest/catalog layer ravel informs.
+
 **From CIFF**: the negative lesson, now with company. CIFF is a well-made exchange
 format no engine runs operationally: conversion required, no positions, no pruning
 bounds, no analyzer metadata, lossy doc lengths. Every gap is a MUST here.

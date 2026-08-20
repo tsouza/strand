@@ -4057,3 +4057,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   remain the tracked path toward eventually making that half RFC-ready;
   this entry closes only the row-ID-granularity question, which needed
   no further research to answer.
+
+  **Addendum, D-4 closed, 2026-08-20.** Zoekt's licensing and behavior are
+  now vendored (`references/zoekt-code-search-engine.md`, fetched live from
+  `sourcegraph/zoekt`'s real README and `doc/design.md`/`doc/ctags.md`) rather
+  than resting on the unvendored, independently-re-verified-but-uncited state
+  this paragraph describes above. The fetch confirms, verbatim from the real
+  source, the exact characterization this entry already made: Zoekt indexes
+  at file granularity (a shard's data is file content, filenames, and
+  posting lists over both), and symbol positions come from an external
+  `ctags` invocation used only as a ranking signal, with no persisted,
+  addressable symbol identity across a re-index. No correction to this
+  entry's conclusion was needed.

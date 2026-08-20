@@ -1618,19 +1618,55 @@ discipline every other milestone gets in this document.
   licensable, locally-runnable code-embedding model (not yet identified or verified
   available in this environment — check feasibility before committing to a specific
   model). Depends on: D-2.
-- **D-4** — Vendor telemetry-adjacent prior art into `references/` and `docs/lineage.md`,
-  the same discipline every other design lineage entry in this project already
-  follows (a primary source, fetched and cited, not asserted from memory,
-  `CLAUDE.md` §3). NOFireAI/ravel (surveyed conversationally this session, license
-  independently confirmed Apache-2.0 via GitHub's license API, `docs/ledger.md`'s own
-  entry) is one real candidate — an object-storage-first observability datastore,
-  structurally comparable at the storage layer though not itself a search-index
-  format. Real, code-search-specific prior art (e.g., Google/Sourcegraph's Zoekt, a
-  trigram-based code-search engine — license and technical shape not yet checked in
-  this project) is a second real candidate worth checking, since it is directly a
-  code-search system rather than an adjacent storage layer. Status: open,
-  research-sized, no code dependencies, no other item in this section blocks it —
-  a reasonable next single task given its low weight. Depends on: nothing.
+- **D-4** — Vendor telemetry-adjacent and code-search-adjacent prior art into
+  `references/` and `docs/lineage.md`, the same discipline every other design
+  lineage entry in this project already follows (a primary source, fetched and
+  cited, not asserted from memory, `CLAUDE.md` §3). **Status: done, 2026-08-20.**
+  Two candidates were vendored, both re-fetched live and independently re-verified
+  in the session that closed this item rather than trusted from any earlier
+  conversational summary.
+
+  **NOFireAI/ravel** — `references/nofireai-ravel-storage-architecture.md`.
+  License independently re-confirmed Apache-2.0 via GitHub's license API (matching
+  the method already used for RaBitQ and FastLanes). Real README, `docs/catalog-
+  and-mvcc.md`, `docs/consistency-model.md`, and `docs/object-store-contract.md`
+  fetched and quoted; the specific technical claims from prior conversational
+  survey (a `prefix_list_crossover_requests` default of 720 hour-buckets, a
+  `fold_reconcile_window_hours` default of 26, "sealed hours" and the "seal lemma"
+  terminology) were all independently re-verified — the numeric defaults confirmed
+  directly against real, currently-committed Rust source
+  (`crates/ravel-catalog/src/config.rs`, lines 85 and 124). One correction found
+  and recorded: the prior summary attributed both defaults to `crates/ravel-
+  catalog/src/fold.rs`; live re-verification found the fields are actually declared
+  in `config.rs` and the `prefix_list_crossover_requests` switch itself is consumed
+  in `crates/ravel-catalog/src/catalog.rs` (line 976) — `fold.rs` only references
+  the config values, it doesn't define or switch on them. `docs/lineage.md` gained
+  a real entry positioned among the living object-storage-first systems (Iceberg,
+  Lance, turbopuffer), explicitly not the graveyard, stating what STRAND shares
+  (immutable segments, a single CAS'd current pointer, the same commit-protocol
+  shape) and does not share (ravel is a full telemetry datastore with its own query
+  engines; STRAND is a storage format only) with it.
+
+  **Zoekt** (`sourcegraph/zoekt`) — `references/zoekt-code-search-engine.md`.
+  License independently confirmed Apache-2.0 (both the GitHub API and the actual
+  `LICENSE` file text), including the real fork history (Sourcegraph's copy has
+  been the maintained source since 2017, forked from `google/zoekt`, itself
+  Apache-2.0 — no relicensing found in the fetched material). Real README and
+  `doc/design.md`/`doc/ctags.md`/`doc/faq.md` fetched and quoted. Granularity
+  finding: Zoekt indexes at **file granularity** — a shard's data is file content,
+  filenames, and posting lists over both; symbol positions come from an external,
+  sandboxed `ctags` invocation used only as a ranking signal, never as a persisted,
+  addressable identity across a re-index. This **independently confirms**
+  `docs/ledger.md`'s existing "code row-IDs stay file-granular" settled entry and
+  its characterization of Zoekt as recomputing symbol positions wholesale with no
+  persisted cross-reindex identity — no correction was needed to that entry; a
+  short confirming addendum citing the new reference was added to it instead.
+  `docs/lineage.md` gained a Zoekt entry as code-search-specific prior art,
+  distinct from ravel's storage-layer comparison.
+
+  No third candidate was added: neither fetch surfaced a clearly better-fitting
+  system than these two, and `CLAUDE.md` §2's economy rule argues against padding
+  this entry with weaker candidates just to have more of them.
 - **D-5** — A recency-weighted BM25 scoring profile, `bm25-recency`, motivated by
   the same domain-scoping decision that opened D-1 through D-4 but not one of its
   four originally-named "does change" items itself — a new task this session's own
