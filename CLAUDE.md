@@ -44,6 +44,23 @@ amplification honestly (§7); a manifest-level cross-segment navigation layer is
 research (R10), not a v0.1 promise. This is a narrower claim, deliberately, and it is
 the honest one.
 
+**Target domain: telemetry-adjacent text — logs and source code, not general-purpose
+full-text search.** STRAND exists to index the two content types that dominate
+observability and engineering-platform search: application/system logs and source
+code. These are related but not identical: both mix natural-language words with
+structured symbols and are hard to tokenize with a plain prose analyzer, but code
+additionally carries full natural-language spans (comments, docstrings) that want
+prose-shaped analysis embedded inside code-shaped analysis — a real, harder problem
+than either domain alone, and a driver for this project's own analyzer-descriptor
+design (invariant 6) rather than an afterthought. This scoping decision shapes which
+analyzer profiles this project builds as defaults, which corpora ground its
+benchmarks, and which embedding conventions its vector family assumes — it does not
+change the format's own generality: nothing in the container, row-ID, or manifest
+layer is telemetry-specific, and a future adopter indexing general prose is not
+prevented by anything in the wire format itself. Adopted 2026-08-20, narrowing an
+earlier, domain-agnostic framing; see `docs/ledger.md` for the decision record and
+`docs/roadmap.md` for the downstream task list this scoping change opens.
+
 **License: Apache-2.0.** Every file carries the header. Every dependency must be
 Apache-2.0-compatible. No exceptions. (The RaBitQ reference implementations were
 license-audited in R3: the two repositories `docs/research/README.md` names

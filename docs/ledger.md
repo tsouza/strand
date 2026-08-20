@@ -3807,3 +3807,60 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   needing an explicit `PICK`; and `<=`-transitivity through a
   record-field-and-index expression needing an explicit `\in Nat` fact
   even when it "obviously" follows from an already-cited invariant.
+- **Project scope narrowed to a target domain: telemetry-adjacent text
+  (logs and source code), not general-purpose full-text search —
+  2026-08-20.** `CLAUDE.md` §1 gained a new paragraph, "Target domain,"
+  narrowing an earlier, deliberately domain-agnostic framing (the mission
+  sentence's "CIFF you can query in place on S3" never named a content
+  type). This was a direct user decision, not a session-proposed design
+  choice — the user framed it explicitly as narrowing, after a discussion
+  prompted by the graph-blob family's own real bench measurement
+  (`bench/src/graph_warm_query.rs`, above) using synthetic uniform-random
+  points rather than a real corpus, which surfaced the underlying
+  question directly: what real data should ground this project's
+  benchmarks and default analyzer choices going forward.
+
+  **The reasoning, as discussed and recorded rather than asserted from
+  nowhere.** Logs and source code are related but not identical content
+  shapes: both mix natural-language words with structured symbols (log
+  `key=value` pairs, timestamps, stack traces; code identifiers,
+  punctuation-as-syntax) in ways a plain prose analyzer handles poorly,
+  but code additionally carries full natural-language spans (comments,
+  docstrings) that want prose-shaped analysis embedded *inside*
+  code-shaped analysis for the surrounding tokens — a genuinely harder,
+  mixed-analysis problem than either domain alone, not adequately served
+  by a single monolithic analyzer profile. This is exactly the shape
+  invariant 6's analyzer-descriptor design (`CLAUDE.md` §5) already
+  anticipated architecturally (pluggable descriptors with normative
+  conformance vectors, not a hardcoded English analyzer), so the scoping
+  decision is real and consequential for *which* profiles this project
+  builds and validates, not a claim that the format itself needed to
+  change to accommodate it.
+
+  **What does and does not change, stated precisely so the decision
+  is not read as bigger or smaller than it is.** Does NOT change: the
+  container, row-ID, or manifest layer — nothing in any of the format's
+  already-approved RFCs (0001, 0005–0012, 0014) is telemetry-specific,
+  and none of it needs revisiting on format-correctness grounds. Does
+  change, as real, concrete follow-on work: (1) a real logs-and-code
+  analyzer profile — identifier splitting, log-line structure handling,
+  and the mixed code/comment-span analysis problem named above — becomes
+  needed work, not a hypothetical future option; (2) the benchmark
+  corpora this project measures against need reconsidering — MS MARCO
+  (already vendored, grounding M1-2/M1-7/`msmarco_index.rs` and others)
+  is general passage text, still valid for validating the format's raw
+  mechanics but no longer representative of the target domain, and real
+  log and source-code corpora become the grounding data for analyzer and
+  embedding work going forward; (3) the vector family's embedding
+  conventions should be revisited against real code-embedding models
+  rather than assumed generic; (4) `references/` and `docs/lineage.md`
+  should gain telemetry-adjacent prior art — NOFireAI/ravel (a real,
+  distinct, object-storage-first observability datastore surveyed earlier
+  this session, Apache-2.0, structurally comparable at the storage layer
+  though not a search-index format) is a real, citable comparison point,
+  not yet formally added to `docs/lineage.md`.
+
+  A concrete downstream task list, decomposing this into completable
+  work items the way `docs/roadmap.md` already does for every other
+  open decision, is this decision's own explicit next step — tracked
+  there, not invented ad hoc in this entry.
