@@ -510,21 +510,76 @@ Non-goals and Open questions still leave genuinely open:
   volume once M3-1 (compaction) lands.
 - **M3-6** — End-to-end hybrid RRF fusion across both blob families over
   one row-ID space. Source: `docs/milestones.md` M3 entry — this is the
-  project's actual thesis, exercised for the first time. **A real,
-  previously-missing dependency, found by the adversarial review's
-  dependency-correctness check**: the vector query path already resolves
-  row-IDs directly (`crates/strand-vector/src/query.rs`'s `Candidate`
-  carries a real `row_id`), but the lexical query path
-  (`crates/strand-lexical/src/field.rs`) currently returns local ordinals
-  from a single field's own dense arrays, not row-IDs — fusing the two
-  result sets requires the lexical side to translate `local_ordinal +
-  row_id_base` into the same row-ID space first, a real, small, currently
-  unbuilt piece of glue, not just "call both and merge," Source for the
-  gap: direct inspection of `field.rs`'s current return shape. Status:
-  open. Depends on: the row-ID-translation glue just described (no
-  separate task ID — small enough to fold into this task's own scope, but
-  named here so it isn't silently assumed away). Sequencing after M3-1 is
-  recommended, not required, for a realistic multi-segment corpus.
+  project's actual thesis, exercised for the first time. Status: **done,
+  2026-08-20**.
+
+  **The gap this entry itself named is closed.** The vector query path
+  already resolved row-IDs directly (`crates/strand-vector/src/query.rs`'s
+  `Candidate` carries a real `row_id`); the lexical query path
+  (`crates/strand-lexical/src/field.rs`) returned only local doc ordinals.
+  `FieldReader::search_bm25_row_ids` now translates `row_id_base +
+  doc_ordinal` — `spec/row-ids.md` §1's own normative arithmetic, the same
+  translation `crates/strand-datafusion/src/lexical_table.rs` (M5-1)
+  already performs for its own purpose — into real row-IDs, so no RFC was
+  owed for it, per that entry's own precedent. Verified in
+  `crates/strand-lexical/tests/field_end_to_end.rs` against a real
+  segment's hotcache-declared `row_id_base`, not a hardcoded one.
+
+  **New `crates/strand-core/src/fusion.rs`**: Reciprocal Rank Fusion,
+  deliberately crate-level glue rather than a spec chapter (`CLAUDE.md`
+  §1) and deliberately independent of both `strand-lexical` and
+  `strand-vector` — it operates only on `u64` row-IDs and rank positions,
+  which is all invariant 1's row-ID space actually requires two blob
+  families to agree on. The formula and the `k = 60` constant are taken
+  from the paper that defines RRF (Cormack, Clarke & Büttcher, "Reciprocal
+  Rank Fusion outperforms Condorcet and individual Rank Learning Methods,"
+  SIGIR'09), fetched from the authors' own institutional host and vendored
+  rather than trusted from memory (`CLAUDE.md` §3):
+  `references/cormack-clarke-buettcher-2009-reciprocal-rank-fusion.md`.
+  `DEFAULT_RRF_K` is stated as the paper's own fixed constant, not an
+  independently-tuned one — the vendored reference records that the
+  paper's own pilot sweep's actual MAP peak was at `k = 80`, with `k = 60`
+  close behind on a wide plateau from roughly `k = 30` to `k = 100`,
+  matching the paper's own "near-optimal... but not critical" language
+  rather than presenting `60` as uniquely best.
+
+  **End-to-end proof**: `crates/strand-core/tests/hybrid_rrf_end_to_end.rs`
+  builds one real segment (composing `field_end_to_end.rs` and
+  `segment_assembly.rs`'s own closest existing patterns, not reinventing
+  either) carrying both a lexical field and a vector field over one shared
+  row-ID space — one `SegmentBuilder`, one commit, `row_id_count = 6` —
+  runs a real BM25 query against the lexical side and a real ANN query
+  (nprobe scan + exact rerank against the flat-vector blob) against the
+  vector side, and fuses the two real, row-ID-resolved result lists with
+  `fusion::fuse`. The fused order and every score are asserted against a
+  hand-computed expectation — the paper's formula applied directly, in the
+  test file itself, to the ranks the real queries actually produced,
+  independent of `fuse`'s own implementation — at the same worked-example
+  rigor `docs/ledger.md` already holds M2-1's SPANN closure-replication
+  test and M5-1's SQL end-to-end test to. The worked example is
+  constructed so the actual thesis is visible in the assertions, not just
+  implied: two documents (row 0, row 1) that are each other's lexical
+  matches but only middling vector matches (vector ranks 3 and 5) outrank
+  the vector ranking's own single nearest neighbor (row 3) once both
+  signals are fused — fusion changes the answer, not just its
+  presentation. (This same test-writing caught a real arithmetic error in
+  an earlier draft of `fusion.rs`'s own unit tests — a claimed "symmetry"
+  between two documents in a hand-computed three-document example that
+  does not actually hold for a cyclic rank permutation — fixed by
+  recomputing the real values rather than softening the claim, per
+  `CLAUDE.md` §2.)
+
+  `crates/strand-core/Cargo.toml` gained `strand-lexical` and
+  `strand-vector` as dev-dependencies — a supported Cargo dev-dependency
+  cycle, since both already depend on `strand-core` as a normal
+  dependency — the only place in the project that needs both blob-family
+  crates together to prove the shared row-ID space actually works.
+
+  `cargo test --workspace` and `cargo clippy --workspace --all-targets --
+  -D warnings` both clean. Depends on: nothing further. Sequencing after
+  M3-1 remains a real, not-yet-done recommendation for exercising this at
+  realistic multi-segment scale — this task proves the mechanism on one
+  segment; the multi-segment amplification curve stays M3-7's job.
 - **M3-7** — The multi-segment benchmark: the same corpus at 1, 16, and
   ~128 segments, cold and warm, producing a measured segment-count-
   amplification curve. Source: `docs/milestones.md` M3 entry; feeds R10.
@@ -685,10 +740,12 @@ Non-goals and Open questions still leave genuinely open:
 - **M5-2** — The hybrid-fusion benchmark, run through the M5-1
   TableProvider, `CLAUDE.md` §7's fusion workload with its selectivity
   sweep. Source: `docs/milestones.md` M5 entry. Status: **blocked** on
-  M3-6 (hybrid RRF must exist to benchmark) and on M5-1's still-open
-  vector-family slice — a *hybrid*-fusion benchmark needs both blob
-  families queryable through the TableProvider, and only the lexical
-  slice exists today (M5-1 above).
+  M5-1's still-open vector-family slice — a *hybrid*-fusion benchmark
+  needs both blob families queryable through the TableProvider, and only
+  the lexical slice exists today (M5-1 above). M3-6 itself is no longer a
+  blocker: hybrid RRF fusion exists and is proven end-to-end (done,
+  2026-08-20), just not yet reachable through the TableProvider this task
+  would benchmark against.
 - **M5-3** — FAISS adapter. Source: `docs/milestones.md` M5 entry, "per
   R11(b)'s feasibility finding." Status: **unblocked on M4-1(b)**, now
   resolved (`references/r11b-faiss-invertedlists-external-storage-feasibility.md`):

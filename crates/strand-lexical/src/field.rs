@@ -465,6 +465,41 @@ impl<'a> FieldReader<'a> {
         Some(scored)
     }
 
+    /// `search_bm25`, translated from this field's local doc ordinals
+    /// into real row-IDs (`spec/row-ids.md` §1: `row_id = row_id_base +
+    /// local_ordinal`) instead — the same arithmetic
+    /// `crates/strand-datafusion/src/lexical_table.rs` already performs
+    /// for its own purpose (`row_id = hotcache.row_id_base +
+    /// doc_ordinal`), needed here because a lexical result list only
+    /// becomes fusable against a vector result list
+    /// (`strand_vector::query::Candidate::row_id`, already a real row-ID)
+    /// once both sides speak the same row-ID space — `docs/roadmap.md`'s
+    /// M3-6 entry names this exact translation as the real, previously
+    /// missing piece of glue hybrid RRF fusion needs. `row_id_base` MUST
+    /// be the same segment's hotcache-declared base this field's blobs
+    /// were built and written under (`spec/container.md` §4); this
+    /// function does not itself read the hotcache, so a caller passing
+    /// the wrong base silently produces wrong row-IDs — the same
+    /// caller-supplied-base contract `filter_deleted` already has in
+    /// `strand-vector`. Order is preserved: results stay sorted by
+    /// descending BM25 score, only each entry's identity changes from a
+    /// local ordinal to a global row-ID.
+    pub fn search_bm25_row_ids(
+        &self,
+        term: &str,
+        doc_lengths: &[u32],
+        profile: &Bm25Profile,
+        row_id_base: u64,
+    ) -> Option<Vec<(u64, f64)>> {
+        let scored = self.search_bm25(term, doc_lengths, profile)?;
+        Some(
+            scored
+                .into_iter()
+                .map(|(doc_ordinal, score)| (row_id_base + u64::from(doc_ordinal), score))
+                .collect(),
+        )
+    }
+
     /// `lookup`, plus each match's within-document positions
     /// (`spec/positions.md` §6's full decode) — `None` if the term misses,
     /// or if this field's positions blob is absent, or if this specific

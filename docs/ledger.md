@@ -3087,3 +3087,131 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   itself is not part of `cargo test`'s default run (it shells out to a
   real `java`/`tla2tools.jar`, the same reasoning `bench/`'s MinIO-backed
   binaries are run manually rather than under `cargo test`).
+- **M3-6 (`docs/roadmap.md`) — end-to-end hybrid RRF fusion across both
+  blob families over one shared row-ID space, done 2026-08-20.** This is
+  the project's actual thesis (`CLAUDE.md`'s mission sentence: "one format
+  carrying both retrieval families over one row-ID space, the strands
+  woven together at fusion time"), exercised end-to-end for the first
+  time.
+
+  **The gap.** `docs/roadmap.md`'s own M3-6 entry, written by an earlier
+  adversarial-review pass, named a real, previously-missing dependency:
+  the vector query path already resolved row-IDs directly
+  (`crates/strand-vector/src/query.rs`'s `Candidate.row_id`), but the
+  lexical query path (`crates/strand-lexical/src/field.rs`) returned only
+  local doc ordinals from a single field's own dense arrays — fusion needs
+  both sides speaking the same row-ID space first. `FieldReader::
+  search_bm25_row_ids` closes it: `search_bm25`'s existing ranked output,
+  translated via `row_id_base + doc_ordinal`, `spec/row-ids.md` §1's own
+  normative arithmetic ("`local_ordinal = row_id - row_id_base` is the one
+  arithmetic every reader needs"). This is the identical translation
+  `crates/strand-datafusion/src/lexical_table.rs` (M5-1, already merged)
+  performs for its own purpose, and that entry's own ledger writeup
+  already argued no RFC is owed for this exact arithmetic — a direct
+  reading of an already-approved spec sentence, not a new format-design
+  decision. `crates/strand-lexical/tests/field_end_to_end.rs` gained an
+  assertion cross-checking `search_bm25_row_ids` against `search_bm25`
+  translated by hand, against the segment's real hotcache-declared
+  `row_id_base` rather than an assumed `0`.
+
+  **Reciprocal Rank Fusion (`crates/strand-core/src/fusion.rs`).**
+  `CLAUDE.md` §1 states plainly that "query-time fusion logic... does not
+  belong in the spec"; this module is exactly that — small, focused
+  crate-level glue, added to `strand-core` (rather than a new crate)
+  because both `strand-lexical` and `strand-vector` already depend on
+  `strand-core`, so this is the one place both families' query output can
+  be fused without a new dependency edge. The module is deliberately
+  independent of both blob-family crates' own types: it knows only `u64`
+  row-IDs and their rank positions, which is all invariant 1's shared
+  row-ID space actually requires two blob families to agree on.
+
+  Grounding, per `CLAUDE.md` §3 ("never implement against a remembered
+  spec"): RRF's formula and its widely-quoted `k = 60` constant are
+  exactly the kind of fact this project's own constitution warns against
+  trusting from memory, so the defining paper — G. V. Cormack, C. L. A.
+  Clarke, S. Büttcher, "Reciprocal Rank Fusion outperforms Condorcet and
+  individual Rank Learning Methods," SIGIR'09 — was fetched from the
+  authors' own institutional host (`cormack.uwaterloo.ca`, redirected from
+  the author's UWaterloo faculty page) and vendored:
+  `references/cormack-clarke-buettcher-2009-reciprocal-rank-fusion.md`.
+  The paper's own formula: `RRFscore(d) = Σ_{r∈R} 1/(k + r(d))`, where
+  `r(d)` is `d`'s **1-based** rank position within ranking `r` ("a
+  permutation on 1..|D|"). `DEFAULT_RRF_K = 60.0` is stated in `fusion.rs`
+  as the paper's own *fixed*, not independently-tuned, constant — the
+  vendored reference's own transcription of the paper's Table 1 shows the
+  pilot sweep's actual MAP peak at `k = 80` (.2147), with `k = 60` only
+  marginally behind (.2145) on a wide plateau from roughly `k = 30` to
+  `k = 100`, matching the paper's own "k = 60 was near-optimal... but the
+  choice was not critical" rather than a claim that `60` is uniquely best.
+
+  **Real bug caught by the test-writing itself, fixed rather than
+  softened (`CLAUDE.md` §2).** An early draft of `fusion.rs`'s own unit
+  tests claimed that, for a three-document, two-ranking hand-computed
+  example (ranking A = `[1,2,3]`, ranking B = `[3,1,2]`), documents 1 and
+  3 "tie by symmetry." Running the test caught this immediately: it is a
+  cyclic permutation, not a symmetric swap, and the three scores are all
+  distinct (`1/61+1/62 ≈ 0.032522` for doc 1, `1/61+1/63 ≈ 0.032266` for
+  doc 3, `1/62+1/63 ≈ 0.032002` for doc 2). The test and its doc comment
+  were corrected to state and assert the real, distinct values and their
+  real strict order, rather than loosening the assertion to fit the wrong
+  claim — the same discipline `CLAUDE.md` §2 requires of a wrong *number*
+  applied here to a wrong *derivation*.
+
+  **End-to-end proof
+  (`crates/strand-core/tests/hybrid_rrf_end_to_end.rs`).** Composes the
+  two closest existing patterns rather than inventing a third:
+  `crates/strand-lexical/tests/field_end_to_end.rs` (build a lexical
+  field, commit through a real manifest, query cold) and
+  `crates/strand-vector/tests/segment_assembly.rs` /
+  `crates/strand-vector/tests/query_a_real_cluster.rs` (build the four
+  vector blobs, assemble a real segment, run a real nprobe scan). One
+  `SegmentBuilder`, one `commit`, `row_id_count = 6` — both blob families
+  genuinely share one row-ID space, not two segments glued together after
+  the fact. The worked example, verified by real code, not asserted by
+  assumption: six documents; the lexical term `"widget"` occurs in exactly
+  two of them (doc 0, one token; doc 1, two tokens), so real BM25 ranks
+  doc 0 first (shorter document, equal term frequency — the same
+  length-normalization property `field_end_to_end.rs`'s own `"park"` test
+  already established); six raw vectors, each dimension holding one
+  constant per row, queried against an all-zero query vector after a real
+  nprobe(=1) scan and a real exact rerank against the flat-vector blob, so
+  the true squared L2 distance from the query to row `i` is exactly
+  `64 * v_i^2` — computable by hand, and asserted against the real
+  `rerank` output to `1e-4`, not merely cross-checked against a
+  brute-force loop.
+
+  The two real, row-id-resolved rankings are fused with `fusion::fuse`,
+  and the result is checked against a hand-computed expectation — the
+  paper's formula applied directly, as literal arithmetic in the test
+  file, to the ranks the real queries actually produced, independent of
+  `fuse`'s own implementation — at the same worked-example rigor
+  `docs/ledger.md` already holds M2-1's SPANN closure-replication test and
+  M5-1's SQL end-to-end test to (order and every score to `1e-9`). The
+  worked example is deliberately constructed so the project's actual
+  thesis is visible in the assertions, not just asserted as prose: row 0
+  and row 1 are each other's only lexical matches (BM25 ranks 1 and 2) but
+  only middling vector matches (vector ranks 3 and 5 of 6) — and both
+  outrank row 3, the vector ranking's own single nearest neighbor, once
+  the two signals are fused. Fusion changes the answer, not just its
+  presentation, and the test asserts that ordering directly
+  (`position_of(row 0) < position_of(row 3)`, `position_of(row 1) <
+  position_of(row 3)`), not merely that fusion runs without error.
+
+  **Dependency-graph mechanics.** `crates/strand-core/Cargo.toml` gained
+  `strand-lexical` and `strand-vector` as dev-dependencies. Both already
+  depend on `strand-core` as a normal dependency, so this reverse edge is
+  a dev-only (test-only) edge — a supported Cargo dev-dependency cycle,
+  not a real circular build dependency, since dev-dependencies are only
+  needed to build test binaries, never the library artifact itself. This
+  is the one place in the project that needs both blob-family crates
+  together in one build to prove the shared row-ID space actually works;
+  neither `strand-tools` nor `strand-datafusion` currently depend on both.
+
+  `cargo test --workspace` and `cargo clippy --workspace --all-targets --
+  -D warnings` both clean. `docs/roadmap.md`'s M3-6 entry is updated to
+  **done**; its M5-2 entry's dependency note is updated to drop M3-6 as a
+  blocker (M5-2 now blocks only on M5-1's still-open vector-family slice).
+  Sequencing after M3-1 (compaction) remains a real, not-yet-done
+  recommendation for exercising hybrid fusion at realistic multi-segment
+  scale — this task proves the mechanism on one segment; the multi-segment
+  amplification curve stays M3-7's job.

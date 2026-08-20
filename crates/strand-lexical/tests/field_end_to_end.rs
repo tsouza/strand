@@ -122,6 +122,34 @@ fn builds_writes_commits_and_queries_a_real_field_end_to_end() {
             .is_none()
     );
 
+    // search_bm25_row_ids (M3-6, docs/roadmap.md): the same ranking,
+    // translated into real row-IDs via row_id_base + doc_ordinal
+    // (spec/row-ids.md §1) — the piece of glue hybrid RRF fusion needs
+    // that plain search_bm25 above deliberately does not provide, since
+    // it only knows this field's own local ordinals. This segment's
+    // row_id_base is 0 (the first, and only, segment committed against
+    // an empty table), but the translation is exercised against the
+    // real hotcache-declared value rather than a hardcoded one.
+    let row_id_base = hotcache.row_id_base;
+    let ranked_row_ids = reader
+        .search_bm25_row_ids("park", &field.doc_lengths, &profile, row_id_base)
+        .expect("park is a real term");
+    assert_eq!(
+        ranked_row_ids,
+        ranked
+            .iter()
+            .map(|&(doc_ordinal, score)| (row_id_base + u64::from(doc_ordinal), score))
+            .collect::<Vec<_>>(),
+        "search_bm25_row_ids must be exactly search_bm25's own order and scores, \
+         with row-IDs substituted for local doc ordinals"
+    );
+    assert!(
+        reader
+            .search_bm25_row_ids("giraffe", &field.doc_lengths, &profile, row_id_base)
+            .is_none(),
+        "a real miss must stay None after row-ID translation too"
+    );
+
     // Real phrase query (RFC 0008, `spec/positions.md` §6). Doc 2, "the dog
     // and the cat play in the park", tokenizes (after stopword removal) to
     // dog(0), cat(1), play(2), park(3) — "dog cat" is a real adjacent
