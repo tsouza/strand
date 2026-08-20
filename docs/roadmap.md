@@ -993,35 +993,52 @@ Non-goals and Open questions still leave genuinely open:
   independent research tasks do.
 
   **Status: partially done (2026-08-20, obligation count corrected
-  2026-08-20).** `verification/manifest_proofs.tla` (1,402 lines) proves
-  `IndInv1` (`TypeOK` plus five safety properties) inductive across `Init`
-  and all five **writer**-path actions (`ReadCurrent`, `ProposeSnapshot`,
-  `ProposeDeletionVectorCommit`, `TryAdvancePointer`, `ResolveAmbiguity` —
-  matching `commit()`'s and `commit_deletion_vector()`'s real control
-  flow), confirmed by a clean `tlapm` run reporting `[INFO]: All 1261
-  obligations proved.`, exit code 0, reproduced identically on two
-  separate cache-cleared runs. A real toolchain fix (TLAPS 1.5.0 cannot
-  process a `RECURSIVE`-operator definition; `SumCounts` rewritten to a
-  recursive function, semantics-preserving, re-confirmed against TLC) was
-  required first. **A first pass of this task reported 1,247 obligations
-  from a run that did not, in fact, reproduce** — caught by an independent
-  adversarial review that re-ran `tlapm` fresh and found one real failing
-  obligation; fixed with a different proof strategy for that one step
-  (`ExceptSegmentDelVer`, field-by-field `EXCEPT`-membership rather than a
-  literal-record-equality detour that looked like it worked but was not
-  reliable), independently re-verified twice before this entry was
-  corrected — full account in `verification/README.md`'s "Lessons"
-  section and RFC 0002's own Discussion addendum. **Not yet done**, named
-  specifically and unaffected by the correction above: the reader-path
-  actions (`ReadPointer`, `ReadSnapshotObject`); the `Next`-level
-  composition and the temporal invariance theorem (`Spec => []IndInv1`);
-  and the model's other six TLC-checked invariants, most notably
-  `NoOverlappingRowIds` (needs a materially harder segment-packing
-  inductive strengthening not yet attempted). Full accounting:
-  `verification/README.md`'s "TLAPS proof" section, RFC 0002's Discussion
-  section, `docs/ledger.md`. M3-2 is not yet complete, and the compaction
-  gate below still needs the remainder of this item plus M3-3 (below, now
-  done).
+  2026-08-20; reader-path actions added 2026-08-20).**
+  `verification/manifest_proofs.tla` (2,090 lines) proves `IndInv1`
+  (`TypeOK` plus six safety/typing properties, one of them —
+  `PtrVersionBounded` — added in this latest pass) inductive across `Init`
+  and **all five writer-path actions plus both reader-path actions**
+  (`ReadCurrent`, `ProposeSnapshot`, `ProposeDeletionVectorCommit`,
+  `TryAdvancePointer`, `ResolveAmbiguity` — matching `commit()`'s and
+  `commit_deletion_vector()`'s real control flow — plus `ReadPointer` and
+  `ReadSnapshotObject`, matching `read_snapshot()`'s retry loop and its
+  `try_read_current()` helper), confirmed by a clean `tlapm` run reporting
+  `[INFO]: All 2018 obligations proved.`, exit code 0, reproduced
+  identically on two separate runs (one ordinary, one with `--cleanfp`,
+  fingerprint cache erased first). A real toolchain fix (TLAPS 1.5.0
+  cannot process a `RECURSIVE`-operator definition; `SumCounts` rewritten
+  to a recursive function, semantics-preserving, re-confirmed against TLC)
+  was required first, before any of this work. **A first pass of this task
+  reported 1,247 obligations from a run that did not, in fact,
+  reproduce** — caught by an independent adversarial review that re-ran
+  `tlapm` fresh and found one real failing obligation; fixed with a
+  different proof strategy for that one step (`ExceptSegmentDelVer`,
+  field-by-field `EXCEPT`-membership rather than a literal-record-equality
+  detour that looked like it worked but was not reliable), independently
+  re-verified twice before that entry was corrected to 1,261 — full
+  account in `verification/README.md`'s "Lessons" section and RFC 0002's
+  own Discussion addendum. **This latest pass** added the two reader-path
+  step lemmas named above; doing so required extending `IndInv1` with a
+  new seventh conjunct, `PtrVersionBounded` (the reader-side counterpart
+  of the writer-side `BaseVersionBounded` conjunct the first pass already
+  needed), and re-proving its preservation across the five writer
+  theorems too, not only the two new reader ones — the 2,018 total
+  reflects all of that, not just the two new theorems in isolation. A
+  genuinely new failure mode surfaced and was fixed during this pass:
+  proving `x' \in a..b` for a primed expression from `<=`/`>=` facts about
+  the corresponding unprimed expression plus a separate equality reliably
+  failed even though the identical shape works for a bare `<=` goal —
+  full account in `verification/README.md`'s "Lessons" section, new
+  bullet. **Not yet done**, named specifically and unaffected by anything
+  above: the `Next`-level composition and the temporal invariance theorem
+  (`Spec => []IndInv1`); and the model's other six TLC-checked invariants,
+  most notably `NoOverlappingRowIds` (needs a materially harder
+  segment-packing inductive strengthening not yet attempted). Full
+  accounting: `verification/README.md`'s "TLAPS proof" section, RFC
+  0002's Discussion section, `docs/ledger.md`. M3-2 is not yet complete,
+  and the compaction gate below still needs the remainder of this item
+  (the two items named as not yet done, immediately above) plus M3-3
+  (below, done).
 - **M3-3** — DST (Deterministic Simulation Testing) cross-validation
   harness, Workflow II first per RFC 0002 §2's approved sequencing
   (TLC-generated action sequences from the model, replayed against the

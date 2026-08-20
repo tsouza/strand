@@ -100,6 +100,63 @@ LEMMA ExceptProposedAt ==
 <1>5. QED
   BY <1>1, <1>2, <1>3, <1>4
 
+(* rLocal-field EXCEPT-projection facts, the reader-side counterparts of      *)
+(* ExceptProposedAt above, needed once the reader actions (ReadPointer,       *)
+(* ReadSnapshotObject) are in scope: both update rLocal via a nested          *)
+(* field-EXCEPT (`[rLocal EXCEPT ![r].result = v]`, `.ptrVersion`, `.retries`)*)
+(* -- the same two-step-desugaring shape ExceptProposedAt already handles for *)
+(* wLocal's `proposed` field. One lemma per field an action in manifest.tla   *)
+(* actually assigns: `result` (ReadPointer's Found/NoCommitsYet branches,     *)
+(* ReadSnapshotObject's Found branch), `ptrVersion` (ReadPointer's Found      *)
+(* branch), `retries` (ReadSnapshotObject's retry branch).                   *)
+LEMMA ExceptResultAt ==
+    ASSUME NEW f, NEW x \in DOMAIN f, NEW v
+    PROVE  /\ [f EXCEPT ![x].result = v][x].result = v
+           /\ [f EXCEPT ![x].result = v][x].retries = f[x].retries
+           /\ [f EXCEPT ![x].result = v][x].ptrVersion = f[x].ptrVersion
+<1>1. [f EXCEPT ![x].result = v][x] = [f[x] EXCEPT !.result = v]
+  OBVIOUS
+<1>2. [f[x] EXCEPT !.result = v].result = v
+  OBVIOUS
+<1>3. [f[x] EXCEPT !.result = v].retries = f[x].retries
+  OBVIOUS
+<1>4. [f[x] EXCEPT !.result = v].ptrVersion = f[x].ptrVersion
+  OBVIOUS
+<1>5. QED
+  BY <1>1, <1>2, <1>3, <1>4
+
+LEMMA ExceptPtrVersionAt ==
+    ASSUME NEW f, NEW x \in DOMAIN f, NEW v
+    PROVE  /\ [f EXCEPT ![x].ptrVersion = v][x].ptrVersion = v
+           /\ [f EXCEPT ![x].ptrVersion = v][x].retries = f[x].retries
+           /\ [f EXCEPT ![x].ptrVersion = v][x].result = f[x].result
+<1>1. [f EXCEPT ![x].ptrVersion = v][x] = [f[x] EXCEPT !.ptrVersion = v]
+  OBVIOUS
+<1>2. [f[x] EXCEPT !.ptrVersion = v].ptrVersion = v
+  OBVIOUS
+<1>3. [f[x] EXCEPT !.ptrVersion = v].retries = f[x].retries
+  OBVIOUS
+<1>4. [f[x] EXCEPT !.ptrVersion = v].result = f[x].result
+  OBVIOUS
+<1>5. QED
+  BY <1>1, <1>2, <1>3, <1>4
+
+LEMMA ExceptRetriesAt ==
+    ASSUME NEW f, NEW x \in DOMAIN f, NEW v
+    PROVE  /\ [f EXCEPT ![x].retries = v][x].retries = v
+           /\ [f EXCEPT ![x].retries = v][x].ptrVersion = f[x].ptrVersion
+           /\ [f EXCEPT ![x].retries = v][x].result = f[x].result
+<1>1. [f EXCEPT ![x].retries = v][x] = [f[x] EXCEPT !.retries = v]
+  OBVIOUS
+<1>2. [f[x] EXCEPT !.retries = v].retries = v
+  OBVIOUS
+<1>3. [f[x] EXCEPT !.retries = v].ptrVersion = f[x].ptrVersion
+  OBVIOUS
+<1>4. [f[x] EXCEPT !.retries = v].result = f[x].result
+  OBVIOUS
+<1>5. QED
+  BY <1>1, <1>2, <1>3, <1>4
+
 (* SegmentRec-EXCEPT membership fact for ProposeDeletionVectorCommit's        *)
 (* revoke step: incrementing an already-typed SegmentRec's delVer field       *)
 (* stays inside SegmentRec. This is the same shape as ExceptProposedAt above  *)
@@ -194,8 +251,33 @@ BaseVersionBounded == \A w \in Writers : wLocal[w].baseVersion <= Len(snapshots)
 ProposedIsReal == \A w \in Writers :
     wPc[w] \in {"Advance", "ResolveAmbiguity", "Done"} => wLocal[w].proposed \in SnapshotRec
 
+(* The reader-side counterpart of BaseVersionBounded above, discovered the     *)
+(* same way and necessary for the same reason: ReadSnapshotObjectStep1's       *)
+(* Found branch indexes `snapshots[rLocal[r].ptrVersion]`, and for that read   *)
+(* result to type-check -- and for ReaderSeesOnlyCommitted' to have an actual  *)
+(* witness once the reader reaches "Done" -- something has to say that a       *)
+(* reader parked at "ReadSnap" holds a ptrVersion that is a valid index into   *)
+(* the CURRENT snapshots sequence. True by construction (ReadPointer's only    *)
+(* write to ptrVersion sets it to the CURRENT Len(snapshots), guarded by       *)
+(* Len(snapshots) > 0 in the very same branch that advances rPc[r] to          *)
+(* "ReadSnap"; thereafter snapshots only grows, never shrinks, and no other    *)
+(* action -- reader or writer -- touches a reader's ptrVersion field at all),  *)
+(* but "true by construction" still has to be stated as its own explicit      *)
+(* inductive conjunct before TLAPS can use it. Found necessary while writing   *)
+(* ReadSnapshotObjectStep1's ReaderSeesOnlyCommitted' obligation without it    *)
+(* and watching the existential witness step fail to type-check the index --  *)
+(* the same discovery shape FnDomains/BaseVersionBounded/ProposedIsReal above  *)
+(* were each found by, now on the reader side. IndInv1 therefore has seven     *)
+(* conjuncts as of this addition, not six; ReadPointerStep1 and                *)
+(* ReadSnapshotObjectStep1 below are the first (and, so far, only) theorems    *)
+(* that need it, and every earlier theorem's proof gets one small additional  *)
+(* step showing this conjunct is preserved too (trivial in each case, since    *)
+(* no writer action touches rPc or rLocal, and snapshots only grows).         *)
+PtrVersionBounded == \A r \in Readers :
+    rPc[r] = "ReadSnap" => rLocal[r].ptrVersion \in 1..Len(snapshots)
+
 IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted /\ FnDomains
-           /\ BaseVersionBounded /\ ProposedIsReal
+           /\ BaseVersionBounded /\ ProposedIsReal /\ PtrVersionBounded
 
 THEOREM Init1 == Init => IndInv1
 <1>1. Init => TypeOK
@@ -210,8 +292,10 @@ THEOREM Init1 == Init => IndInv1
   BY DEF Init, BaseVersionBounded
 <1>6. Init => ProposedIsReal
   BY DEF Init, ProposedIsReal
-<1>7. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+<1>7. Init => PtrVersionBounded
+  BY DEF Init, PtrVersionBounded
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
 (* ------------------------------------------------------------------- *)
 (* Per-action step lemmas. Each shows IndInv1 preserved across one      *)
@@ -419,8 +503,10 @@ THEOREM ReadCurrentStep1 ==
       BY <3>a, <3>b DEF IndInv1, ProposedIsReal
   <2>3. QED
     BY <2>1, <2>2
-<1>7. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+<1>7. PtrVersionBounded'
+  BY <1>unch DEF IndInv1, PtrVersionBounded
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
 THEOREM ProposeSnapshotStep1 ==
     ASSUME IndInv1, NEW w \in Writers, ProposeSnapshot(w)
@@ -693,8 +779,10 @@ THEOREM ProposeSnapshotStep1 ==
       BY <3>a, <3>b DEF IndInv1, ProposedIsReal
   <2>3. QED
     BY <2>1, <2>2
-<1>7. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+<1>7. PtrVersionBounded'
+  BY <1>unchsnap DEF IndInv1, PtrVersionBounded
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
 THEOREM ProposeDeletionVectorCommitStep1 ==
     ASSUME IndInv1, NEW w \in Writers, ProposeDeletionVectorCommit(w)
@@ -979,8 +1067,10 @@ THEOREM ProposeDeletionVectorCommitStep1 ==
       BY <3>a, <3>b DEF IndInv1, ProposedIsReal
   <2>3. QED
     BY <2>1, <2>2
-<1>7. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+<1>7. PtrVersionBounded'
+  BY <1>unchsnap DEF IndInv1, PtrVersionBounded
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
 THEOREM TryAdvancePointerStep1 ==
     ASSUME IndInv1, NEW w \in Writers, TryAdvancePointer(w)
@@ -1208,8 +1298,32 @@ THEOREM TryAdvancePointerStep1 ==
       BY <3>a, <3>b DEF IndInv1, ProposedIsReal
   <2>3. QED
     BY <2>1, <2>2
-<1>7. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+<1>7. PtrVersionBounded'
+  <2> SUFFICES ASSUME NEW r \in Readers, rPc'[r] = "ReadSnap"
+               PROVE  rLocal'[r].ptrVersion \in 1..Len(snapshots')
+    BY DEF PtrVersionBounded
+  <2>rpc. rPc[r] = "ReadSnap"
+    BY <1>wlunch
+  <2>rl. rLocal'[r].ptrVersion = rLocal[r].ptrVersion
+    BY <1>wlunch
+  <2>old. rLocal[r].ptrVersion \in 1..Len(snapshots)
+    BY <2>rpc DEF IndInv1, PtrVersionBounded
+  <2>nat. rLocal[r].ptrVersion \in Nat
+    BY <2>old
+  <2>le. rLocal[r].ptrVersion <= Len(snapshots')
+    BY <2>old, <2>nat, <1>snaplen
+  <2>ge. rLocal[r].ptrVersion >= 1
+    BY <2>old
+  <2>lep. rLocal'[r].ptrVersion <= Len(snapshots')
+    BY <2>rl, <2>le
+  <2>gep. rLocal'[r].ptrVersion >= 1
+    BY <2>rl, <2>ge
+  <2>natp. rLocal'[r].ptrVersion \in Nat
+    BY <2>rl, <2>nat
+  <2>qed. QED
+    BY <2>lep, <2>gep, <2>natp
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
 THEOREM ResolveAmbiguityStep1 ==
     ASSUME IndInv1, NEW w \in Writers, ResolveAmbiguity(w)
@@ -1396,7 +1510,581 @@ THEOREM ResolveAmbiguityStep1 ==
       BY <3>a, <3>b DEF IndInv1, ProposedIsReal
   <2>3. QED
     BY <2>1, <2>2
-<1>7. QED
-  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF IndInv1
+<1>7. PtrVersionBounded'
+  <2> SUFFICES ASSUME NEW r \in Readers, rPc'[r] = "ReadSnap"
+               PROVE  rLocal'[r].ptrVersion \in 1..Len(snapshots')
+    BY DEF PtrVersionBounded
+  <2>rpc. rPc[r] = "ReadSnap"
+    BY <1>wlunch
+  <2>rl. rLocal'[r].ptrVersion = rLocal[r].ptrVersion
+    BY <1>wlunch
+  <2>old. rLocal[r].ptrVersion \in 1..Len(snapshots)
+    BY <2>rpc DEF IndInv1, PtrVersionBounded
+  <2>nat. rLocal[r].ptrVersion \in Nat
+    BY <2>old
+  <2>le. rLocal[r].ptrVersion <= Len(snapshots')
+    BY <2>old, <2>nat, <1>snaplen
+  <2>ge. rLocal[r].ptrVersion >= 1
+    BY <2>old
+  <2>lep. rLocal'[r].ptrVersion <= Len(snapshots')
+    BY <2>rl, <2>le
+  <2>gep. rLocal'[r].ptrVersion >= 1
+    BY <2>rl, <2>ge
+  <2>natp. rLocal'[r].ptrVersion \in Nat
+    BY <2>rl, <2>nat
+  <2>qed. QED
+    BY <2>lep, <2>gep, <2>natp
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
+
+THEOREM ReadPointerStep1 ==
+    ASSUME IndInv1, NEW r \in Readers, ReadPointer(r)
+    PROVE  IndInv1'
+<1>domr. DOMAIN rLocal = Readers
+  BY DEF IndInv1, FnDomains
+<1>domp. DOMAIN rPc = Readers
+  BY DEF IndInv1, TypeOK
+<1>disj. \/ /\ Len(snapshots) = 0
+            /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+            /\ rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+            /\ UNCHANGED <<snapshots, wPc, wLocal>>
+         \/ /\ Len(snapshots) > 0
+            /\ rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+            /\ rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+            /\ UNCHANGED <<snapshots, wPc, wLocal>>
+         \/ /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+            /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+  BY DEF ReadPointer
+<1>unch. snapshots' = snapshots /\ wPc' = wPc /\ wLocal' = wLocal
+  BY <1>disj
+<1>rpcdisj. \/ rPc' = [rPc EXCEPT ![r] = "Done"]
+            \/ rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+            \/ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+  BY <1>disj
+<1>rlatr. \/ /\ rLocal'[r].retries \in Nat
+             /\ rLocal'[r].ptrVersion \in Nat
+             /\ (rLocal'[r].result = NoResult \/ rLocal'[r].result = NoCommitsYet \/ rLocal'[r].result \in SnapshotRec)
+          \/ rLocal'[r] = rLocal[r]
+  <2>1. CASE rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+    <3>a. rLocal'[r].result = NoCommitsYet
+      BY <2>1, <1>domr, ExceptResultAt
+    <3>b. rLocal'[r].retries = rLocal[r].retries /\ rLocal'[r].ptrVersion = rLocal[r].ptrVersion
+      BY <2>1, <1>domr, ExceptResultAt
+    <3>c. rLocal[r].retries \in Nat /\ rLocal[r].ptrVersion \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>d. QED
+      BY <3>a, <3>b, <3>c
+  <2>2. CASE rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+    <3>a. rLocal'[r].ptrVersion = Len(snapshots)
+      BY <2>2, <1>domr, ExceptPtrVersionAt
+    <3>b. rLocal'[r].retries = rLocal[r].retries /\ rLocal'[r].result = rLocal[r].result
+      BY <2>2, <1>domr, ExceptPtrVersionAt
+    <3>c. Len(snapshots) \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>d. rLocal[r].retries \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>e. rLocal[r].result = NoResult \/ rLocal[r].result = NoCommitsYet \/ rLocal[r].result \in SnapshotRec
+      BY DEF IndInv1, TypeOK
+    <3>f. QED
+      BY <3>a, <3>b, <3>c, <3>d, <3>e
+  <2>3. CASE rLocal' = rLocal
+    BY <2>3
+  <2>4. QED
+    BY <2>1, <2>2, <2>3, <1>disj
+<1>1. TypeOK'
+  <2>a. snapshots' \in Seq(SnapshotRec)
+    BY <1>unch DEF IndInv1, TypeOK
+  <2>b. wPc' \in [Writers -> {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"}]
+    BY <1>unch DEF IndInv1, TypeOK
+  <2>c. \A w0 \in Writers : wLocal'[w0].baseVersion \in Nat /\ wLocal'[w0].nextRowId \in Nat
+             /\ (wLocal'[w0].proposed = NoProposal \/ wLocal'[w0].proposed \in SnapshotRec)
+    BY <1>unch DEF IndInv1, TypeOK
+  <2>d. rPc' \in [Readers -> {"ReadPtr", "ReadSnap", "Done", "Failed_RetriesExhausted", "Failed_DefiniteFailure"}]
+    <3>rng. rPc \in [Readers -> {"ReadPtr", "ReadSnap", "Done", "Failed_RetriesExhausted", "Failed_DefiniteFailure"}]
+      BY DEF IndInv1, TypeOK
+    <3>1. CASE rPc' = [rPc EXCEPT ![r] = "Done"]
+      BY <3>1, <3>rng, ExceptType
+    <3>2. CASE rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+      BY <3>2, <3>rng, ExceptType
+    <3>3. CASE rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+      BY <3>3, <3>rng, ExceptType
+    <3>4. QED
+      BY <3>1, <3>2, <3>3, <1>rpcdisj
+  <2>e. \A r0 \in Readers : rLocal'[r0].retries \in Nat /\ rLocal'[r0].ptrVersion \in Nat
+             /\ (rLocal'[r0].result = NoResult \/ rLocal'[r0].result = NoCommitsYet \/ rLocal'[r0].result \in SnapshotRec)
+    <3> SUFFICES ASSUME NEW r0 \in Readers
+                 PROVE  rLocal'[r0].retries \in Nat /\ rLocal'[r0].ptrVersion \in Nat
+                        /\ (rLocal'[r0].result = NoResult \/ rLocal'[r0].result = NoCommitsYet \/ rLocal'[r0].result \in SnapshotRec)
+      OBVIOUS
+    <3>1. CASE r0 = r
+      BY <3>1, <1>rlatr DEF IndInv1, TypeOK
+    <3>2. CASE r0 # r
+      <4>a. rLocal'[r0] = rLocal[r0]
+        <5>1. CASE rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+          BY <5>1, <3>2, ExceptOther
+        <5>2. CASE rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+          BY <5>2, <3>2, ExceptOther
+        <5>3. CASE rLocal' = rLocal
+          BY <5>3
+        <5>4. QED
+          BY <5>1, <5>2, <5>3, <1>disj
+      <4>b. QED
+        BY <4>a DEF IndInv1, TypeOK
+    <3>3. QED
+      BY <3>1, <3>2
+  <2>f. QED
+    BY <2>a, <2>b, <2>c, <2>d, <2>e DEF TypeOK
+<1>2. WriterSuccessIsCommitted'
+  BY <1>unch DEF IndInv1, WriterSuccessIsCommitted
+<1>3. ReaderSeesOnlyCommitted'
+  <2> SUFFICES ASSUME NEW r0 \in Readers, rPc'[r0] = "Done", rLocal'[r0].result # NoCommitsYet
+               PROVE  \E i \in 1..Len(snapshots') : snapshots'[i] = rLocal'[r0].result
+    BY DEF ReaderSeesOnlyCommitted
+  <2>1. CASE r0 = r
+    <3>1. CASE /\ Len(snapshots) = 0
+               /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+               /\ rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rLocal'[r].result = NoCommitsYet
+        BY <3>1, <1>domr, ExceptResultAt
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>2. CASE /\ Len(snapshots) > 0
+               /\ rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+               /\ rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rPc'[r] = "ReadSnap"
+        BY <3>2, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>3. CASE /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+      <4>a. rPc'[r] = "Failed_DefiniteFailure"
+        BY <3>3, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>4. QED
+      BY <3>1, <3>2, <3>3, <1>disj
+  <2>2. CASE r0 # r
+    <3>a. rPc'[r0] = rPc[r0]
+      <4>1. CASE rPc' = [rPc EXCEPT ![r] = "Done"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>rpcdisj
+    <3>b. rLocal'[r0] = rLocal[r0]
+      <4>1. CASE rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rLocal' = rLocal
+        BY <4>3
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>disj
+    <3>c. rPc[r0] = "Done" /\ rLocal[r0].result # NoCommitsYet
+      BY <2>2, <3>a, <3>b
+    <3>d. \E i \in 1..Len(snapshots) : snapshots[i] = rLocal[r0].result
+      BY <3>c DEF IndInv1, ReaderSeesOnlyCommitted
+    <3>e. QED
+      <4> PICK i \in 1..Len(snapshots) : snapshots[i] = rLocal[r0].result
+        BY <3>d
+      <4>i1. i \in 1..Len(snapshots')
+        BY <1>unch
+      <4>i2. snapshots'[i] = rLocal'[r0].result
+        BY <1>unch, <3>b
+      <4>qed. QED
+        BY <4>i1, <4>i2
+  <2>3. QED
+    BY <2>1, <2>2
+<1>4. FnDomains'
+  <2>a. DOMAIN wLocal' = Writers
+    BY <1>unch DEF IndInv1, FnDomains
+  <2>b. DOMAIN rLocal' = Readers
+    <3>1. CASE rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+      BY <3>1, <1>domr, ExceptDomain
+    <3>2. CASE rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+      BY <3>2, <1>domr, ExceptDomain
+    <3>3. CASE rLocal' = rLocal
+      BY <3>3, <1>domr
+    <3>4. QED
+      BY <3>1, <3>2, <3>3, <1>disj
+  <2>c. QED
+    BY <2>a, <2>b DEF FnDomains
+<1>5. BaseVersionBounded'
+  BY <1>unch DEF IndInv1, BaseVersionBounded
+<1>6. ProposedIsReal'
+  BY <1>unch DEF IndInv1, ProposedIsReal
+<1>7. PtrVersionBounded'
+  <2> SUFFICES ASSUME NEW r0 \in Readers, rPc'[r0] = "ReadSnap"
+               PROVE  rLocal'[r0].ptrVersion \in 1..Len(snapshots')
+    BY DEF PtrVersionBounded
+  <2>1. CASE r0 = r
+    <3>1. CASE /\ Len(snapshots) = 0
+               /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+               /\ rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rPc'[r] = "Done"
+        BY <3>1, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>2. CASE /\ Len(snapshots) > 0
+               /\ rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+               /\ rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rLocal'[r].ptrVersion = Len(snapshots)
+        BY <3>2, <1>domr, ExceptPtrVersionAt
+      <4>b. snapshots' = snapshots
+        BY <3>2
+      <4>c. Len(snapshots) \in Nat
+        BY DEF IndInv1, TypeOK
+      <4>d. QED
+        BY <2>1, <3>2, <4>a, <4>b, <4>c
+    <3>3. CASE /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+      <4>a. rPc'[r] = "Failed_DefiniteFailure"
+        BY <3>3, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>4. QED
+      BY <3>1, <3>2, <3>3, <1>disj
+  <2>2. CASE r0 # r
+    <3>a. rPc'[r0] = rPc[r0]
+      <4>1. CASE rPc' = [rPc EXCEPT ![r] = "Done"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rPc' = [rPc EXCEPT ![r] = "ReadSnap"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>rpcdisj
+    <3>b. rLocal'[r0] = rLocal[r0]
+      <4>1. CASE rLocal' = [rLocal EXCEPT ![r].result = NoCommitsYet]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rLocal' = [rLocal EXCEPT ![r].ptrVersion = Len(snapshots)]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rLocal' = rLocal
+        BY <4>3
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>disj
+    <3>c. rPc[r0] = "ReadSnap"
+      BY <2>2, <3>a
+    <3>d. rLocal[r0].ptrVersion \in 1..Len(snapshots)
+      BY <3>c DEF IndInv1, PtrVersionBounded
+    <3>dnat. rLocal[r0].ptrVersion \in Nat
+      BY <3>d
+    <3>e. Len(snapshots) <= Len(snapshots')
+      BY <1>unch
+    <3>f. rLocal[r0].ptrVersion <= Len(snapshots')
+      BY <3>d, <3>dnat, <3>e
+    <3>g. rLocal[r0].ptrVersion >= 1
+      BY <3>d
+    <3>bp. rLocal'[r0].ptrVersion = rLocal[r0].ptrVersion
+      BY <3>b
+    <3>fp. rLocal'[r0].ptrVersion <= Len(snapshots')
+      BY <3>bp, <3>f
+    <3>gp. rLocal'[r0].ptrVersion >= 1
+      BY <3>bp, <3>g
+    <3>pnat. rLocal'[r0].ptrVersion \in Nat
+      BY <3>bp, <3>dnat
+    <3>h. QED
+      BY <3>fp, <3>gp, <3>pnat
+  <2>3. QED
+    BY <2>1, <2>2
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
+
+THEOREM ReadSnapshotObjectStep1 ==
+    ASSUME IndInv1, NEW r \in Readers, ReadSnapshotObject(r)
+    PROVE  IndInv1'
+<1>domr. DOMAIN rLocal = Readers
+  BY DEF IndInv1, FnDomains
+<1>domp. DOMAIN rPc = Readers
+  BY DEF IndInv1, TypeOK
+<1>disj. \/ /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+            /\ rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+            /\ UNCHANGED <<snapshots, wPc, wLocal>>
+         \/ /\ rLocal[r].retries < ReaderRetryLimit
+            /\ rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+            /\ rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+            /\ UNCHANGED <<snapshots, wPc, wLocal>>
+         \/ /\ rLocal[r].retries >= ReaderRetryLimit
+            /\ rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+            /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+         \/ /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+            /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+  BY DEF ReadSnapshotObject
+<1>unch. snapshots' = snapshots /\ wPc' = wPc /\ wLocal' = wLocal
+  BY <1>disj
+<1>rpcdisj. \/ rPc' = [rPc EXCEPT ![r] = "Done"]
+            \/ rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+            \/ rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+            \/ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+  BY <1>disj
+<1>rinsnap. rLocal[r].ptrVersion \in 1..Len(snapshots)
+  BY DEF IndInv1, PtrVersionBounded, ReadSnapshotObject
+<1>resultok. snapshots[rLocal[r].ptrVersion] \in SnapshotRec
+  <2>a. snapshots \in Seq(SnapshotRec)
+    BY DEF IndInv1, TypeOK
+  <2>b. QED
+    BY <2>a, <1>rinsnap, SnapshotElt
+<1>rlatr. \/ /\ rLocal'[r].retries \in Nat
+             /\ rLocal'[r].ptrVersion \in Nat
+             /\ (rLocal'[r].result = NoResult \/ rLocal'[r].result = NoCommitsYet \/ rLocal'[r].result \in SnapshotRec)
+          \/ rLocal'[r] = rLocal[r]
+  <2>1. CASE rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+    <3>a. rLocal'[r].result = snapshots[rLocal[r].ptrVersion]
+      BY <2>1, <1>domr, ExceptResultAt
+    <3>b. rLocal'[r].retries = rLocal[r].retries /\ rLocal'[r].ptrVersion = rLocal[r].ptrVersion
+      BY <2>1, <1>domr, ExceptResultAt
+    <3>c. rLocal[r].retries \in Nat /\ rLocal[r].ptrVersion \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>d. QED
+      BY <3>a, <3>b, <3>c, <1>resultok
+  <2>2. CASE rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+    <3>a. rLocal'[r].retries = rLocal[r].retries + 1
+      BY <2>2, <1>domr, ExceptRetriesAt
+    <3>b. rLocal'[r].ptrVersion = rLocal[r].ptrVersion /\ rLocal'[r].result = rLocal[r].result
+      BY <2>2, <1>domr, ExceptRetriesAt
+    <3>c. rLocal[r].retries \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>d. rLocal[r].ptrVersion \in Nat
+      BY DEF IndInv1, TypeOK
+    <3>e. rLocal[r].result = NoResult \/ rLocal[r].result = NoCommitsYet \/ rLocal[r].result \in SnapshotRec
+      BY DEF IndInv1, TypeOK
+    <3>f. rLocal[r].retries + 1 \in Nat
+      BY <3>c
+    <3>g. QED
+      BY <3>a, <3>b, <3>f, <3>d, <3>e
+  <2>3. CASE rLocal' = rLocal
+    BY <2>3
+  <2>4. QED
+    BY <2>1, <2>2, <2>3, <1>disj
+<1>1. TypeOK'
+  <2>a. snapshots' \in Seq(SnapshotRec)
+    BY <1>unch DEF IndInv1, TypeOK
+  <2>b. wPc' \in [Writers -> {"Read", "Propose", "Advance", "ResolveAmbiguity", "Done", "Failed"}]
+    BY <1>unch DEF IndInv1, TypeOK
+  <2>c. \A w0 \in Writers : wLocal'[w0].baseVersion \in Nat /\ wLocal'[w0].nextRowId \in Nat
+             /\ (wLocal'[w0].proposed = NoProposal \/ wLocal'[w0].proposed \in SnapshotRec)
+    BY <1>unch DEF IndInv1, TypeOK
+  <2>d. rPc' \in [Readers -> {"ReadPtr", "ReadSnap", "Done", "Failed_RetriesExhausted", "Failed_DefiniteFailure"}]
+    <3>rng. rPc \in [Readers -> {"ReadPtr", "ReadSnap", "Done", "Failed_RetriesExhausted", "Failed_DefiniteFailure"}]
+      BY DEF IndInv1, TypeOK
+    <3>1. CASE rPc' = [rPc EXCEPT ![r] = "Done"]
+      BY <3>1, <3>rng, ExceptType
+    <3>2. CASE rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+      BY <3>2, <3>rng, ExceptType
+    <3>3. CASE rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+      BY <3>3, <3>rng, ExceptType
+    <3>4. CASE rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+      BY <3>4, <3>rng, ExceptType
+    <3>5. QED
+      BY <3>1, <3>2, <3>3, <3>4, <1>rpcdisj
+  <2>e. \A r0 \in Readers : rLocal'[r0].retries \in Nat /\ rLocal'[r0].ptrVersion \in Nat
+             /\ (rLocal'[r0].result = NoResult \/ rLocal'[r0].result = NoCommitsYet \/ rLocal'[r0].result \in SnapshotRec)
+    <3> SUFFICES ASSUME NEW r0 \in Readers
+                 PROVE  rLocal'[r0].retries \in Nat /\ rLocal'[r0].ptrVersion \in Nat
+                        /\ (rLocal'[r0].result = NoResult \/ rLocal'[r0].result = NoCommitsYet \/ rLocal'[r0].result \in SnapshotRec)
+      OBVIOUS
+    <3>1. CASE r0 = r
+      BY <3>1, <1>rlatr DEF IndInv1, TypeOK
+    <3>2. CASE r0 # r
+      <4>a. rLocal'[r0] = rLocal[r0]
+        <5>1. CASE rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+          BY <5>1, <3>2, ExceptOther
+        <5>2. CASE rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+          BY <5>2, <3>2, ExceptOther
+        <5>3. CASE rLocal' = rLocal
+          BY <5>3
+        <5>4. QED
+          BY <5>1, <5>2, <5>3, <1>disj
+      <4>b. QED
+        BY <4>a DEF IndInv1, TypeOK
+    <3>3. QED
+      BY <3>1, <3>2
+  <2>f. QED
+    BY <2>a, <2>b, <2>c, <2>d, <2>e DEF TypeOK
+<1>2. WriterSuccessIsCommitted'
+  BY <1>unch DEF IndInv1, WriterSuccessIsCommitted
+<1>3. ReaderSeesOnlyCommitted'
+  <2> SUFFICES ASSUME NEW r0 \in Readers, rPc'[r0] = "Done", rLocal'[r0].result # NoCommitsYet
+               PROVE  \E i \in 1..Len(snapshots') : snapshots'[i] = rLocal'[r0].result
+    BY DEF ReaderSeesOnlyCommitted
+  <2>1. CASE r0 = r
+    <3>1. CASE /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+               /\ rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rLocal'[r].result = snapshots[rLocal[r].ptrVersion]
+        BY <3>1, <1>domr, ExceptResultAt
+      <4>b. rLocal[r].ptrVersion \in 1..Len(snapshots')
+        BY <1>rinsnap, <1>unch
+      <4>c. snapshots'[rLocal[r].ptrVersion] = snapshots[rLocal[r].ptrVersion]
+        BY <1>unch
+      <4>d. snapshots'[rLocal[r].ptrVersion] = rLocal'[r0].result
+        BY <4>a, <4>c, <2>1
+      <4>e. QED
+        BY <4>b, <4>d
+    <3>2. CASE /\ rLocal[r].retries < ReaderRetryLimit
+               /\ rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+               /\ rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rPc'[r] = "ReadPtr"
+        BY <3>2, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>3. CASE /\ rLocal[r].retries >= ReaderRetryLimit
+               /\ rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+      <4>a. rPc'[r] = "Failed_RetriesExhausted"
+        BY <3>3, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>4. CASE /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+      <4>a. rPc'[r] = "Failed_DefiniteFailure"
+        BY <3>4, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>5. QED
+      BY <3>1, <3>2, <3>3, <3>4, <1>disj
+  <2>2. CASE r0 # r
+    <3>a. rPc'[r0] = rPc[r0]
+      <4>1. CASE rPc' = [rPc EXCEPT ![r] = "Done"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. CASE rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+        BY <4>4, <2>2, ExceptOther
+      <4>5. QED
+        BY <4>1, <4>2, <4>3, <4>4, <1>rpcdisj
+    <3>b. rLocal'[r0] = rLocal[r0]
+      <4>1. CASE rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rLocal' = rLocal
+        BY <4>3
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>disj
+    <3>c. rPc[r0] = "Done" /\ rLocal[r0].result # NoCommitsYet
+      BY <2>2, <3>a, <3>b
+    <3>d. \E i \in 1..Len(snapshots) : snapshots[i] = rLocal[r0].result
+      BY <3>c DEF IndInv1, ReaderSeesOnlyCommitted
+    <3>e. QED
+      <4> PICK i \in 1..Len(snapshots) : snapshots[i] = rLocal[r0].result
+        BY <3>d
+      <4>i1. i \in 1..Len(snapshots')
+        BY <1>unch
+      <4>i2. snapshots'[i] = rLocal'[r0].result
+        BY <1>unch, <3>b
+      <4>qed. QED
+        BY <4>i1, <4>i2
+  <2>3. QED
+    BY <2>1, <2>2
+<1>4. FnDomains'
+  <2>a. DOMAIN wLocal' = Writers
+    BY <1>unch DEF IndInv1, FnDomains
+  <2>b. DOMAIN rLocal' = Readers
+    <3>1. CASE rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+      BY <3>1, <1>domr, ExceptDomain
+    <3>2. CASE rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+      BY <3>2, <1>domr, ExceptDomain
+    <3>3. CASE rLocal' = rLocal
+      BY <3>3, <1>domr
+    <3>4. QED
+      BY <3>1, <3>2, <3>3, <1>disj
+  <2>c. QED
+    BY <2>a, <2>b DEF FnDomains
+<1>5. BaseVersionBounded'
+  BY <1>unch DEF IndInv1, BaseVersionBounded
+<1>6. ProposedIsReal'
+  BY <1>unch DEF IndInv1, ProposedIsReal
+<1>7. PtrVersionBounded'
+  <2> SUFFICES ASSUME NEW r0 \in Readers, rPc'[r0] = "ReadSnap"
+               PROVE  rLocal'[r0].ptrVersion \in 1..Len(snapshots')
+    BY DEF PtrVersionBounded
+  <2>1. CASE r0 = r
+    <3>1. CASE /\ rPc' = [rPc EXCEPT ![r] = "Done"]
+               /\ rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rPc'[r] = "Done"
+        BY <3>1, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>2. CASE /\ rLocal[r].retries < ReaderRetryLimit
+               /\ rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+               /\ rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+               /\ UNCHANGED <<snapshots, wPc, wLocal>>
+      <4>a. rPc'[r] = "ReadPtr"
+        BY <3>2, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>3. CASE /\ rLocal[r].retries >= ReaderRetryLimit
+               /\ rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+      <4>a. rPc'[r] = "Failed_RetriesExhausted"
+        BY <3>3, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>4. CASE /\ rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+               /\ UNCHANGED <<snapshots, wPc, wLocal, rLocal>>
+      <4>a. rPc'[r] = "Failed_DefiniteFailure"
+        BY <3>4, <1>domp, ExceptSame
+      <4>b. QED
+        BY <2>1, <4>a
+    <3>5. QED
+      BY <3>1, <3>2, <3>3, <3>4, <1>disj
+  <2>2. CASE r0 # r
+    <3>a. rPc'[r0] = rPc[r0]
+      <4>1. CASE rPc' = [rPc EXCEPT ![r] = "Done"]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rPc' = [rPc EXCEPT ![r] = "ReadPtr"]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rPc' = [rPc EXCEPT ![r] = "Failed_RetriesExhausted"]
+        BY <4>3, <2>2, ExceptOther
+      <4>4. CASE rPc' = [rPc EXCEPT ![r] = "Failed_DefiniteFailure"]
+        BY <4>4, <2>2, ExceptOther
+      <4>5. QED
+        BY <4>1, <4>2, <4>3, <4>4, <1>rpcdisj
+    <3>b. rLocal'[r0] = rLocal[r0]
+      <4>1. CASE rLocal' = [rLocal EXCEPT ![r].result = snapshots[rLocal[r].ptrVersion]]
+        BY <4>1, <2>2, ExceptOther
+      <4>2. CASE rLocal' = [rLocal EXCEPT ![r].retries = @ + 1]
+        BY <4>2, <2>2, ExceptOther
+      <4>3. CASE rLocal' = rLocal
+        BY <4>3
+      <4>4. QED
+        BY <4>1, <4>2, <4>3, <1>disj
+    <3>c. rPc[r0] = "ReadSnap"
+      BY <2>2, <3>a
+    <3>d. rLocal[r0].ptrVersion \in 1..Len(snapshots)
+      BY <3>c DEF IndInv1, PtrVersionBounded
+    <3>dnat. rLocal[r0].ptrVersion \in Nat
+      BY <3>d
+    <3>e. Len(snapshots) <= Len(snapshots')
+      BY <1>unch
+    <3>f. rLocal[r0].ptrVersion <= Len(snapshots')
+      BY <3>d, <3>dnat, <3>e
+    <3>g. rLocal[r0].ptrVersion >= 1
+      BY <3>d
+    <3>bp. rLocal'[r0].ptrVersion = rLocal[r0].ptrVersion
+      BY <3>b
+    <3>fp. rLocal'[r0].ptrVersion <= Len(snapshots')
+      BY <3>bp, <3>f
+    <3>gp. rLocal'[r0].ptrVersion >= 1
+      BY <3>bp, <3>g
+    <3>pnat. rLocal'[r0].ptrVersion \in Nat
+      BY <3>bp, <3>dnat
+    <3>h. QED
+      BY <3>fp, <3>gp, <3>pnat
+  <2>3. QED
+    BY <2>1, <2>2
+<1>8. QED
+  BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF IndInv1
 
 =============================================================================

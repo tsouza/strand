@@ -5,10 +5,10 @@ A TLA+ model of the manifest CAS commit and read protocols (RFC 0001 §3,
 Approved by RFC 0002 (`rfcs/0002-manifest-formal-verification.md`); this
 directory now holds all three of that RFC's artifacts. The model and its
 TLC-checked safety invariants (`manifest.tla`, `manifest.cfg`) exist; a
-TLAPS mechanized proof (`manifest_proofs.tla`) exists too, covering the
-model's five writer actions with the precise, tlapm-confirmed scope
-stated in "TLAPS proof" below — read that section before trusting any
-claim about what is proved; and the DST cross-validation harness
+TLAPS mechanized proof (`manifest_proofs.tla`) exists too, covering all
+five writer actions and both reader actions with the precise,
+tlapm-confirmed scope stated in "TLAPS proof" below — read that section
+before trusting any claim about what is proved; and the DST cross-validation harness
 (Workflow II, `docs/roadmap.md` M3-3) exists, lives in
 `crates/strand-core/src/bin/dst_manifest_harness/`, and is documented in
 its own section near the end of this file.
@@ -248,32 +248,43 @@ depth 18) as the baseline above.
 Independently confirmed by running the exact `tlapm` invocation above and
 reading its own final summary line — never assumed from a `THEOREM`'s mere
 presence in the file. As of this file's most recent `tlapm` run:
-**`[INFO]: All 1261 obligations proved.`, exit code 0, on two separate,
-cache-cleared, back-to-back runs producing the identical result** — the
-determinism check this file's own honesty discipline calls for, not a
-single run taken on faith (`manifest_proofs.tla`, 1,402 lines: 7 generic
-reusable lemmas plus 6 theorems). An earlier version of this file reported
-1,247 obligations from a run that did not, in fact, reproduce: an
-independent adversarial review re-ran `tlapm` fresh against that exact
-commit and got `[ERROR]: 1/1247 obligations failed` instead, isolating the
-failure to `ProposeDeletionVectorCommitStep1`'s `<3>eq` step. The fix
-(`ExceptSegmentDelVer`, described in "Lessons," below) replaced that step
-entirely rather than patching it, and the corrected 1,261-obligation count
-above is the one independently reproduced twice before being written down
-here.
+**`[INFO]: All 2018 obligations proved.`, exit code 0, on two separate
+runs producing the identical result: one ordinary run, one with
+`--cleanfp` (fingerprint cache erased first, so nothing was reused from
+the ordinary run)** — the determinism check this file's own honesty
+discipline calls for, not a single run taken on faith (`manifest_proofs.tla`,
+2,090 lines: 10 generic reusable lemmas plus 8 theorems). An earlier
+version of this file reported 1,247 obligations from a run that did not,
+in fact, reproduce: an independent adversarial review re-ran `tlapm` fresh
+against that exact commit and got `[ERROR]: 1/1247 obligations failed`
+instead, isolating the failure to `ProposeDeletionVectorCommitStep1`'s
+`<3>eq` step. The fix (`ExceptSegmentDelVer`, described in "Lessons,"
+below) replaced that step entirely rather than patching it, and the
+1,261-obligation count that followed was independently reproduced twice
+before being written down. The current 2,018-obligation count is the
+five-writer-plus-`Init` 1,261 count plus the two reader-action theorems
+added in this pass (`ReadPointerStep1`, `ReadSnapshotObjectStep1`) plus
+one additional inductive conjunct (`PtrVersionBounded`, below) whose
+preservation had to be re-proved across every one of the other six
+theorems too.
 
 `IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\ ReaderSeesOnlyCommitted
-/\ FnDomains /\ BaseVersionBounded /\ ProposedIsReal` is proved to be a
-genuine inductive invariant of the model's five **writer**-path actions —
-`ReadCurrent`, `ProposeSnapshot`, `ProposeDeletionVectorCommit`,
-`TryAdvancePointer`, `ResolveAmbiguity`, the actions matching `commit()`'s
-and `commit_deletion_vector()`'s real control flow — plus `Init`:
+/\ FnDomains /\ BaseVersionBounded /\ ProposedIsReal /\ PtrVersionBounded`
+is proved to be a genuine inductive invariant of **all five writer-path
+actions and both reader-path actions** — `ReadCurrent`, `ProposeSnapshot`,
+`ProposeDeletionVectorCommit`, `TryAdvancePointer`, `ResolveAmbiguity`
+(matching `commit()`'s and `commit_deletion_vector()`'s real control flow),
+plus `ReadPointer` and `ReadSnapshotObject` (matching `read_snapshot()`'s
+retry loop and its `try_read_current()` helper's real control flow) —
+plus `Init`:
 
 - `THEOREM Init1 == Init => IndInv1`
 - `THEOREM <Action>Step1 == ASSUME IndInv1, NEW w \in Writers, <Action>(w)
   PROVE IndInv1'`, one such theorem per writer action above.
+- `THEOREM <Action>Step1 == ASSUME IndInv1, NEW r \in Readers, <Action>(r)
+  PROVE IndInv1'`, one such theorem per reader action above.
 
-Three of `IndInv1`'s six conjuncts are not part of `manifest.cfg`'s own
+Four of `IndInv1`'s seven conjuncts are not part of `manifest.cfg`'s own
 seven TLC-checked invariants — they were found necessary *during* the
 proof, each the same shape (a fact true by construction that still has to
 be stated as its own explicit inductive conjunct before TLAPS can use it,
@@ -283,38 +294,49 @@ DOMAIN rLocal = Readers` — not implied by `TypeOK` as written, unlike
 `wPc`/`rPc`'s domains, which follow from their `\in [Writers -> ...]`
 conjuncts), `BaseVersionBounded` (`wLocal[w].baseVersion <= Len(snapshots)`
 for every writer — needed to type-check indexing `snapshots` at a writer's
-cached base version), and `ProposedIsReal` (a writer whose `wPc` has
+cached base version), `ProposedIsReal` (a writer whose `wPc` has
 reached `Advance`/`ResolveAmbiguity`/`Done` always has a real `SnapshotRec`,
 not `NoProposal`, staged in `wLocal[w].proposed` — needed to type-check the
-`Append` that lands a writer's commit). None of the three contradicts or
-weakens the seven TLC-checked invariants; they are additional facts about
-the same state, proved alongside them.
+`Append` that lands a writer's commit), and `PtrVersionBounded`
+(`rPc[r] = "ReadSnap" => rLocal[r].ptrVersion \in 1..Len(snapshots)` for
+every reader — the reader-side counterpart of `BaseVersionBounded`, added
+in this pass and needed for the same reason: `ReadSnapshotObject`'s Found
+branch indexes `snapshots[rLocal[r].ptrVersion]`, and without a bound
+relating a reader's cached `ptrVersion` to `snapshots`'s current length,
+neither that index nor the existential witness `ReaderSeesOnlyCommitted'`
+needs once the reader reaches "Done" type-check). Adding
+`PtrVersionBounded` meant re-proving its preservation across all seven
+actions, not just the two new reader ones — trivial for `ReadCurrent`,
+`ProposeSnapshot`, and `ProposeDeletionVectorCommit` (none of which touch
+`rPc`/`rLocal`/`snapshots` at all in any branch), and needing the
+`Len(snapshots) <= Len(snapshots')` fact already established for
+`BaseVersionBounded'` in `TryAdvancePointerStep1`/`ResolveAmbiguityStep1`.
+None of the four contradicts or weakens the seven TLC-checked invariants;
+they are additional facts about the same state, proved alongside them.
 
 What this combination actually establishes: for each of the five writer
-actions, `IndInv1` holds after the action given it held before. Chained
-with `Init1`, this is a real inductive-invariant proof — not a bounded
-check — that across any sequence of these five actions, `TypeOK` never
-breaks, a writer that reports success really did commit its own proposed
-snapshot (`WriterSuccessIsCommitted` — the property RFC 0002's own
-Motivation names as "lose a writer's data"), and a reader that finishes
-with a result never reports a snapshot that was never really committed
-(`ReaderSeesOnlyCommitted`).
+actions and both reader actions, `IndInv1` holds after the action given it
+held before. Chained with `Init1`, this is a real inductive-invariant
+proof — not a bounded check — that across any sequence of these seven
+actions, `TypeOK` never breaks, a writer that reports success really did
+commit its own proposed snapshot (`WriterSuccessIsCommitted` — the
+property RFC 0002's own Motivation names as "lose a writer's data"), and a
+reader that finishes with a result never reports a snapshot that was never
+really committed (`ReaderSeesOnlyCommitted` — now proved for the reader
+actions that actually produce that result, not only inherited unchanged
+through writer actions that never touch reader state).
 
 ### What is explicitly not yet proved
 
 Stated plainly so a `THEOREM` name already in the file is never mistaken
 for finished scope:
 
-- **The reader-path actions** (`ReadPointer`, `ReadSnapshotObject`) have no
-  step lemma. `IndInv1`'s own `ReaderSeesOnlyCommitted`/`FnDomains`
-  conjuncts were written to already cover a reader's state, but no proof
-  has been attempted that either reader action preserves `IndInv1`.
 - **The `Next`-level composition and the temporal invariance theorem**
   (`Spec => []IndInv1` via TLAPS's `PTL` backend, combining `Init1` with
   every action's step lemma into one property that holds at every
-  reachable state of an actual run) — not attempted. Today's six theorems
-  are five independent "one action preserves `IndInv1`" facts, not yet
-  assembled into that single statement.
+  reachable state of an actual run) — not attempted. Today's eight
+  theorems are seven independent "one action preserves `IndInv1`" facts,
+  not yet assembled into that single statement.
 - **The model's other six TLC-checked invariants** — `NoOverlappingRowIds`,
   `MonotonicNextRowId`, `VersionsMatchIndex`, `NextRowIdMatchesSegments`,
   `SegmentCountNeverDecreases`, `DeletionVectorCommitsOnlyReviseOneEntry` —
@@ -326,8 +348,10 @@ for finished scope:
   by induction over `SumCounts`'s recursive structure) that this effort
   did not attempt. `rfcs/0002-manifest-formal-verification.md`'s
   Discussion section and `docs/ledger.md` carry the full accounting.
-- **The DST cross-validation harness** — RFC 0002's third artifact,
-  unstarted; see the top of this file.
+- **The DST cross-validation harness** — RFC 0002's third artifact, is
+  done (`docs/roadmap.md` M3-3), not part of the TLAPS proof scope this
+  section describes; see the top of this file and the "DST
+  cross-validation harness" section below.
 
 ### Lessons for extending this proof (read before adding a theorem)
 
@@ -394,3 +418,28 @@ session doesn't rediscover them at the same cost:
   with a later run. `pkill -9 -f zenon`, `pkill -9 -f 'z3 -smt2'`,
   `pkill -9 -f isabelle-process`, `pkill -9 -f 'poly -q'` before a fresh
   run is worth doing if a run seems implausibly slow.
+- **Proving interval membership (`x \in a..b`) for a PRIMED expression from
+  facts stated about the corresponding UNPRIMED expression plus a separate
+  equality reliably fails**, even when each fact type-checks alone and the
+  identical shape works fine for a bare `<=` goal (the transitivity lesson
+  above). Found extending `PtrVersionBounded` (this pass's reader-side
+  counterpart of `BaseVersionBounded`) to every theorem whose action leaves
+  `rLocal[r]`/`rPc[r]` unchanged for the reader `r` a goal is about:
+  `TryAdvancePointerStep1` and `ResolveAmbiguityStep1` (writer actions —
+  `rLocal`/`rPc` unchanged for every reader), and the `r0 # r` branch of
+  `ReadPointerStep1`/`ReadSnapshotObjectStep1`'s own `PtrVersionBounded'`
+  proof (reader actions — `rLocal`/`rPc` unchanged for every *other*
+  reader). Citing an equality (e.g. `rLocal'[r].ptrVersion =
+  rLocal[r].ptrVersion`) together with `<=` and `>=` facts about the
+  unprimed value in one `BY` for a goal like `rLocal'[r].ptrVersion \in
+  1..Len(snapshots')` failed for the writer-action pair on the first
+  full-module `tlapm` run, after the reader-action pair's analogous branch
+  had already needed (and received) the same fix during earlier
+  `--toolbox`-scoped iteration — caught before either of the two full,
+  cache-cleared confirmation runs this file's own honesty discipline
+  requires, not by one of them. The fix, applied in both places: restate
+  the `<=` bound, the `>=` bound, and the value's own `\in Nat` membership
+  about the PRIMED expression directly (three small additional steps,
+  substituting through the equality once each) before the
+  interval-membership `QED`, rather than leaving the substitution for the
+  backend to perform inside the interval check itself.
