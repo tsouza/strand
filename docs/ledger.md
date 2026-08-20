@@ -2776,6 +2776,35 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   types with the Iceberg project itself. No crate code was written — the
   deliverable is the RFC draft, per this task's own instruction and
   `CLAUDE.md` §3.
+
+  **Addendum, 2026-08-20 — independent adversarial review completed,
+  RFC Approved.** A session distinct from the one that drafted this RFC
+  performed the review its own Status bullet called for: every external
+  citation above (the Puffin `BlobMetadata` schema, the `deletion-vector-v1`
+  layout, the `PuffinReader::new` bare-file claim, the crates.io search
+  result) was independently re-fetched from the live sources — not the
+  vendored reference file — and confirmed byte-accurate; the worked
+  example's full byte layout was independently reproduced from a fresh
+  script, not merely trusted as "reproducible." Verdict: "approve with
+  minor fixes," two of them, both narrow and additive, both applied
+  directly rather than deferred: (1) a real, previously silent gap —
+  nothing in the sidecar or its metadata detects when the source segment
+  is later compacted, superseded, or orphan-swept, so a stale sidecar is
+  silently wrong with no invalidation signal — now named explicitly in
+  Non-goals as the exporting caller's responsibility, the same framing
+  `CLAUDE.md` §6 uses for write amplification; (2) the opaque-passthrough
+  blob type's three STRAND properties gained a fourth, `strand-checksum`
+  (STRAND's own registry-entry xxHash3-64, carried forward as a hex
+  string), since Puffin's own CRC-32 integrity mechanism only covers the
+  `deletion-vector-v1` blob type, not the catch-all passthrough type,
+  which otherwise had none at all. Neither fix touches the byte-exact
+  deletion-vector worked example (it never carried those properties in
+  the first place — they belong to the separate opaque-passthrough
+  type). Nothing about the core design argument — the container-profile
+  rejection, the deletion-vector translation, the CRC-32/invariant-11
+  scoping, or the Pilosa nearest-grave pick — needed to change; the
+  review found it, independently, to already be sound. RFC Status is now
+  **Approved**.
 - **M5-1 (`docs/roadmap.md`) — thin, read-only DataFusion `TableProvider`
   over STRAND's lexical family, lexical-only slice done 2026-08-20.**
   `docs/roadmap.md`'s own M5-1 text scopes the first pass to "read

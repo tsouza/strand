@@ -1,16 +1,21 @@
 # RFC 0013: Puffin export sidecar
 
-- **Status:** Draft. This RFC contains a real, substantive "How this could be
-  wrong" section (below) — the same adversarial discipline every other RFC in
-  this repository applies — written by the same session that drafted the
-  design, not by an independent second pass. Per this task's own instruction
-  and `CLAUDE.md` §3's own "not in the same breath" principle, that makes it a
-  self-review, not the independent adversarial review Approval requires here:
-  the design commits STRAND to a second wire format and a second checksum
-  algorithm (Invariant-11 checklist, below) purely for interchange, which is
-  exactly the class of decision that benefits from a reader who did not write
-  it. This RFC's own worked example is independently checkable by anyone
-  (Design §4) precisely so that review does not have to start from scratch.
+- **Status:** Approved (2026-08-20), following an independent adversarial
+  review distinct from the session that drafted this RFC, per `CLAUDE.md`
+  §3's "not in the same breath" principle. That review independently
+  re-fetched every external source this RFC cites (the real Puffin v1
+  spec, the real `apache/iceberg-rust` crate, the real crates.io API) and
+  confirmed every quoted or paraphrased claim byte-accurate, and
+  independently reproduced the worked example's full byte layout from a
+  fresh script rather than trusting this RFC's own claim of
+  reproducibility. It returned "approve with minor fixes," naming two real,
+  narrow gaps — a missing sidecar staleness/invalidation disclaimer, and a
+  missing integrity-checksum property on the opaque-passthrough blob type —
+  both now fixed in place (Non-goals and Design §5, below) rather than
+  deferred. Nothing about the core design (the sidecar-vs-container-profile
+  argument, the deletion-vector translation, the opaque passthrough's honest
+  scope, the CRC-32/invariant-11 scoping argument) needed to change. This
+  RFC's own worked example is independently checkable by anyone (Design §4).
 - **Milestone:** M4 — Interchange + independence (`docs/milestones.md`),
   the "Puffin blob-type packaging RFC" deliverable named there; tracked as
   M4-5 (`docs/roadmap.md`).
@@ -126,6 +131,26 @@ one segment's deletion vector as it stands at export time. What a merged
 segment's deletion vector should look like is M3 compaction's own settled
 question (`rfcs/0012-deletion-vectors.md` Non-goals); this RFC exports
 whatever `spec/deletion.md` already produces, unchanged.
+
+**Sidecar staleness and invalidation.** A Puffin sidecar is never referenced
+by the manifest (Design §1's own non-negotiable, restated below), and Puffin
+v1 forces `snapshot-id = -1` on the exported `deletion-vector-v1` blob
+(`references/puffin-spec-and-iceberg-rust-implementation.md`), so nothing in
+the sidecar itself carries a pointer back to the STRAND snapshot it was
+exported from. Once the source segment is later compacted (M3-1), superseded
+by a fresher deletion vector, or removed entirely by the orphan sweep
+(`CLAUDE.md` §6, `crates/strand-tools/src/orphan_sweep.rs`), the sidecar
+silently goes stale — there is no notification, no expiry timestamp, and no
+mechanism by which a holder of an old sidecar can detect the mismatch. This
+RFC does not solve that problem and does not pretend to: like `CLAUDE.md`
+§6's "write amplification is the writer's problem" rule, sidecar freshness is
+the exporting caller's problem, to be re-exported on whatever cadence the
+caller's own use case requires. A future RFC extending this one could embed
+the source snapshot's version as a Puffin `properties` string (Design §5
+already reserves this passthrough mechanism for exactly this kind of
+metadata) so a consumer could at least detect staleness after the fact; this
+RFC leaves that undone rather than inventing it without a real reader to
+validate the design against.
 
 ## Design
 
@@ -257,10 +282,18 @@ For every STRAND blob that is not a deletion vector, this RFC registers one
 catch-all Puffin blob type, `strand-segment-blob-v1` (a STRAND-namespaced
 string, chosen to avoid colliding with any future Iceberg-registered type,
 per the complete absence of a namespacing convention noted in Design §1).
-Its Puffin `properties` carry three STRAND-specific keys —
-`strand-family-id`, `strand-blob-type-id`, `strand-field-id` — each a decimal
-string (Puffin's `properties` values are JSON strings only), copied straight
-from that blob's `spec/container.md` §5 registry entry. Its blob payload is
+Its Puffin `properties` carry four STRAND-specific keys —
+`strand-family-id`, `strand-blob-type-id`, `strand-field-id`, and
+`strand-checksum` — the first three decimal strings, the last a lowercase
+hex string (Puffin's `properties` values are JSON strings only), all copied
+straight from that blob's `spec/container.md` §5 registry entry. Puffin
+provides no integrity mechanism of its own for a `strand-segment-blob-v1`
+blob (§4's `deletion-vector-v1` blob gets Puffin's own CRC-32 for free;
+this catch-all type does not), so carrying STRAND's already-computed
+xxHash3-64 checksum forward costs nothing and lets a consumer that
+extracts the raw bytes verify them against the same value a STRAND reader
+would check, without STRAND-specific parsing beyond reading one more
+`properties` string. Its blob payload is
 that blob's on-disk bytes, unmodified — for a `chunk-compressed` blob, that
 means the bytes stay exactly as compressed under STRAND's own chunk framing;
 Puffin's `compression-codec` property is omitted (not one of the two codecs
