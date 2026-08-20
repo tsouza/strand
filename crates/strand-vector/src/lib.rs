@@ -15,7 +15,11 @@
 //! STRAND's vector blob family (`family_id = 3`): flat vectors, the RaBitQ
 //! quantization descriptor, the cluster navigation tier, and cluster
 //! posting lists. Layout is normative per `spec/vectors.md`, approved by
-//! RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`).
+//! RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`). Also hosts the
+//! graph blob family (`family_id = 5`, "graph"): Vamana construction
+//! (`vamana`), Starling's node-order-permutation algorithms (`reorder`),
+//! and the wire format tying them together (`graph_blob`), approved by
+//! RFC 0014 (`rfcs/0014-graph-blob-family.md`).
 
 pub mod closure;
 pub mod codebook;
@@ -23,6 +27,7 @@ pub mod descriptor;
 pub mod estimate;
 pub mod fastscan;
 pub mod flat;
+pub mod graph_blob;
 pub mod kmeans;
 pub mod navigation;
 pub mod orthogonal;

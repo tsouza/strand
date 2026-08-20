@@ -443,6 +443,99 @@ Non-goals and Open questions still leave genuinely open:
   first place, since the assertion is strict) were never wrong — only the
   number and narrative written down here were, and both are now
   independently re-verified rather than merely re-asserted.
+
+  **Implementation, slice 3 of 4 — the graph-blob wire format and a real
+  construction-to-wire integration, no query path — done (2026-08-20).**
+  `crates/strand-vector/src/graph_blob.rs`: the graph node-record blob
+  (`blob_type_id = 0`) and the node-order permutation directory
+  (`blob_type_id = 1`) under a newly registered `family_id = 5` ("graph"),
+  per Design §§1–3, plus `build_graph_blob_specs` — the real function that
+  takes slice 1's `VamanaResult` and slice 2's `Permutation` and produces
+  two `strand_core::segment::BlobSpec`s ready for `SegmentBuilder::
+  add_blob`, following the exact registration table (`storage-class:
+  raw-mappable`, `tier: warm`, node records 8-byte aligned, the
+  permutation directory 4-byte aligned) and the same writer-then-reader
+  discipline `crates/strand-vector/src/navigation.rs` established for RFC
+  0010's own cluster family. `spec/container.md` §9's blob-type registry
+  gained the two new rows; the intro paragraph's own running RFC-count
+  narrative was updated to name RFC 0014 as the fifth family registered.
+  Deliberately **not** in scope, per this task's own boundary: `GreedySearch`/
+  `BeamSearch` traversal (Design §5) — this slice only proves a writer and
+  a reader agree on what the bytes mean, the same scope every other blob
+  family's own read-path proves before its query layer is built; that
+  query path is slice 4, the last slice in this sequence.
+
+  **The one real integration decision this slice had to make that neither
+  RFC 0014 nor slices 1–2 pin, named and resolved rather than invented
+  silently.** `crate::vamana::Graph` operates on plain array indices
+  `0..n`; `crate::reorder::Permutation` is documented as mapping "logical
+  node index" to physical slot; RFC 0014 Design §3 itself specifies only
+  that the *wire* permutation directory is indexed by row-id-order local
+  ordinal. Nothing in any of the three pins how a caller's array index
+  relates to a row-id's local ordinal. This module resolves it the direct
+  way: a caller is expected to feed `build_vamana` points and row-ids in
+  the same order in the first place, so array index *is* local ordinal —
+  documented explicitly in the module's own top-level documentation as an
+  integration choice, not a new format decision, since RFC 0014 never
+  specifies how a writer obtains that association at all.
+
+  **Byte-exact worked-example reproduction, both blobs, every field —
+  built directly from the RFC's own stated illustrative topology and
+  physical-slot assignment, not from a real `build_vamana` run, per this
+  task's own instruction** (slice 1's own report already found the RFC's
+  worked example is "a plausible Vamana output for hand-checkability, not
+  a hand-execution of Algorithm 3," so reproducing it means constructing
+  the RFC's own stated adjacency lists and slot assignment directly).
+  `node_records_match_the_rfcs_worked_example_byte_for_byte` asserts the
+  full 176-byte node-record blob (16-byte header + 5×32-byte records)
+  field by field against the RFC's own worked-example tables, matching
+  `crates/strand-tools/src/puffin_export.rs`'s own byte-table-assertion
+  discipline; `permutation_directory_matches_the_rfcs_worked_example_byte_
+  for_byte` does the same for the 20-byte permutation directory. A second,
+  independent confirmation pins the same bytes as real conformance golden
+  files (`conformance/graph/toy-node-records.bin`,
+  `conformance/graph/toy-permutation-directory.bin`, generated once from
+  the RFC's own stated bytes and independently cross-checked byte-for-byte
+  against the RFC's own hex tables before being committed) —
+  `node_records_and_permutation_directory_match_the_pinned_conformance_
+  golden_files` asserts the real builder output against them, the same
+  two-pronged proof `crates/strand-vector/tests/worked_example.rs` already
+  established for RFC 0010. `decode_recovers_the_worked_example_exactly`
+  closes the loop: the real `NodeRecordReader`/`PermutationDirectoryReader`
+  decode the same bytes back into row-ids, vectors, physical-slot
+  adjacency (padding correctly stripped, e.g. E's real single neighbor `[3]`
+  recovered with the zero-padding entry excluded), and the permutation
+  itself, exactly matching what the worked example states.
+  `assembles_and_reopens_the_worked_example_as_a_real_segment` wires the
+  same worked example through a real `SegmentBuilder`, a real footer/
+  hotcache decode, and a real blob-registry lookup by
+  `(family_id, blob_type_id, field_id)` — the same discipline
+  `crates/strand-vector/tests/segment_assembly.rs` already established for
+  RFC 0010's own four blob types, now proven for `family_id = 5`.
+
+  **Round-trip property test at realistic scale, closing this task's own
+  required proof.** `round_trips_a_real_vamana_plus_bnf_graph_through_the_
+  wire_format_at_scale` builds a real graph via `build_vamana`
+  (`n=300`, `dims=16`, `R=12`) and a real BNF permutation via `bnf`
+  (`block_size=16`), writes both blobs through `build_graph_blob_specs`,
+  assembles a real segment, reopens it cold via the same footer/hotcache/
+  registry path, decodes both blobs, and asserts full structural equality
+  against the original in-memory construction output for every one of the
+  300 nodes: row-id, vector, and physical-slot-translated adjacency list
+  all match exactly, and the decoded permutation matches the one `bnf`
+  produced — the correctness property slice 4's own query path depends on
+  completely, proven end to end through the real wire bytes rather than
+  only against the raw in-memory structures.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, and
+  `cargo test --workspace` all clean (6 new tests in
+  `crates/strand-vector/src/graph_blob.rs`, 0 failures workspace-wide,
+  including every other blob family's own existing tests unaffected by
+  the new `family_id = 5` registration). Depends on: slices 1 and 2
+  (`vamana.rs`, `reorder.rs`) for their real output types; slice 4 (the
+  `GreedySearch`/`BeamSearch` query path over this wire format, Design §5)
+  is the one remaining slice in this sequence.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**

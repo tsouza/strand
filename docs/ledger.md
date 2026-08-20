@@ -3284,6 +3284,66 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   completely). Depends on: nothing further for this slice; the wire-format
   blobs and the query path remain separate, later slices already named in
   `docs/roadmap.md`'s M2-3 entry.
+- **RFC 0014 implementation, slice 3 of 4 — the graph-blob wire format and
+  a real construction-to-wire integration, no query path — 2026-08-20.**
+  `crates/strand-vector/src/graph_blob.rs`; `docs/roadmap.md`'s M2-3 entry
+  carries the full account, this entry the condensed one. Registers
+  `family_id = 5` ("graph") in `spec/container.md` §9 with two blob types
+  (graph node records, node-order permutation directory, Design §§1–3),
+  and adds `build_graph_blob_specs` — the real function turning slice 1's
+  `VamanaResult` and slice 2's `Permutation` into two
+  `strand_core::segment::BlobSpec`s ready for `SegmentBuilder::add_blob`,
+  the same writer-then-reader discipline `crate::navigation` already
+  established for RFC 0010's own cluster family. Deliberately not the
+  query path (`GreedySearch`/`BeamSearch`, Design §5) — a separate, later
+  slice already named in `docs/roadmap.md`'s M2-3 entry.
+
+  **One real integration decision named and resolved, not invented
+  silently.** Neither RFC 0014 nor slices 1–2 pin how a caller's
+  `vamana::Graph` array index relates to a row-id's local ordinal (the
+  index the wire permutation directory is keyed by, Design §3). Resolved
+  the direct way — a caller feeds `build_vamana` points and row-ids in the
+  same order, so array index *is* local ordinal — documented explicitly as
+  an integration choice rather than a new format decision, since RFC 0014
+  never specifies how a writer obtains that association at all.
+
+  **Byte-exact worked-example reproduction, both blobs, every field,
+  built directly from the RFC's own stated topology, not from a real
+  `build_vamana` run** (slice 1's own report already found the RFC's
+  worked example is illustrative, not a real construction trace). The
+  full 176-byte node-record blob and 20-byte permutation directory are
+  asserted field by field against the RFC's own worked-example tables
+  (matching `crates/strand-tools/src/puffin_export.rs`'s own
+  byte-table-assertion discipline), and independently again against real
+  conformance golden files (`conformance/graph/toy-node-records.bin`,
+  `conformance/graph/toy-permutation-directory.bin`, generated from the
+  RFC's own stated bytes and independently cross-checked against its hex
+  tables before being committed) — the same two-pronged proof
+  `crates/strand-vector/tests/worked_example.rs` already established for
+  RFC 0010. A real `NodeRecordReader`/`PermutationDirectoryReader` decode
+  closes the loop (padding correctly stripped from a real partial-degree
+  node's adjacency list), and a real `SegmentBuilder`/footer/hotcache/
+  registry round trip proves the same worked example through an actual
+  segment, the same discipline `crates/strand-vector/tests/
+  segment_assembly.rs` already established for RFC 0010's own four blob
+  types, now proven for `family_id = 5`.
+
+  **Round-trip property test at realistic scale.** A real `build_vamana`
+  graph (`n=300`, `dims=16`, `R=12`) plus a real `bnf` permutation
+  (`block_size=16`), written through `build_graph_blob_specs`, assembled
+  into a real segment, reopened cold, and decoded — full structural
+  equality asserted against the original construction output for every
+  node (row-id, vector, physical-slot-translated adjacency, and the
+  permutation itself) — the correctness property slice 4's own query path
+  depends on completely, now proven through real wire bytes rather than
+  only in-memory structures.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `cargo
+  test --workspace` all clean (6 new tests, 0 failures workspace-wide).
+  Depends on: slices 1 and 2 for their real output types; slice 4 (the
+  `GreedySearch`/`BeamSearch` query path, Design §5) is the one remaining
+  slice in this sequence.
 - **DST cross-validation harness (Workflow II) built and run — M3-3,
   2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
   TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and
