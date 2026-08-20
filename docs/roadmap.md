@@ -1564,6 +1564,74 @@ Non-goals and Open questions still leave genuinely open:
   milestone calls for one. Depends on: nothing; recommend leaving dormant
   until an actual GCS/Azure adapter is scoped.
 
+## Domain scoping (2026-08-20 decision) — logs and code
+
+`CLAUDE.md` §1's new "Target domain" paragraph and `docs/ledger.md`'s matching
+decision entry narrow this project's target content domain to telemetry-adjacent
+text — application/system logs and source code — without changing the format's own
+generality (checked directly against `spec/container.md`, `spec/row-ids.md`,
+`spec/manifest.md`, and all fourteen approved-or-implemented RFCs, `docs/ledger.md`'s
+own entry). This section is that decision's own promised downstream task list,
+decomposing its four named "does change" items into completable work, the same
+discipline every other milestone gets in this document.
+
+- **D-1** — A real logs-and-code analyzer profile: identifier splitting
+  (`camelCase`/`snake_case`/`kebab-case`), log-line structure (`key=value` pairs,
+  timestamps, stack traces), and the harder mixed-analysis problem — prose-shaped
+  spans (comments, docstrings) embedded inside code-shaped tokens, needing per-span,
+  not just per-blob, analysis policy. Source: `docs/ledger.md`'s scope-narrowing
+  entry, its own "precision note" on invariant 6. **This is real format-design
+  surface, not a pure-implementation task**: invariant 6 (`CLAUDE.md` §5) commits to
+  per-blob pluggable analyzer descriptors, not per-span mixed-analysis policy within
+  one blob, so registering a genuinely mixed-content profile may need either (a) an
+  amendment to RFC 0004's own descriptor schema, or (b) a document-level convention
+  (e.g., splitting a source file into separate code-span and comment-span sub-fields
+  at index time, each with its own conventional analyzer descriptor, needing no
+  schema change at all) — which of these is the right shape is itself an open design
+  question this task must resolve, per `CLAUDE.md` §3's design-then-implementation
+  separation, before any conformance vectors are built. Status: open, RFC-sized (an
+  amendment to RFC 0004, or a new RFC, depending on which shape D-1's own design pass
+  concludes is correct). Depends on: nothing technically, but real log/code corpora
+  (D-2) make its own conformance-vector work concrete rather than speculative.
+- **D-2** — Source and license-audit real log and source-code corpora to ground D-1's
+  conformance vectors and future benchmarks, the same discipline this project already
+  applied to MS MARCO (vendored, license-checked) and the RaBitQ/FastLanes reference
+  implementations (license-audited via GitHub's license API before adoption). A real
+  log corpus (e.g., a public system-log dataset — several exist under varied
+  licenses, none yet checked) and a real source-code corpus (e.g., a public,
+  Apache-2.0-or-compatible code dataset or a real open-source repository used as a
+  fixed snapshot) both need a genuine license audit before vendoring, matching
+  `CLAUDE.md` §1's "every dependency must be Apache-2.0-compatible" rule applied to
+  benchmark data, not just code dependencies. Status: open, research-sized — no RFC
+  needed, but real licensing verification work, not to be skipped or assumed.
+  Depends on: nothing; unblocks D-1's real conformance-vector work and D-3's real
+  code-embedding grounding.
+- **D-3** — Revisit the vector family's embedding conventions against real
+  code-embedding models rather than assumed-generic ones. The graph-blob family's own
+  real `bench/` measurement (`bench/src/graph_warm_query.rs`, M2-3 above) used
+  synthetic uniform-random points precisely because no real, domain-representative
+  embedding source was available at the time — a real code-embedding model run over
+  D-2's real code corpus would let a follow-up benchmark measure this family's actual
+  cost on structured, clustered data instead of a near-worst-case synthetic
+  distribution, closing the gap this project's own conversation about that benchmark
+  already named directly. Status: open, needs D-2's real corpus first and a real,
+  licensable, locally-runnable code-embedding model (not yet identified or verified
+  available in this environment — check feasibility before committing to a specific
+  model). Depends on: D-2.
+- **D-4** — Vendor telemetry-adjacent prior art into `references/` and `docs/lineage.md`,
+  the same discipline every other design lineage entry in this project already
+  follows (a primary source, fetched and cited, not asserted from memory,
+  `CLAUDE.md` §3). NOFireAI/ravel (surveyed conversationally this session, license
+  independently confirmed Apache-2.0 via GitHub's license API, `docs/ledger.md`'s own
+  entry) is one real candidate — an object-storage-first observability datastore,
+  structurally comparable at the storage layer though not itself a search-index
+  format. Real, code-search-specific prior art (e.g., Google/Sourcegraph's Zoekt, a
+  trigram-based code-search engine — license and technical shape not yet checked in
+  this project) is a second real candidate worth checking, since it is directly a
+  code-search system rather than an adjacent storage layer. Status: open,
+  research-sized, no code dependencies, no other item in this section blocks it —
+  a reasonable next single task given its low weight. Depends on: nothing.
+
 ## Also corrected by this revision, outside this document
 
 The adversarial review's whole-project-consistency findings were fixed in
