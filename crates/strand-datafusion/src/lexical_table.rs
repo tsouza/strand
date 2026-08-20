@@ -16,7 +16,8 @@
 //! a real Apache DataFusion `TableProvider` (verified against DataFusion
 //! `55.0.0`'s actual trait, `datafusion/session/src/table.rs` in
 //! `apache/datafusion` tag `55.0.0` — not implemented from memory, per
-//! `CLAUDE.md` §3).
+//! `CLAUDE.md` §3; vendored in
+//! `references/datafusion-tableprovider-trait-55.0.0.md`).
 //!
 //! ## The relational schema, and why it stops where it does
 //!

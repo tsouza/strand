@@ -2539,14 +2539,15 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   **Grounding.** DataFusion's `TableProvider` trait was fetched live from
   the real, current source (`apache/datafusion` tag `55.0.0`,
   `datafusion/session/src/table.rs`) rather than implemented from memory
-  (`CLAUDE.md` §3). This caught a real error: an initial WebFetch summary
-  of docs.rs's rendered page invented a required `as_any` method the real
-  trait does not have and named a `MemoryExec` type that does not exist
-  in `55.0.0` (renamed/restructured to `MemorySourceConfig` +
-  `DataSourceExec` some releases ago) — both corrected against the actual
-  trait definition and against `datafusion/catalog/src/memory/table.rs`'s
-  real `MemTable::scan`, which is this crate's own `scan()`'s direct
-  model.
+  (`CLAUDE.md` §3), now vendored in
+  `references/datafusion-tableprovider-trait-55.0.0.md`. This caught a
+  real error: an initial WebFetch summary of docs.rs's rendered page
+  invented a required `as_any` method the real trait does not have and
+  named a `MemoryExec` type that does not exist in `55.0.0` (renamed/
+  restructured to `MemorySourceConfig` + `DataSourceExec` some releases
+  ago) — both corrected against the actual trait definition and against
+  `datafusion/catalog/src/memory/table.rs`'s real `MemTable::scan`, which
+  is this crate's own `scan()`'s direct model.
 
   **New crate.** `crates/strand-datafusion` (`datafusion = "55.0.0"`
   pinned in `Cargo.toml`, the same real-version discipline as
@@ -2568,9 +2569,9 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   per real `(document, term)` co-occurrence, a sparse term-document
   matrix in coordinate form rather than document reconstruction. Sourced
   from two small, additive, non-format-changing reads added to
-  `strand-lexical` for this task (no wire format changed, so no RFC is
-  owed for either, per `CLAUDE.md` §3's "obvious, unambiguous
-  consequence" carve-out): `TermDictionary::iter` (a plain-`Iterator`
+  `strand-lexical` for this task. Neither changes any wire format, so
+  neither is a format-design decision RFC 0005/0008's own approved text
+  didn't already settle — no RFC is owed: `TermDictionary::iter` (a plain-`Iterator`
   wrapper over `fst::Map`'s own `Streamer`, `crates/strand-lexical/src/
   term_dictionary.rs`) and `FieldReader::all_postings` (a full
   term-dictionary-to-postings table scan, decode failures skipped per
