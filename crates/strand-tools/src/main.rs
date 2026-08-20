@@ -15,7 +15,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use strand_tools::{convert, inspect};
+use strand_tools::{ciff, convert, inspect};
 
 #[derive(Parser)]
 #[command(name = "strand-tools")]
@@ -41,6 +41,22 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Import a real CIFF (Common Index File Format) export into a real
+    /// STRAND segment file (lossless where CIFF permits — see
+    /// `strand_tools::ciff`'s own module documentation for exactly what
+    /// is and is not preserved).
+    ConvertCiff {
+        /// Path to the `.ciff` file.
+        #[arg(long = "ciff-file")]
+        ciff_file: PathBuf,
+        /// Name of the STRAND field this CIFF export's postings become
+        /// (CIFF itself has no field concept).
+        #[arg(long)]
+        field: String,
+        /// Path to write the resulting STRAND segment file to.
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -52,6 +68,53 @@ fn main() -> ExitCode {
             field,
             output,
         } => run_convert(&index_dir, &field, &output),
+        Command::ConvertCiff {
+            ciff_file,
+            field,
+            output,
+        } => run_convert_ciff(&ciff_file, &field, &output),
+    }
+}
+
+fn run_convert_ciff(
+    ciff_file: &std::path::Path,
+    field: &str,
+    output: &std::path::Path,
+) -> ExitCode {
+    let (field_blobs, row_count) = match ciff::import_ciff(ciff_file, field) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut builder = strand_core::segment::SegmentBuilder::new(row_count);
+    for blob in field_blobs.to_blob_specs() {
+        builder.add_blob(blob);
+    }
+    let segment_bytes = builder.build(0);
+
+    match std::fs::write(output, &segment_bytes) {
+        Ok(()) => {
+            // TERM_INFO_RECORD_LEN's short variant: import_ciff always
+            // calls build_field_from_postings with with_positions =
+            // false (CIFF cannot supply positions — ciff.rs's own module
+            // doc comment), so the short, 16-byte-per-term record shape
+            // is always what gets written here.
+            println!(
+                "wrote {} ({} bytes, {row_count} rows, {} terms)",
+                output.display(),
+                segment_bytes.len(),
+                field_blobs.term_info.len()
+                    / strand_lexical::term_dictionary::SHORT_TERM_INFO_RECORD_LEN,
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: could not write {}: {e}", output.display());
+            ExitCode::FAILURE
+        }
     }
 }
 

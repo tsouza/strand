@@ -17,5 +17,6 @@
 //! verification tooling) can call the same real logic directly rather than
 //! shelling out to the built binary.
 
+pub mod ciff;
 pub mod convert;
 pub mod inspect;

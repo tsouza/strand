@@ -946,6 +946,77 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   that scale is materially stronger evidence of correctness than the
   spot-check queries above, though it is still bounded to the same
   single-segment, deletion-free, positions-always-on scope stated above.
+- **CIFF importer — resolved 2026-08-20, roadmap item M4-2 ("CIFF
+  importer, lossless where CIFF permits").** `crates/strand-tools/src/
+  ciff.rs`'s `import_ciff` follows `convert.rs`'s own established
+  pattern: parse a real external format, then feed the extracted
+  `(term, doc_ordinal, tf)` data into the same real, already-tested
+  `strand_lexical::field::build_field_from_postings` every other
+  importer uses. CIFF's own wire format was fetched live, not recalled
+  — the canonical `.proto`
+  (`github.com/osirrc/ciff`'s `src/main/protobuf/
+  CommonIndexFileFormat.proto`, default branch `master`, confirmed via
+  `gh api`, not `main`) is vendored verbatim at
+  `references/ciff-common-index-file-format.md`, along with the
+  README's own stated message framing (`Header`, then `num_postings_
+  lists` × `PostingsList`, then `num_docs` × `DocRecord`, each
+  length-delimited) and, since the `.proto` itself never states the
+  delta-gap accumulator's starting point, a second real implementation
+  (`pisa-engine/ciff`'s Rust encoder/decoder) confirming the accumulator
+  seeds at 0. Message shapes are hand-written `#[derive(prost::Message)]`
+  structs (`prost = "0.14.4"`, pinned per this project's exact-version
+  convention) rather than `prost-build`-generated, so the crate carries
+  no build-time dependency on a system `protoc`.
+  Honest, named losslessness boundary (this task's own "lossless where
+  CIFF permits" framing, and invariant 5's scoring-input-survives-
+  interchange requirement): per-term document frequency and per-document
+  length round-trip losslessly (cross-checked against CIFF's own two
+  integrity totals, `total_terms_in_collection` vs. both the real summed
+  `DocRecord.doclength` and, when the vocabulary export is complete, the
+  real summed posting `tf` — the same two checks CIFF's own reference
+  reader, `ReadCIFF.java`, performs). Two real gaps, named rather than
+  gap-filled: CIFF's `Posting` message carries no within-document
+  positions (`docs/lineage.md`'s own CIFF entry already names this), so
+  `import_ciff` always builds with `with_positions = false` and the
+  resulting field can never answer a phrase query — internally each
+  posting's real `tf` is carried through as a placeholder positions
+  vector's *length* (`build_field_from_postings` derives term frequency
+  from vector length), never its meaningless contents, which the
+  `with_positions = false` branch never reads. Second,
+  `DocRecord.collection_docid` (the source collection's external
+  document-ID string) is parsed for validation and then discarded: no
+  blob type in the lexical family's registry has a slot for an
+  external-ID mapping today. Deliberately narrow scope, matching
+  `convert.rs`'s own precedent: only a CIFF file with a complete document
+  catalog (`Header.num_docs == Header.total_docs`) is accepted, so every
+  STRAND row ordinal has a real `DocRecord` behind it and the row-ID
+  space is dense by construction; a partial-*vocabulary* export
+  (`num_postings_lists < total_postings_lists` — CIFF's own header
+  comment names this as real and intentional, e.g. query-term-only
+  exports) is accepted, since it leaves the row-ID space intact and only
+  narrows which terms are searchable. Untrusted-input defensiveness
+  the tantivy importer gets for free by construction (tantivy's own
+  postings are already sorted): `import_ciff` returns a structured
+  `CiffImportError`, never panics, on a `df`/postings-count mismatch, a
+  non-monotonic or out-of-range docid, a duplicate term or `DocRecord`,
+  or a failed integrity check.
+  Test fixture: not hand-rolled — `conformance/ciff/
+  toy-complete-20200309.ciff`, a real 337-byte, 3-document, 9-term CIFF
+  export fetched from `pisa-engine/ciff`'s own test fixtures
+  (`tests/test_data/toy-complete-20200309.ciff`, itself sourced from a
+  real Anserini integration-test collection per its own embedded
+  `Header.description`), vendored and cited in the same references file.
+  `crates/strand-tools/src/ciff.rs`'s own tests import this real file
+  end to end into a real STRAND segment and run a real term query
+  against it, and separately confirm a truncated file is rejected with a
+  structured error rather than a panic; a manual CLI smoke test
+  (`strand-tools convert-ciff` — the new subcommand, following
+  `convert.rs`'s own `Convert` CLI pattern) round-tripped the same
+  fixture into `strand-tools inspect` against a real 514-byte, 3-blob
+  segment on disk (no positions blob, matching the stated scope). `cargo
+  test --workspace` (117 tests passed across the workspace, including
+  these) and `cargo clippy --workspace --all-targets -- -D warnings` both
+  clean.
 - **`strand-vector` implemented — 2026-08-19, prompted by "yes, start
   implementing strand-vector."** All four RFC 0010 blob types' wire format:
   `descriptor.rs` (quantization descriptor, both registered rotator
