@@ -3718,11 +3718,16 @@ dependencies = [
 name = "strand-tools"
 version = "0.1.0"
 dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
  "clap",
+ "serde_json",
  "strand-core",
  "strand-lexical",
  "tantivy",
  "tempfile",
+ "testcontainers-modules",
+ "tokio",
 ]
 
 [[package]]

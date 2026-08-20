@@ -86,12 +86,68 @@ pub trait RangeGetStore {
     fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, StoreError>;
 }
 
+/// One object as reported by a prefix listing — the enumeration primitive
+/// the M3-5 orphan-sweep tool needs (`spec/manifest.md` "Orphan files":
+/// "list the prefix"). Modeled directly on S3's `ListObjectsV2` `Contents`
+/// shape (`Key`, `LastModified`) rather than invented from nothing
+/// (`CLAUDE.md` §3): a sweep needs each object's own staleness signal to
+/// apply the retention-window safety margin without any extra per-object
+/// fetch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedObject {
+    pub key: String,
+    /// Milliseconds since the Unix epoch this object was last written.
+    pub last_modified_millis: u64,
+}
+
+/// A store capable of listing every object under a prefix. Kept as its own
+/// trait, the same reasoning as `RangeGetStore`: the manifest CAS protocol
+/// never lists anything, so folding this into `ConditionalStore` would
+/// force every protocol-logic test double in `manifest.rs` and
+/// `tests/s3_store.rs` to grow a listing stub it would never exercise.
+pub trait ListableStore {
+    /// Returns every object whose key starts with `prefix`, sorted by key.
+    /// Implementations handle their own backend pagination internally
+    /// (S3's `ListObjectsV2` truncates at 1000 keys per page and returns a
+    /// continuation token) — callers see one flat, complete list.
+    fn list(&self, prefix: &str) -> Result<Vec<ListedObject>, StoreError>;
+}
+
+/// A store capable of permanently removing an object by key — the
+/// primitive the M3-5 orphan-sweep tool needs to act on what it finds.
+/// Kept as its own trait rather than reusing each store's own inherent
+/// `delete` (which predates this trait and is used directly by tests and
+/// benchmarks that simulate compaction against one concrete store type):
+/// a generic sweep function needs one shared name it can call across
+/// `InMemoryStore` and `S3Store` alike.
+pub trait DeletableStore {
+    fn delete_object(&self, key: &str) -> Result<(), StoreError>;
+}
+
+/// One object's stored state: content, CAS revision, and the wall-clock
+/// time it was last written — the last of which exists only to give
+/// [`ListableStore::list`] a real staleness signal to report, mirroring
+/// what a real backend's `LastModified` field carries.
+struct StoredObject {
+    bytes: Vec<u8>,
+    rev: u64,
+    last_modified_millis: u64,
+}
+
+fn now_millis() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_millis() as u64
+}
+
 /// An in-memory `ConditionalStore`. ETags are a monotonic counter per key,
 /// which is sufficient to detect staleness — the real property CAS depends
 /// on — without imitating any particular backend's ETag format.
 #[derive(Default)]
 pub struct InMemoryStore {
-    objects: Mutex<HashMap<String, (Vec<u8>, u64)>>,
+    objects: Mutex<HashMap<String, StoredObject>>,
 }
 
 impl InMemoryStore {
@@ -101,8 +157,8 @@ impl InMemoryStore {
 
     /// Unconditionally removes `key`. Not part of `ConditionalStore`: no
     /// reader or writer in the commit protocol ever deletes an object: this
-    /// exists for tests that simulate compaction, and later for the M3
-    /// orphan-sweep tool.
+    /// exists for tests that simulate compaction, and for the M3-5
+    /// orphan-sweep tool via [`DeletableStore`].
     pub fn delete(&self, key: &str) {
         self.objects.lock().unwrap().remove(key);
     }
@@ -113,7 +169,7 @@ impl ConditionalStore for InMemoryStore {
         let objects = self.objects.lock().unwrap();
         Ok(objects
             .get(key)
-            .map(|(bytes, rev)| (bytes.clone(), rev.to_string())))
+            .map(|obj| (obj.bytes.clone(), obj.rev.to_string())))
     }
 
     fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<ETag, StoreError> {
@@ -121,19 +177,56 @@ impl ConditionalStore for InMemoryStore {
         if objects.contains_key(key) {
             return Err(StoreError::PreconditionFailed);
         }
-        objects.insert(key.to_string(), (bytes.to_vec(), 0));
+        objects.insert(
+            key.to_string(),
+            StoredObject {
+                bytes: bytes.to_vec(),
+                rev: 0,
+                last_modified_millis: now_millis(),
+            },
+        );
         Ok(0.to_string())
     }
 
     fn put_if_match(&self, key: &str, bytes: &[u8], etag: &ETag) -> Result<ETag, StoreError> {
         let mut objects = self.objects.lock().unwrap();
-        let current_rev = objects.get(key).map(|(_, rev)| *rev);
+        let current_rev = objects.get(key).map(|obj| obj.rev);
         if current_rev.map(|rev| rev.to_string()) != Some(etag.clone()) {
             return Err(StoreError::PreconditionFailed);
         }
         let new_rev = current_rev.unwrap() + 1;
-        objects.insert(key.to_string(), (bytes.to_vec(), new_rev));
+        objects.insert(
+            key.to_string(),
+            StoredObject {
+                bytes: bytes.to_vec(),
+                rev: new_rev,
+                last_modified_millis: now_millis(),
+            },
+        );
         Ok(new_rev.to_string())
+    }
+}
+
+impl ListableStore for InMemoryStore {
+    fn list(&self, prefix: &str) -> Result<Vec<ListedObject>, StoreError> {
+        let objects = self.objects.lock().unwrap();
+        let mut result: Vec<ListedObject> = objects
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(key, obj)| ListedObject {
+                key: key.clone(),
+                last_modified_millis: obj.last_modified_millis,
+            })
+            .collect();
+        result.sort_unstable_by(|a, b| a.key.cmp(&b.key));
+        Ok(result)
+    }
+}
+
+impl DeletableStore for InMemoryStore {
+    fn delete_object(&self, key: &str) -> Result<(), StoreError> {
+        self.delete(key);
+        Ok(())
     }
 }
 
@@ -141,12 +234,12 @@ impl RangeGetStore for InMemoryStore {
     fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, StoreError> {
         assert!(start < end, "empty or inverted range: {start}..{end}");
         let objects = self.objects.lock().unwrap();
-        let (bytes, _) = objects
+        let obj = objects
             .get(key)
             .ok_or_else(|| StoreError::Io(format!("no such key: {key}")))?;
         let start = start as usize;
-        let end = (end as usize).min(bytes.len());
-        Ok(bytes[start..end].to_vec())
+        let end = (end as usize).min(obj.bytes.len());
+        Ok(obj.bytes[start..end].to_vec())
     }
 }
 
@@ -247,5 +340,68 @@ mod tests {
 
         assert_eq!(result, Err(StoreError::PreconditionFailed));
         assert_eq!(store.get("key").unwrap().unwrap().0, b"second");
+    }
+
+    // --- ListableStore / DeletableStore --------------------------------
+
+    #[test]
+    fn list_returns_only_keys_matching_the_prefix_sorted() {
+        let store = InMemoryStore::new();
+        store.put_if_absent("segments/b.bin", b"b").unwrap();
+        store.put_if_absent("segments/a.bin", b"a").unwrap();
+        store.put_if_absent("_strand/current", b"ptr").unwrap();
+
+        let listed = store.list("segments/").unwrap();
+        let keys: Vec<&str> = listed.iter().map(|o| o.key.as_str()).collect();
+
+        assert_eq!(keys, vec!["segments/a.bin", "segments/b.bin"]);
+    }
+
+    #[test]
+    fn list_with_an_empty_prefix_returns_every_object() {
+        let store = InMemoryStore::new();
+        store.put_if_absent("a", b"1").unwrap();
+        store.put_if_absent("b", b"2").unwrap();
+
+        assert_eq!(store.list("").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn list_reports_a_real_last_modified_timestamp() {
+        let store = InMemoryStore::new();
+        let before = now_millis();
+        store.put_if_absent("key", b"hello").unwrap();
+        let after = now_millis();
+
+        let listed = store.list("key").unwrap();
+
+        assert_eq!(listed.len(), 1);
+        assert!(
+            listed[0].last_modified_millis >= before && listed[0].last_modified_millis <= after,
+            "last_modified_millis {} must fall within [{before}, {after}]",
+            listed[0].last_modified_millis
+        );
+    }
+
+    #[test]
+    fn list_reflects_a_put_if_match_overwrite() {
+        let store = InMemoryStore::new();
+        let etag = store.put_if_absent("key", b"first").unwrap();
+        store.put_if_match("key", b"second", &etag).unwrap();
+
+        let listed = store.list("key").unwrap();
+
+        assert_eq!(listed.len(), 1, "still one object, not two");
+    }
+
+    #[test]
+    fn delete_object_removes_the_key_and_is_reflected_in_a_later_list() {
+        let store = InMemoryStore::new();
+        store.put_if_absent("key", b"hello").unwrap();
+
+        store.delete_object("key").unwrap();
+
+        assert_eq!(store.get("key").unwrap(), None);
+        assert!(store.list("key").unwrap().is_empty());
     }
 }

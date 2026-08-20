@@ -22,7 +22,7 @@
 //! complexity trade for now. Revisit if a future async read path needs to
 //! share a runtime instead.
 
-use crate::store::{ConditionalStore, ETag, RangeGetStore, StoreError};
+use crate::store::{ConditionalStore, DeletableStore, ETag, ListableStore, ListedObject, RangeGetStore, StoreError};
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 
@@ -277,5 +277,76 @@ impl RangeGetStore for S3Store {
             })?;
             Ok(body.into_bytes().to_vec())
         })
+    }
+}
+
+impl ListableStore for S3Store {
+    /// Lists every object under `prefix` via real `ListObjectsV2`,
+    /// following its continuation token internally so a caller sees one
+    /// flat, complete listing regardless of how many 1000-key pages S3 (or
+    /// MinIO) actually returned — the enumeration primitive the M3-5
+    /// orphan sweep's "list the prefix" step (`spec/manifest.md`, "Orphan
+    /// files") needs. Each entry's `last_modified_millis` comes straight
+    /// from the service's own `LastModified` field
+    /// (`aws_smithy_types::DateTime::to_millis`), the sweep's staleness
+    /// signal for its retention-window safety margin.
+    fn list(&self, prefix: &str) -> Result<Vec<ListedObject>, StoreError> {
+        self.runtime.block_on(async {
+            let mut result = Vec::new();
+            let mut continuation_token: Option<String> = None;
+            loop {
+                let mut request = self
+                    .client
+                    .list_objects_v2()
+                    .bucket(&self.bucket)
+                    .prefix(prefix);
+                if let Some(token) = continuation_token.take() {
+                    request = request.continuation_token(token);
+                }
+                let output = request.send().await.map_err(|err| {
+                    StoreError::Io(format!(
+                        "{:#}",
+                        aws_smithy_types::error::display::DisplayErrorContext(&err)
+                    ))
+                })?;
+                for object in output.contents() {
+                    let key = object.key().ok_or_else(|| {
+                        StoreError::Io("ListObjectsV2 returned an object with no Key".to_string())
+                    })?;
+                    let last_modified = object.last_modified().ok_or_else(|| {
+                        StoreError::Io(format!(
+                            "ListObjectsV2 returned no LastModified for key {key}"
+                        ))
+                    })?;
+                    let millis = last_modified.to_millis().map_err(|e| {
+                        StoreError::Io(format!(
+                            "could not convert LastModified for key {key} to milliseconds: {e}"
+                        ))
+                    })?;
+                    result.push(ListedObject {
+                        key: key.to_string(),
+                        // A `DateTime` before the Unix epoch would produce a
+                        // negative value; no conforming backend reports an
+                        // object written before 1970, so clamping to 0
+                        // rather than propagating an error keeps the common
+                        // case simple without silently misreporting a real
+                        // negative age anywhere reachable in practice.
+                        last_modified_millis: millis.max(0) as u64,
+                    });
+                }
+                match output.next_continuation_token() {
+                    Some(token) => continuation_token = Some(token.to_string()),
+                    None => break,
+                }
+            }
+            result.sort_unstable_by(|a: &ListedObject, b: &ListedObject| a.key.cmp(&b.key));
+            Ok(result)
+        })
+    }
+}
+
+impl DeletableStore for S3Store {
+    fn delete_object(&self, key: &str) -> Result<(), StoreError> {
+        self.delete(key)
     }
 }

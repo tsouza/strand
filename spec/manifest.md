@@ -235,11 +235,53 @@ writing segment or snapshot metadata files but before its commit lands
 (§2 step 3 never completing) leaves orphans. Orphans are harmless to
 correctness — nothing live references them — and cost only storage. They
 are removed by listing the prefix, subtracting everything referenced by a
-retained snapshot (§1's retention-eligibility rule, now implemented — see
+retained snapshot (§1's retention-eligibility rule, implemented in
 `table_metadata::retained_snapshots`), and deleting the remainder older
-than the retention window. The sweep tool itself lands at M3-5
-(`docs/roadmap.md`); this rule is stated now so that tool has nothing to
-invent.
+than the retention window. The sweep tool (`strand-tools sweep`,
+`crates/strand-tools/src/orphan_sweep.rs`) implements this at M3-5
+(`docs/roadmap.md`).
+
+The **retention window** here is a parameter to the sweep itself, not a
+`TableMetadata`/`RetentionPolicy` field — a real gap the original rule
+left unstated (RFC 0001's Discussion section, M3-5) — since it protects a
+different thing than `RetentionPolicy` does. `RetentionPolicy` bounds
+which *snapshots* stay eligible for a reader that loaded one a while ago;
+the orphan retention window bounds how long a sweep waits before treating
+an unreferenced object as safe to remove, the safety margin against a
+race with a writer whose commit has not yet landed its pointer update.
+Those two concerns have no shared natural horizon — a table's snapshot
+policy is reasonably measured in days, an in-flight commit's window in
+seconds to minutes — so `strand-tools sweep` takes its own
+`--retention-window-secs`, defaulting to Apache Iceberg's own
+`remove_orphan_files` default of 3 days
+(`references/iceberg-remove-orphan-files-procedure.md`), the same prior
+art already cited for `RetentionPolicy`'s own union-combination rule
+above. `TableMetadata` itself carries no orphan-specific field.
+
+A listing of `_strand/snapshots/` can hold, at the same version number,
+both the one real snapshot object a commit's pointer CAS won and one or
+more objects a losing attempt wrote first — nothing in the wire format
+distinguishes them. It can also hold an orphan whose version is strictly
+**higher** than the real current snapshot's: a writer that crashes after
+writing its snapshot object but before its pointer CAS lands leaves an
+orphan at exactly `true_current.version + 1` (the version is computed
+from the state read at the *start* of the attempt), and nothing advances
+the real pointer to catch up if that writer never retries. A conforming
+sweep MUST therefore resolve "current" from the real CAS pointer (the
+same read every conforming reader performs), never by inferring it as
+"the highest version number present in a listing" — that heuristic would
+misidentify a crashed writer's high-numbered orphan as current and
+protect its files indefinitely, the exact failure this rule exists to
+prevent. Any listed snapshot object whose version exceeds the real
+current version is provably an orphan (the pointer proves no commit ever
+reached it) and MUST NOT be fed to `retained_snapshots`. Every other
+listed snapshot object — version less than or equal to the real current
+version — is genuinely ambiguous (real-historical-and-superseded, or an
+orphan that lost a same-version race) and MAY be fed to
+`retained_snapshots` together: the count-based floor dedupes by version
+number, so a same-version orphan cannot displace a real snapshot from the
+retained set, and at worst is itself also protected for one extra sweep
+cycle — over-retention, never under-retention.
 
 **Reader freshness has a price, and it is stated.** A reader's consistency
 model is snapshot-at-load. Freshness costs one GET of the
@@ -263,10 +305,17 @@ the reader 404-refresh recovery path. Table metadata
 (`_strand/metadata.json`, `table_metadata::write_table_metadata`/
 `read_table_metadata`) and retention-policy-driven snapshot-eligibility
 (`table_metadata::retained_snapshots`) are implemented and unit-tested
-against `InMemoryStore` (M3-4, `docs/roadmap.md`); neither has yet been
-exercised against real MinIO the way the CAS protocol itself has. Not yet
-implemented: the orphan-sweep tool itself — M3-5, which consumes
-`retained_snapshots`'s output directly. `commit`/`read_snapshot`
+against `InMemoryStore` (M3-4, `docs/roadmap.md`); real-MinIO coverage for
+`write_table_metadata`/`read_table_metadata` themselves (as opposed to the
+sweep tool built on top of them, below) remains open. The orphan-sweep
+tool (`strand-tools sweep`, `crates/strand-tools/src/orphan_sweep.rs`,
+M3-5) is implemented and verified against real MinIO — `list`
+(`ListableStore`, real `ListObjectsV2` pagination) and `delete_object`
+(`DeletableStore`) join `ConditionalStore`/`RangeGetStore` on
+`crates/strand-core/src/s3_store.rs`'s `S3Store` — reproducing the same
+crashed-writer-orphan pattern `orphaned_writer_crash_is_harmless_to_
+readers` established for readers, now for the sweep, plus the
+retention-window safety-margin case. `commit`/`read_snapshot`
 propagate definite backend failures as typed errors (`CommitError::Io`,
 `ReadError::Io`) and resolve ambiguous pointer-write outcomes per §2
 (`StoreError::Ambiguous`, `crates/strand-core/src/store.rs`), classified
