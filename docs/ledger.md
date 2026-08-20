@@ -2827,4 +2827,4 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   honest, correct `TableProvider` under this milestone's "thin" mandate,
   `CLAUDE.md` §1). `docs/roadmap.md`'s M5-1 entry and M5-2's dependency
   note are both updated to reflect this slice as done and to name what of
-  M5-1 M5-2's hybrid-fusion benchmark still needs.
+  M5-1's remaining scope M5-2's hybrid-fusion benchmark still needs.
