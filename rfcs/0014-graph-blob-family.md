@@ -771,6 +771,36 @@ math), **≈3.04 MB** — small enough to keep memory-resident for the whole
 segment, matching this blob's own narrow role (Design §3): a merge/rebuild
 input and an occasional row-id-seeded query, never the per-hop hot path.
 
+**This is no longer arithmetic alone.** `bench/src/graph_warm_query.rs`
+(2026-08-20) closes the gap this RFC's own Status line and Open questions
+named from the start: real `build_vamana` + real BNF construction (`n =
+4,000, dims = 128, R = 64, L = 100, α = 1.2` — `dims`/`R` both real
+DiskANN-cited values, chosen after a real, measured probe found `n =
+5,000` at this `R`/`dims` did not finish within three minutes), written
+through the real wire format and queried 300 times each at two real
+query-time `L` values via `greedy_search_cold`, committed to real MinIO
+for a secondary whole-blob-fetch measurement, and checked against a real
+local random-read latency baseline instead of this section's own cited
+DiskANN figure where a fair local measurement was obtainable (a real
+NVMe device, confirmed via `lsblk`/`rotational`/`dmidecode`, not a
+virtualized disk). Full account, including a real, honestly-reported
+surprise this arithmetic did not anticipate — measured hop counts sitting
+almost exactly at the query-time `L` ceiling at both `L` values tested,
+traced to this benchmark's own adversarial synthetic (uniform-random,
+structure-free) point distribution rather than to `R` or scale — lives in
+`docs/roadmap.md`'s M2-3 entry and `bench/results/graph-warm-query.json`;
+the headline numbers: mean fetches/query 2,032.9 at `L=32` and 5,761.1 at
+`L=100` (89.3–95.0% of this section's own `hops×R` pessimistic-bound
+formula, computed against this run's own measured hop count); real local
+`O_DIRECT` random-read latency p50 = 56.2μs, **below** this section's own
+cited "~100-300μs" DiskANN figure, not merely within it — real evidence a
+2026 NVMe device is faster than the paper's 2019 retail-SSD citation, not
+a claim about this reader's own speed. This section's own literature
+figures (the "~100-300μs" per-fetch range, the `hops×R` pessimistic-bound
+method) are retained as-is, not rewritten, since the real measurement
+confirms rather than replaces the *method*; it replaces only the
+previously-unmeasured *inputs* the method was run on.
+
 ## Invariant-11 checklist
 
 - **Endianness:** little-endian throughout — the node-record header, every
@@ -982,9 +1012,19 @@ by this session's own (independent) re-grounding of Starling.
   computation Design §8 leaves unregistered as a dedicated kernel — real,
   separate, measured work, the same category as RFC 0010's own deferred
   FastScan ARM validation and M2-7 (`docs/roadmap.md`).
-- **A real `bench/` measurement for this family**, mirroring RFC 0010's own
+- ~~A real `bench/` measurement for this family~~, mirroring RFC 0010's own
   post-Approval `bench/src/vector_cold_open.rs` — the single biggest gap
   named throughout this RFC's own Status line and Napkin math: every
   latency and fetch-count figure here is literature-translated arithmetic,
   not a STRAND-measured result, because no crate code exists yet (this
-  task's own scope).
+  task's own scope). **Done, 2026-08-20** — `bench/src/graph_warm_query.rs`,
+  Napkin math's own new "This is no longer arithmetic alone" paragraph
+  above and `docs/roadmap.md`'s M2-3 entry carry the real numbers. Two
+  narrower follow-ons this measurement itself surfaced remain open,
+  though: a real inter-hop overlap measurement against a *non-adversarial*
+  (clustered/embedding-like) point distribution, since this run's own
+  synthetic uniform-random points produced a hop-count-saturates-at-`L`
+  regime this measurement's own report argues is not representative; and
+  extending the local-random-read-latency measurement to a second,
+  independent NVMe device, since this run used only this one development
+  machine's own disk.

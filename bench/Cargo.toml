@@ -79,6 +79,10 @@ path = "src/cjk_segmentation_bakeoff.rs"
 name = "multi-segment-query"
 path = "src/multi_segment_query.rs"
 
+[[bin]]
+name = "graph-warm-query"
+path = "src/graph_warm_query.rs"
+
 [dependencies]
 strand-core = { path = "../crates/strand-core", features = ["s3"] }
 strand-lexical = { path = "../crates/strand-lexical" }
@@ -92,6 +96,7 @@ fastpfor = "0.9.0"
 flate2 = "1.1.9"
 icu_segmenter = "2.3.0"
 jieba-rs = "0.10.3"
+libc = "0.2.189"
 rand = "0.9.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

@@ -5213,6 +5213,7 @@ dependencies = [
  "flate2",
  "icu_segmenter",
  "jieba-rs",
+ "libc",
  "rand 0.9.5",
  "serde",
  "serde_json",

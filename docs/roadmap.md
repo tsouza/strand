@@ -675,6 +675,174 @@ Non-goals and Open questions still leave genuinely open:
   slice in the RFC 0014 implementation sequence. `spec/graph-vectors.md`
   remains real, named, unwritten follow-on work — this slice completes
   the reference implementation, not the normative spec chapter.
+
+  **Real `bench/` measurement, closing the gap this RFC's own Status line
+  and Napkin math named from the start — done (2026-08-20).** Not a fifth
+  implementation slice: the four slices above are the reference
+  implementation; this is follow-on validation against it, the same
+  relationship `bench/src/vector_cold_open.rs` (M2-2) has to RFC 0010's
+  own four cluster-family implementation slices. `bench/src/
+  graph_warm_query.rs` (registered as `graph-warm-query` in `bench/
+  Cargo.toml`) replaces every literature-translated figure in RFC 0014's
+  own Napkin math with a real, measured one, following `vector_cold_
+  open.rs`'s statistical-rigor pattern (many real trials, p50/p90/p99,
+  a `bench/results/*.json` file) rather than `vector_cold_open.rs`'s own
+  *governing regime* — argued explicitly, not assumed, because this
+  family is different in kind from the ones already benchmarked.
+
+  **Methodology decision, argued before any code was written.** The
+  graph family is `tier: warm`, exempted from invariant 3's one-wave,
+  ~100ms-object-storage-round-trip cold-path accounting by invariant 7's
+  own text ("assumes NVMe-class latency; graph families live here"); RFC
+  0014's own Napkin math built its entire cost argument around DiskANN's
+  own cited "~100-300μs" retail-SSD figure, not the ~100ms S3 figure
+  `cold_open.rs`/`vector_cold_open.rs` measure against. Counting S3 GETs
+  per query the way those two benchmarks do would therefore measure the
+  wrong regime for this family's *query* path. This benchmark's two
+  primary measurements instead are (1) a real fetch-count/hop-count
+  distribution from a real Vamana graph queried through the real
+  cold-open wire format, and (2) a real local random-read latency
+  baseline measured directly against this machine's own storage device
+  — replacing DiskANN's 2019-era literature figure with a measured 2026
+  one, since this environment turned out to make that fair: `lsblk`
+  shows a real `nvme0n1` block device backing `/` via LVM,
+  `/sys/block/nvme0n1/queue/rotational` reads `0`, and `/sys/class/dmi/
+  id/{sys_vendor,product_name}` report "ASUSTeK COMPUTER INC." /
+  "MINIPC PN62" — a real mini-PC motherboard, not a cloud hypervisor's
+  virtual-disk identity, confirmed with `systemd-detect-virt` reporting
+  `none` too. `O_DIRECT` support on this checkout's own ext4-on-LVM
+  filesystem was separately confirmed with `dd ... oflag=direct`/
+  `iflag=direct` before any Rust was written. A third, secondary
+  measurement was judged cheap enough to include: `graph_blob.rs`'s own
+  `build_graph_blob_specs` already produces ready-to-commit `BlobSpec`s,
+  so a real MinIO whole-blob-fetch measurement (following `vector_cold_
+  open.rs`'s own commit-then-cold-open pattern) was added at near-zero
+  extra cost, answering "what does a reader pay to warm-cache this blob
+  from S3 once" — a real number `tier: warm` doesn't exempt this family
+  from, since object storage remains STRAND's primary target even for a
+  blob a reader then serves many local queries against.
+
+  **Construction scale, measured empirically before being chosen, per
+  this task's own explicit instruction not to assume `build_vamana`'s
+  cost.** A throwaway release-mode probe (not shipped) timed
+  `build_vamana` directly: `n=500` (1.83s), `n=1,000` (4.30s), `n=2,000`
+  (9.60s), `n=4,000` (20.80s), `n=8,000` (47.18s) at `dims=64, R=32,
+  L=64` — consistent with `crate::vamana::robust_prune`'s own documented
+  `O(remaining²·dims)` inner loop, not linear in `n`. At more realistic
+  DiskANN-cited values (`dims=128, R=64, L=100`, `references/diskann-
+  neurips2019.md`: SIFT1M/GIST1M uses `R=70`; DEEP1M and the SIFT1B
+  merge-shard configuration both use `R=64`), `n=2,000` took 80.6s and
+  `n=4,000` took 181.3s in release mode; a first attempt at `n=5,000,
+  dims=128, R=64, L=100` (the paper's own SIFT1M-adjacent `L≈125`
+  region) was killed after exceeding 3 minutes with no sign of
+  finishing, confirming this task's own warning that `n=50,000+` was not
+  safe to assume tractable. `n=4,000, dims=128, R=64, L=100, α=1.2` was
+  chosen as this benchmark's real construction scale — `dims` and `R`
+  both real DiskANN-cited values, 4x the toy check's node count, and a
+  known-measured ≈181s (confirmed again on the real run below: 183.5s)
+  — and the benchmark runs in release mode (`cargo run -p strand-bench
+  --release --bin graph-warm-query`), the same discipline M2-6's own
+  `cargo test --release` entry already established for another
+  CPU-heavy measurement in this codebase; debug-mode timing at this
+  scale was not measured and is not expected to be tractable.
+
+  **The real measurement, run against real MinIO on 2026-08-20**
+  (`bench/results/graph-warm-query.json`; commit `07f22e9`). Real
+  `build_vamana`: 183,468ms (≈3.06 minutes). Real BNF permutation: 48ms.
+  Real `OR(G)` (Starling's own locality metric, measured on this run's
+  own graph rather than cited from the paper): BNF `0.0795` vs.
+  unshuffled `0.0156` — a real 5.1x improvement from BNF over the naive
+  baseline on this run's own graph, confirming the *direction* of
+  Starling's own claim, but **both figures sit far below the paper's own
+  cited real-dataset range (`OR(G) ≈ 0.3–0.6`)**, stated honestly rather
+  than smoothed over: this benchmark's points are synthetic uniform
+  random noise with no cluster or semantic structure for a block-shuffle
+  pass to exploit, and `n=4,000` gives only 125 blocks at
+  `block_size=32` — a small, structure-free graph is a genuinely
+  different regime from the real embedding datasets Starling's own paper
+  measured, and this run does not claim to reproduce their absolute
+  numbers, only to confirm BNF still helps relative to no shuffling at
+  all on a real, if unfavorable, graph.
+
+  Two real query-time `L` values were measured against the identical
+  built graph (300 real queries each, distinct seeds, `k=10`): **`L=32`**
+  — mean **2,032.9** fetches/query (p50 2,018, p90 2,127, p99 2,249, min
+  1,914, max 2,269), mean **33.5** hops/query (min 32, max 37), **95.0%**
+  of the pessimistic `hops×R` bound (`2,140.8`); **`L=100`** (matching
+  construction `L`) — mean **5,761.1** fetches/query (p50 5,764, p90
+  5,841, p99 5,895, min 5,617, max 5,941), mean **100.8** hops/query (min
+  100, max 103), **89.3%** of the pessimistic bound (`6,451.0`). A real,
+  honestly-reported surprise, not smoothed away: at **both** `L` values,
+  the mean hop count sits almost exactly at `L` itself (`33.5` of `32`,
+  `100.8` of `100`) — every query visits essentially the *entire* search
+  list before `GreedySearch` terminates, rather than converging early the
+  way DiskANN's own "2-3x fewer hops" claim (§4.2) suggests is typical.
+  Traced to cause, not left as an anomaly: this benchmark's points are
+  uniform random noise in a 128-dimensional cube with no cluster
+  structure, a near-worst-case regime for greedy nearest-neighbor search
+  (curse-of-dimensionality near-equidistance gives the search little
+  gradient to converge on before its search list simply fills up) — a
+  real embedding dataset would very plausibly converge in far fewer hops,
+  and this is named as a real, load-bearing limitation of this
+  benchmark's synthetic data, not papered over. It also means the
+  `fetches_as_fraction_of_pessimistic_bound` figures above (95.0%/89.3%)
+  are measured in this same adversarial regime and run *higher* than the
+  RFC 0014 task-4 unit test's own toy-scale figure (≈83% at `n=1,000,
+  R=16`) — real inter-hop neighbor-set overlap is measurably *smaller*
+  at this larger, denser `R=64` scale than at the toy scale, the opposite
+  of an optimistic "overlap improves with scale" assumption; stated
+  plainly rather than assumed away, and still short of a full resolution
+  of RFC 0014's own named follow-on ("a real inter-hop neighbor-overlap
+  measurement for Vamana graphs," Open questions), since this run's own
+  points are adversarial-uniform, not real embeddings either.
+
+  Real local random-read latency (`O_DIRECT`, this machine's own NVMe,
+  2,000 samples, 4096-byte blocks): **p50 = 56.2μs, p90 = 61.8μs, p99 =
+  81.1μs** (mean 62.1μs, min 23.7μs, max 8,457.2μs — one real outlier
+  spike, not excluded, real tail behavior on a real device under
+  whatever else the host was doing at that instant). This sits **below**
+  DiskANN's own cited "~100-300μs" 2019 retail-SSD range, not merely
+  within it — a real, measured confirmation that a 2026 real NVMe device
+  is genuinely faster than the paper's own cited figure, not a claim
+  that STRAND's own reader is fast: `estimated_query_latency_ms_using_
+  local_p50` (mean fetches × the real local p50) comes to **114.3ms** at
+  `L=32` and **324.0ms** at `L=100` — using DiskANN's own cited range
+  instead gives **203.3–609.9ms** (`L=32`) and **576.1–1,728.3ms**
+  (`L=100`). All four numbers are far above DiskANN's own published
+  `<3ms` figure, exactly as RFC 0014's own Design §5 and Napkin math
+  predicted this v0.1 scope (no compressed-code cache) would cost — a
+  real, measured confirmation of that RFC's own honestly-stated
+  regression, not a surprise, though the *specific* number (hundreds of
+  milliseconds to over a second per query, even at a mere `n=4,000`) is
+  new information the RFC's own literature-translated arithmetic did not
+  contain, and is driven substantially by the hop-saturation regime
+  above rather than purely by scale the way the RFC's own tens-of-
+  millions-of-vectors napkin math assumed.
+
+  Real secondary S3 measurement (real MinIO, 10 iterations, whole-segment
+  GET, the same limitation `cold_open.rs`/`vector_cold_open.rs` already
+  carry — no Range-GET reader exists yet in `strand-core`): the real
+  committed graph blob totals **3,152,016 bytes** (node records
+  3,136,016 bytes + permutation directory 16,000 bytes) for this
+  `n=4,000, dims=128, R=64` graph, fetched wholesale in **3 GETs**
+  (pointer, snapshot, segment — invariant 3's own ≤2-RTT-past-the-footer
+  accounting, though this family isn't bound by invariant 3, the GET
+  count still comes in at the same shape) at **p50 = 4.6ms** against
+  MinIO on localhost with no injected network latency (so, like every
+  other localhost MinIO figure in this document, a real lower bound, not
+  a real-S3 figure). A real, if modest, secondary confirmation that
+  warm-caching this family's blob from object storage once is cheap
+  relative to the per-query cost measured above.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, and
+  `cargo test --workspace` all clean. Depends on: all four implementation
+  slices above. Does not resolve RFC 0014's own remaining Open questions
+  (the compressed-code cache, the navigation-graph entry-point
+  optimization, `spec/graph-vectors.md`) — those remain real, named,
+  unwritten follow-on work; this closes specifically the "no `bench/`
+  measurement exists" gap the RFC's own Status line and Napkin math
+  named from the start.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**

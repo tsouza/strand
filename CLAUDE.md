@@ -481,6 +481,39 @@ this run (44.8ms → 11.8ms → 57.2ms p50), and it does not settle R10 — R10 
 fed by, and gated on, M3-7's full, post-compaction version, which this partial run
 is not.
 
+**The `tier: warm` graph family's own NVMe-class-latency assumption (invariant 7)
+is now grounded in a real local measurement, not only DiskANN's cited figure.**
+The graph-blob family (RFC 0014, `rfcs/0014-graph-blob-family.md`) is exempted from
+this section's own cold-path accounting by invariant 7's own text — its query path
+is a dependent chain of fetches, governed by invariant 7's "NVMe-class latency"
+assumption, not by the ~100ms object-storage round trip this section's own figures
+pin. RFC 0014's own Napkin math had, until now, only DiskANN's cited "~100-300μs"
+2019 retail-SSD figure to argue that assumption from. `bench/src/
+graph_warm_query.rs` (`bench/results/graph-warm-query.json`, roadmap M2-3) measured
+it directly instead: 2,000 real, individually-timed `O_DIRECT` random 4096-byte
+reads against this development machine's own confirmed-real NVMe device (a real
+`nvme0n1` block device backing `/`, `rotational=0`, a real mini-PC motherboard
+identity via `dmidecode`, not a cloud hypervisor's virtual-disk signature) gave
+**p50 = 56.2μs, p90 = 61.8μs, p99 = 81.1μs** — below DiskANN's own cited range, not
+merely within it, a real confirmation that a 2026 NVMe device is faster than the
+paper's own 2019 citation. The same benchmark also measured a real fetch-count
+distribution from an actual Vamana graph (`n=4,000, dims=128, R=64`) queried
+through the real cold-open wire format: mean 2,032.9–5,761.1 fetches per query
+across two query-time `L` values, translating (via the real local p50 above) to
+114.3–324.0ms of estimated per-query latency — far above DiskANN's own published
+`<3ms`, exactly the regression RFC 0014's own Design §5 already predicted for a
+v0.1 with no compressed-code cache, now a real number rather than a
+literature-translated one. What this does NOT confirm: this benchmark's points are
+synthetic and uniform-random with no cluster structure, and its own measured hop
+counts sit almost exactly at the query-time `L` ceiling at every setting tested — a
+near-worst-case convergence regime this benchmark's own report attributes to that
+synthetic distribution, not to `R` or scale, so the fetch-count figures above are
+not a claim about a real embedding dataset's typical behavior, only a real,
+honestly-reported number for the graph this benchmark actually built. This
+development machine's own NVMe device is also not a claim about every deployment's
+warm-tier storage — invariant 7's own "NVMe-class latency" language names a class,
+not this one measurement.
+
 ---
 
 ## 8. Repository shape

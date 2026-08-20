@@ -3427,6 +3427,65 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   this slice completes the reference implementation, not the normative
   spec chapter (`docs/roadmap.md`'s M2-3 entry states this explicitly
   rather than claiming full completion).
+- **RFC 0014 real `bench/` measurement — closes the "no bench/
+  measurement exists" gap the RFC's own Status line named from the
+  start — 2026-08-20.** Follow-on validation, not a fifth implementation
+  slice; `docs/roadmap.md`'s M2-3 entry carries the full account
+  (methodology argument, empirical construction-scale probe, every real
+  number), this entry the condensed one. `bench/src/graph_warm_query.rs`
+  (`graph-warm-query` in `bench/Cargo.toml`).
+
+  **Methodology, argued before code: this family's `tier: warm`
+  registration means the cluster/lexical families' own S3-GET-counting
+  benchmarks would measure the wrong regime.** Invariant 7 exempts this
+  family from invariant 3's ~100ms-object-storage-round-trip accounting
+  ("assumes NVMe-class latency"); RFC 0014's own Napkin math is built on
+  DiskANN's cited "~100-300μs" retail-SSD figure instead. This benchmark's
+  two primary measurements are therefore a real fetch-count/hop-count
+  distribution (via `greedy_search_cold` over a real, wire-written graph)
+  and a real local `O_DIRECT` random-read latency baseline against this
+  machine's own confirmed-real NVMe device (`lsblk`/`rotational=0`/
+  `dmidecode` all checked before relying on it), not an S3 GET count — a
+  secondary real MinIO whole-blob-fetch measurement was added too, cheaply,
+  since object storage remains this family's ultimate home even under a
+  warm-cache-once reading pattern.
+
+  **Construction scale measured, not assumed** — `n=4,000, dims=128,
+  R=64, L=100, α=1.2`, chosen after a real release-mode probe found
+  `build_vamana`'s own cost highly super-linear (`n=2,000`→80.6s,
+  `n=4,000`→181.3s, `n=5,000` killed after exceeding 3 minutes), so the
+  task's own warning against assuming `n=50,000+` tractability was
+  confirmed empirically, not merely heeded.
+
+  **The real numbers** (`bench/results/graph-warm-query.json`): real
+  `OR(G)` 0.0795 (BNF) vs. 0.0156 (unshuffled) — a real 5.1x improvement,
+  but far below Starling's own cited real-dataset range (`0.3–0.6`),
+  honestly attributed to this run's structure-free synthetic points, not
+  smoothed over. Two query-time `L` sweeps, 300 real queries each: `L=32`
+  mean 2,032.9 fetches/query (95.0% of the measured `hops×R` bound);
+  `L=100` mean 5,761.1 fetches/query (89.3%). A real, unforced finding:
+  mean hop count sits almost exactly at `L` itself at *both* settings
+  (33.5 of 32; 100.8 of 100) — traced to this benchmark's own adversarial,
+  structure-free uniform-random point distribution rather than to scale or
+  `R`, named as a real limitation rather than left as an anomaly. Real
+  local `O_DIRECT` random-read latency: p50 = 56.2μs — **below** DiskANN's
+  own cited "~100-300μs" figure, a real confirmation that a 2026 NVMe
+  device is faster than the paper's 2019 retail-SSD citation. Translated
+  per-query latency using the real local p50: 114.3ms (`L=32`) / 324.0ms
+  (`L=100`); using DiskANN's own cited range: 203.3–609.9ms (`L=32`) /
+  576.1–1,728.3ms (`L=100`) — all far above DiskANN's own published
+  `<3ms`, exactly the regression RFC 0014's own Design §5 already
+  predicted for a v0.1 with no compressed-code cache, now a real number
+  rather than a literature-translated one. Secondary real S3 measurement:
+  the real graph blob (3,152,016 bytes) fetches wholesale in 3 GETs at
+  p50 = 4.6ms against local MinIO.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `cargo
+  test --workspace` all clean. Depends on: all four RFC 0014 implementation
+  slices above. Does not resolve RFC 0014's own remaining Open questions
+  (compressed-code cache, navigation-graph entry points, `spec/graph-
+  vectors.md`) — those remain real, named, unwritten follow-on work.
 - **DST cross-validation harness (Workflow II) built and run — M3-3,
   2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
   TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and
