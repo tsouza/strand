@@ -747,14 +747,14 @@ mod tests {
         let bnp_perm = bnp(&result.graph, block_size);
         let bnp_or = overlap_ratio(&result.graph, &bnp_perm, block_size);
 
-        // beta=50, tau=-1.0 (never early-stop on a merely-non-positive
-        // per-iteration gain) -- chosen from a real exploratory parameter
-        // sweep (docs/ledger.md's own writeup for this task carries the
-        // full sweep) that found the literal Algorithm 1 stopping rule
-        // (a small or zero tau) tends to halt after iteration 1 at this
-        // real graph's own scale, before BNF's iterative refinement has a
-        // chance to compound -- an honest, real finding in its own right
-        // (see this module's own top-level documentation, "Third").
+        // beta=50, tau=-1.0: since OR(G) gain is always in [-1, 1], `gain <
+        // -1.0` can never hold, so this configuration never early-stops and
+        // always runs the full 50 iterations -- giving BNF's own iterative
+        // refinement real room to compound, rather than risking a small or
+        // zero tau halting after one iteration before any refinement has a
+        // chance to help (see this module's own top-level documentation,
+        // "Third," for why a single early iteration can be a poor stopping
+        // point on its own).
         let bnf_config = BnfConfig {
             block_size,
             beta: 50,

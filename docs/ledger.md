@@ -3253,14 +3253,22 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   extracted into its own `bnf_one_iteration` function separately from the
   best-seen wrapper.
 
-  **Required comparative proof, reported honestly.** Re-run after the fix
-  at the same real-graph configuration: naive `0.0300`, BNP `0.1401`, BNF
-  `0.1401` — equal to BNP here, not strictly greater, because this run's
-  own iterations never beat BNP's own starting layout before stopping.
-  Stated plainly rather than smoothed: the paper's "BNF beats BNP" claim
-  is an aggregate finding across real datasets, not a per-run guarantee,
-  and this module's own required property is the provably-always-true
-  weaker one (`bnf(...) ≥ bnp(...)`), which held. Two hand-checkable
+  **Required comparative proof, independently re-verified after a real
+  documentation error was caught and fixed.** This entry originally
+  recorded `BNF OR(G) = 0.1401`, exactly equal to BNP, with a narrative
+  built on that false equality — wrong, caused by the comparative test's
+  own `BnfConfig` changing once more, concurrently, after `0.1401` was
+  last observed and before the code was actually committed, with the docs
+  written from that stale observation instead of the final committed
+  state. An independent adversarial reviewer re-ran the pinned test fresh
+  and got a real, different result, independently reproduced twice by the
+  coordinator before this correction: at `n=500`, `block_size=16`, seed
+  42, `bnf_config = { beta: 50, tau: -1.0 }` (a configuration that
+  mathematically never early-stops): naive `0.0300`, BNP `0.1401`, BNF
+  `0.1756` — **strictly beating BNP**, matching the paper's own aggregate
+  claim directly. The underlying code and its `bnf(...) ≥ bnp(...)`
+  guarantee were never wrong; only the number and narrative recorded here
+  were, and both are now independently re-verified. Two hand-checkable
   worked examples independently prove the mechanism: a 6-node
   interleaved-pairs graph where BNP alone reaches `OR(G) = 1.0` from a
   naive `0.0`, and the RFC's own 5-node example where one raw BNF

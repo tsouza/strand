@@ -394,19 +394,18 @@ Non-goals and Open questions still leave genuinely open:
   (`bnf_one_iteration`) precisely so the raw mechanism stays independently
   hand-checkable, separately from the best-seen wrapper around it.
 
-  **Required comparative proof, and what it actually showed.** On a real
-  `build_vamana`-constructed graph (`n=500`, `dims=32`, `R=16`,
-  `block_size=16`, seed 42): naive/ID-order `OR(G) = 0.0300` (close to the
-  paper's own measured `≈0` baseline); BNP `OR(G) = 0.1401`; BNF, after
-  the best-seen fix, `OR(G) = 0.1401` — equal to BNP at this specific
-  configuration, not strictly greater, because this run's own BNF
-  iterations never found a layout better than BNP's own starting point
-  before the configured stopping rule halted. This is reported honestly
-  rather than smoothed: the paper's own claim (BNF beats BNP on average,
-  across their real datasets) is an aggregate finding, not a per-run
-  guarantee, and this module's own required property is the weaker,
-  provably-always-true one (`bnf(...)` result `≥ bnp(...)` result on every
-  input), which this same run confirms held. A hand-checkable 6-node
+  **Required comparative proof, independently re-verified after a real
+  documentation error was caught and fixed (see the Addendum below).** On
+  a real `build_vamana`-constructed graph (`n=500`, `dims=32`, `R=16`,
+  `block_size=16`, seed 42), with `bnf_config = { beta: 50, tau: -1.0 }`
+  (a configuration that mathematically never early-stops, since `OR(G)`
+  gain always lies in `[-1, 1]` and can never fall below `-1.0`, giving
+  BNF's own iterative refinement the full 50 iterations to compound):
+  naive/ID-order `OR(G) = 0.0300` (close to the paper's own measured `≈0`
+  baseline); BNP `OR(G) = 0.1401`; BNF, after the best-seen fix, `OR(G) =
+  0.1756` — **strictly beating BNP**, matching the paper's own aggregate
+  claim directly, not merely the weaker `≥` guarantee the best-seen fix
+  provides as a floor. A hand-checkable 6-node
   example (two disjoint 2-cycles, interleaved by ID) independently proves
   BNP's own mechanism reaches `OR(G) = 1.0` from a naive `0.0` baseline by
   hand; a second hand-checkable trace over the RFC's own 5-node worked
@@ -425,6 +424,25 @@ Non-goals and Open questions still leave genuinely open:
   on: nothing further for this slice; the wire-format blobs (Design §§2–3)
   and the query path (Design §5) remain separate, later slices in this
   same sequence.
+
+  **Addendum, 2026-08-20 — a real documentation error, caught by
+  independent review, corrected.** The commit that landed this slice
+  originally recorded `BNF OR(G) = 0.1401`, exactly equal to BNP, with an
+  entire (wrong) honesty narrative built on that false equality. The real
+  cause: this file's own comparative test's `BnfConfig` (`beta`/`tau`) was
+  changed once more, concurrently, after the number `0.1401` was last
+  observed and before the code was actually committed, and the docs were
+  written from that stale, no-longer-current observation rather than
+  re-verified against the final committed state. An independent
+  adversarial reviewer re-ran the pinned test fresh and got a different,
+  real result — `BNF OR(G) = 0.1756`, strictly greater than BNP — which
+  the coordinator then independently reproduced twice before correcting
+  this entry. The underlying code, its `bnf(...) ≥ bnp(...)` guarantee,
+  and the test's own assertion (`bnf_or > bnp_or`, which the false
+  `0.1401` claim was never actually logically consistent with in the
+  first place, since the assertion is strict) were never wrong — only the
+  number and narrative written down here were, and both are now
+  independently re-verified rather than merely re-asserted.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**
