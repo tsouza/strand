@@ -1606,9 +1606,10 @@ discipline every other milestone gets in this document.
   at index time, each with its own conventional analyzer descriptor, needing no
   schema change at all) — which of these is the right shape is itself an open design
   question this task must resolve, per `CLAUDE.md` §3's design-then-implementation
-  separation, before any conformance vectors are built. Status: open, RFC-sized (an
-  amendment to RFC 0004, or a new RFC, depending on which shape D-1's own design pass
-  concludes is correct). Depends on: nothing technically, but real log/code corpora
+  separation, before any conformance vectors are built. Status: open, RFC-sized —
+  **the concrete design and the open question's resolution are D-7, below**
+  (design produced, independently adversarially reviewed, and corrected against
+  every finding). Depends on: nothing technically, but real log/code corpora
   (D-2) make its own conformance-vector work concrete rather than speculative.
 - **D-2** — Source and license-audit real log and source-code corpora to ground D-1's
   conformance vectors and future benchmarks, the same discipline this project already
@@ -2281,6 +2282,373 @@ discipline every other milestone gets in this document.
   so not yet on disk, but spoken for) — so the next free number for this
   design is **0016**, once someone picks this up, following `CLAUDE.md` §3's
   design-then-implementation separation.
+
+- **D-7** — The concrete logs-and-code analyzer profile D-1 itself asks for:
+  identifier splitting, log-line structure, and a resolution of D-1's own
+  named open question (RFC 0004 schema change vs. a document-level
+  field-splitting convention for mixed code/comment content). Like D-5 and
+  D-6, this is this session's own design exploration (research → design →
+  independent adversarial critique) — the critique found the structural
+  argument for the span-question resolution sound and every non-`§6.1`
+  citation (tree-sitter's real node types, Lucene's real `WordDelimiterIterator.
+  isBreak()`, Elasticsearch's real `word_delimiter_graph` docs, tantivy's real
+  `text_options.rs`, `flog`'s real format strings, the `manifest.rs` excerpt,
+  RFC 0004's real schema, `field_id` mechanics) accurate, but found three
+  Critical citation-hygiene defects inside the design's own primary worked
+  example (§6.1) — a fabricated quote, a false "checked against the real
+  list" claim, and unverified stemmer output presented as verified — plus two
+  Important framing gaps and one grave-selection finding. This entry is the
+  design corrected against all nine findings, each re-verified here directly
+  (live re-fetches, direct file reads, and one live computation against the
+  authoritative Snowball implementation) rather than trusted from either
+  prior agent's summary, per `CLAUDE.md` §3.
+
+  **Resolving D-1's own open question: option (b), a document-level
+  field-splitting convention, not an invariant-6 or per-document-length
+  schema change.** Mixed code+comment content is split into separate,
+  independently-named, independently-analyzed sub-fields at index time —
+  `content.code` and `content.comment`, or any other pair of names — using
+  tree-sitter's real, live-confirmed structural node types (`block_comment`,
+  `line_comment`, `doc_comment`, `inner_doc_comment_marker`,
+  `outer_doc_comment_marker`, confirmed live against
+  `tree-sitter/tree-sitter-rust`'s `node-types.json`) to decide the byte
+  ranges. This needs no amendment to invariant 6's text and no amendment to
+  RFC 0004's per-document-length definition (`dl := Σ_{i∈V} tf_i`, written
+  singular-per-field): `spec/container.md` §5a's `field_id` mechanism (a
+  `u64`, `xxHash3-64` over any raw-UTF-8 field name, no registry, no
+  writer coordination) already makes an arbitrary number of independently
+  analyzed fields free today. Two engines this project's own lineage already
+  draws from confirm the pattern rather than inventing it: Lucene's real
+  `PerFieldAnalyzerWrapper` and tantivy's real `TextFieldIndexing::
+  set_tokenizer` (`Cow<'static, str>`, one tokenizer per field) both dispatch
+  analysis strictly by field name — neither engine has ever built per-span
+  analyzer mixing within one field. Zoekt is prior art for *caring* about the
+  code/comment distinction (`doc/design.md`'s "Ranking" section lists
+  "tokenizer ranking: does a match fall comment or string literal?" among its
+  named ranking signals) but not for *how* to structure an index around it —
+  correcting the original design's overclaim, the vendored excerpt
+  (`references/zoekt-code-search-engine.md`) states this signal exists as a
+  named ranking option; it does not state whether it is computed at index
+  time or at query time, and no stronger claim than that should be made from
+  it (Minor finding, below). What (b) does not resolve for free: the two
+  concrete tokenizer algorithms D-1 itself asks for genuinely cannot be
+  expressed in RFC 0004's current `tokenizer_profile` shape, whose `algorithm`
+  field has exactly one defined value, `"UAX29-word"`. Registering
+  `code-identifier-v1` and `log-line-v1` as new `algorithm` values is a real,
+  contained RFC 0004 Design §2 amendment, specified below.
+
+  **Why the Han-script dictionary-segmentation amendment is not a
+  counter-precedent for folding these into `UAX29-word` plus `deviations`
+  (Fix, addressing the critique's first Important finding).** RFC 0004's own
+  Discussion section (`rfcs/0004-analyzer-descriptors.md`, "2026-08-19 —
+  CJK/Thai/Lao default `segmentation_dictionary` resolved") already
+  accommodated a genuinely different tokenization *mechanism* — dictionary
+  lookup via `icu_segmenter::WordSegmenter::new_dictionary`, not rule-based
+  UAX #29 boundary-finding — without a new `algorithm` value, folding it into
+  `algorithm: "UAX29-word"` plus a `deviations` entry and the companion
+  `segmentation_dictionary` field; the real, committed vector
+  (`conformance/analyzers/icu4x-dictionary-zh-01.json`, read directly) confirms
+  this exactly: `"algorithm": "UAX29-word"`, `"deviations": ["Dictionary-based
+  word-boundary segmentation for Han script content via icu_segmenter's
+  WordSegmenter::new_dictionary, rather than plain UAX #29 rule-based
+  boundaries."]`. The real, load-bearing distinction the original design
+  never checked this against: the Han case still answers the same question
+  `UAX29-word` exists to answer — *where are the word boundaries* — just by a
+  different mechanism (dictionary lookup instead of rule-based break
+  iteration) over the same kind of content (natural-language text in a
+  script UAX #29's own rules handle poorly). `code-identifier-v1` and
+  `log-line-v1` answer a categorically different question: not "where are the
+  word boundaries in this prose," but "how do I parse this syntax" —
+  delimiter- and pattern-based structural extraction (`_`/`-` splits,
+  digit/case transitions, `key=value` recognition, timestamp-pattern
+  extraction) over content that is not natural-language text at all.
+  Stretching `deviations` — a field RFC 0004's own normative text scopes
+  explicitly to "describing departures from stock UAX #29 behavior
+  specifically," not a general parameter bag — to carry an entirely different
+  algorithm family's parameters (`split_on_delimiters`, `timestamp_pattern`,
+  `kv_pair_detection`) would be the kind of change invariant 6's own text
+  does not commit to, not a same-shape extension of the Han precedent. The
+  Han case is real, relevant, and now checked directly rather than missed;
+  it does not change the conclusion, but the design is honest about having
+  looked.
+
+  **`code-identifier-v1`** — a new `tokenizer_profile.algorithm` value for a
+  field carrying source-code-shaped content:
+
+  | field | type | notes |
+  | --- | --- | --- |
+  | `algorithm` | string | `"code-identifier-v1"` |
+  | `case_folding` | `"none"` \| `"lower"` \| `"full-case-fold"` | same three-value enum as `UAX29-word`'s field, reused |
+  | `split_on_delimiters` | array of string | typically `["_", "-"]` |
+  | `split_on_digit_boundary` | bool | reuses Elasticsearch's real, quoted `split_on_numerics` semantics: `j2se` → `j`, `2`, `se` |
+  | `split_on_case_change` | bool | reuses Elasticsearch's real, quoted `split_on_case_change` semantics: `camelCase` → `camel`, `Case` |
+  | `acronym_run_boundary` | bool | STRAND's own stated deviation from stock Lucene/ES default, below |
+  | `preserve_original` | bool | reuses Elasticsearch's real, quoted `preserve_original` semantics |
+
+  `stopword_list_id` and `stemmer` MUST be `null` when `tokenizer_profile.
+  algorithm = "code-identifier-v1"`: Porter-family stemming collapses
+  `get`/`gets`/`getting`, correct for English prose and wrong for code
+  identifiers, where `get_user` and `getting_user` name different real
+  symbols. Pipeline, in order: delimiter split (discarding the delimiter);
+  digit-boundary split if enabled; case-transition split if enabled, with the
+  `acronym_run_boundary` deviation (below) as an explicit, selectable
+  addition rather than a silent default change; uniform case folding; and,
+  if `preserve_original`, one additional whole-identifier token at the first
+  sub-token's position — the first real, concrete producer of
+  same-position-overlapping tokens under RFC 0004's own
+  `counts_overlaps_in_length` mechanism, which existed in the approved RFC
+  only as an anticipated hook until now. Fetched and traced live from
+  Lucene's real `WordDelimiterIterator.isBreak()`
+  (`apache/lucene@main`): stock Lucene/Elasticsearch's real, current default
+  does not split an acronym run from a following capitalized word at all —
+  every `UPPER→UPPER` transition is a same-type non-break and the one
+  `UPPER→lower` transition hits the method's own `"UPPER->letter: Don't
+  split"` branch. `acronym_run_boundary: true` is STRAND's one genuinely new
+  rule, not a literature reuse: given a maximal uppercase run of length
+  *N* ≥ 2 immediately followed by lowercase letters, insert a boundary after
+  the run's (*N*−1)th character.
+
+  Traces: `getUserById` → `get`, `User`, `By`, `Id`. `user2Name` (letter↔digit
+  transitions) → `user`, `2`, `Name`. A hand-constructed acronym example,
+  `HTTPServer` (`acronym_run_boundary: true`) → `HTTP`, `Server`; the same
+  input under `acronym_run_boundary: false` reproduces stock Lucene/ES
+  exactly — `HTTPServer` stays unsplit. **This specific example is honestly
+  labeled, not silently kept: `HTTPServer` is not idiomatic Rust.** The real
+  Rust API Guidelines (`rust-lang.github.io/api-guidelines/naming.html`,
+  re-fetched live here), quoted exactly: "In UpperCamelCase, acronyms and
+  contractions of compound words count as one word: use `Uuid` rather than
+  `UUID`, `Usize` rather than `USize` or `Stdin` rather than `StdIn`." Genuine
+  multi-letter uppercase acronym runs essentially don't occur in idiomatic
+  Rust identifiers — the exact corpus class (idiomatic Rust) D-2 recommends
+  and this design's own worked example draws from. The real grounded
+  evidence is a direct grep of this repository's own non-comment Rust source,
+  re-run here: `ETag` (`crates/strand-core/src/store.rs:25`) → `E`, `Tag`;
+  `KMeansResult` (`crates/strand-vector/src/kmeans.rs:68`) → `K`, `Means`,
+  `Result`; `UInt32Array` (an `arrow` crate import, `crates/strand-datafusion/
+  src/lexical_table.rs`, not this project's own naming choice, so weaker
+  evidence than the other rows, but still a real trace) → `U`, `Int`, `32`,
+  `Array`; `LBracket`/`RBracket`/`LParen`/`RParen`
+  (`crates/strand-core/src/bin/dst_manifest_harness/trace.rs`) → `L`/`R` +
+  word, in every case; `BTreeMap` (std, imported throughout) → `B`, `Tree`,
+  `Map`. All five trace correctly under the stated rule — real evidence the
+  original design never ran. **The rule's honest failure mode, also named
+  explicitly rather than left implicit: `SQLite` traces to `SQ` + `Lite`, not
+  `SQL` + `ite` or any sensible split**, because the rule's boundary is fixed
+  at the run's (*N*−1)th character regardless of where the following text
+  would suggest a human reader splits it — the same class of named,
+  selectable-alternative limitation `acronym_run_boundary: false` already
+  states for the stock-Lucene mode, now stated for the `true` mode too.
+
+  **`log-line-v1`** — a second new `tokenizer_profile.algorithm` value:
+
+  | field | type | notes |
+  | --- | --- | --- |
+  | `algorithm` | string | `"log-line-v1"` |
+  | `timestamp_pattern` | string or `null` | Go-time-layout-shaped, matching `flog`'s real constants |
+  | `timestamp_field_name` | string or `null` | sub-field the extracted epoch-millis value is written to |
+  | `kv_pair_detection` | bool | recognizes an ASCII `=` bounded by non-whitespace, non-`=` runs; emits the bare key, bare value, and one composite `key=value` token at the value's position |
+  | `line_join` | `"none"` \| `"newline-continuation"` | schema hook only; stack-trace frame grammar is out of scope (below) |
+  | `url_path_split` | bool | delimiter-splits `/`, `.`, `?`, `&`, `=`-bounded spans |
+
+  Grounded against `flog`'s real, live-fetched `log.go`/`time.go`/`random.go`
+  (`mingrammer/flog@master`): the real Apache-combined and JSON format
+  strings, the four real time layouts (`"02/Jan/2006:15:04:05 -0700"` for
+  Apache, `"2006-01-02T15:04:05.000Z"` for RFC5424, etc.), and the honest,
+  verified finding that none of `flog`'s six format constants contains a
+  `key=value` shape or an embedded newline — `flog` grounds the timestamp and
+  URL-path halves of this design but not the `key=value` or stack-trace
+  halves.
+
+  **Fix — §2.7's fabricated logfmt quote, corrected.** The prior design
+  attributed a formal delimiter/escaping rule ("Keys and values are
+  delimited by an equals sign. Values containing spaces are enclosed in
+  quotation marks.") to `brandur.org/logfmt` in quotation marks. Re-fetched
+  live here, twice (rendered fetch and raw HTML with tags stripped, full
+  text read start to end): **that sentence appears nowhere on the page.**
+  The article states no formal delimiter or escaping rule at all. What it
+  does say, quoted exactly and confirmed present: "Each line consists of a
+  single level of key/value pairs which are densely packed together compared
+  to other well-known structured formats like JSON," alongside the real
+  Heroku router log-line example, `at=info method=GET path=/
+  host=mutelight.org fwd="124.133.52.161" dyno=web.2 connect=4ms
+  service=8ms status=200 bytes=1653`, itself directly, observably quoting a
+  value (`fwd="…"`) — a real instance of quoting behavior visible in the
+  example, not a formally stated rule the source gives. The claim of a
+  formal escaping rule is dropped rather than replaced with an invented
+  citation, the same honest-gap pattern this design already uses for
+  `flog`'s own no-`key=value`/no-newline finding.
+
+  **Fix — §6.1's worked example, both stopword and stemmer claims corrected.**
+  The prior design traced *"An expired read here is retried unboundedly."*
+  (from the real `crates/strand-core/src/manifest.rs:87-108` comment, quoted
+  correctly) through stopword removal and stemming, claiming `an`/`is`/`here`
+  are dropped as stopwords "checked against `references/
+  lucene-english-stopwords.md`'s real list." Re-read that file directly here:
+  its real, vendored 33-word list (Lucene `EnglishAnalyzer`'s default,
+  `releases/lucene/10.5.1`) is `a, an, and, are, as, at, be, but, by, for, if,
+  in, into, is, it, no, not, of, on, or, such, that, the, their, then, there,
+  these, they, this, to, was, will, with`. **"here" is not in it** — "there"
+  and "their" are, a different, easily-confused pair. Under the real list,
+  "here" survives stopword removal and proceeds to stemming and indexing.
+  The stemmer claim (`retried` → `retri`, `unboundedly` → `unbound`) had the
+  opposite problem: presented with the same confidence as the checked
+  stopword claim, but the vendored `references/
+  snowball-porter2-english-stemmer.md` test-vector table has exactly ten
+  entries, neither word among them — the stems were plausible predictions
+  from memory of Porter2's behavior, not checked data, the exact failure
+  that file's own text says vendoring exists to prevent. Both are corrected
+  here with real, live verification rather than left as a flagged gap: the
+  full 42,649-entry Snowball vocabulary (`snowballstem/snowball-data`,
+  `english/voc.txt`/`output.txt`, fetched live) confirms neither "retried"
+  nor "unboundedly" is one of the vocabulary's own entries either, so a
+  second, independent method was used — the official `snowballstemmer`
+  PyPI package (home page `github.com/snowballstem/snowball`, the same
+  authoritative implementation this project's reference file already cites),
+  installed and run live in this session, first cross-checked against all
+  nine non-trivial entries of the vendored test-vector table (`whales→whale`,
+  `swimming→swim`, `quickly→quick`, `running→run`, `runs→run`, etc.) — every
+  one matched exactly — then run against the two words in question:
+  `retried → retri`, `unboundedly → unbound`. These are now real,
+  live-verified stems from the authoritative implementation, not estimates.
+  The corrected trace of the full sentence: `an` and `is` are real stopwords
+  and are dropped; `here` is not, survives, and stems to `here` (no suffix
+  rule applies — the same package run above confirms this directly);
+  `expired` stems to `expir` (also confirmed live); `retried` stems to
+  `retri`; `unboundedly` stems to `unbound`. The corrected token set for
+  this sentence includes `expired`, `read`, `here`, `retri`, `unbound` — one
+  more indexed, stemmed token (`here`) than the original, uncorrected trace
+  claimed.
+
+  **Fix — `spec/analyzer-descriptors.md` named as real editing surface.**
+  The prior design's Open Questions named only `rfcs/
+  0004-analyzer-descriptors.md`'s Design §2 as needing amendment. Read `spec/
+  analyzer-descriptors.md` directly here: its §2 duplicates RFC 0004's
+  `tokenizer_profile` schema verbatim (the chapter's own header states "this
+  chapter states the settled result"), and its §7 ("Conformance status")
+  enumerates exactly which descriptor/algorithm combinations are implemented
+  and vectored — both sections a `code-identifier-v1`/`log-line-v1`
+  amendment must update. This matches the pattern every one of RFC 0004's
+  three prior post-approval Discussion-section amendments already followed
+  (each closed by updating both the RFC's own Discussion section and the
+  corresponding `spec/analyzer-descriptors.md` section) — an established,
+  checkable in-repo precedent the prior design never named.
+
+  **Fix — grave selection: CIFF, not Pilosa.** The prior design named Pilosa
+  ("a good structure with a spec is not a distribution strategy,"
+  `docs/lineage.md`, read directly here) as the nearest grave for the risk
+  that nothing in the format can verify a writer's claimed code/comment split
+  is honest — reaching for it by analogy to D-6's own reuse of the same
+  grave for a different mechanism, without checking a closer, already-
+  established alternative. Read `docs/lineage.md`'s real Pilosa gloss
+  directly: it names a production-adoption and ecosystem-gravity failure,
+  not a self-reported-provenance-verifiability one — a real mismatch, one
+  step further stretched than D-6's own already-once-stretched reuse of it.
+  RFC 0004's own "How this could be wrong" section, read directly, already
+  names a closer grave for this exact shape of gap: CIFF, "no analyzer
+  metadata" — "CIFF has no mechanism at all for a consumer to know how the
+  producer tokenized, so cross-engine reuse silently corrupts results,"
+  and, on the risk that RFC 0004's own descriptor schema could still fall
+  into the same grave, "a descriptor schema loose enough to be satisfied
+  trivially... would be 'analyzer metadata' in name only, reproducing CIFF's
+  gap under a different field name." This is precisely the D-1 risk,
+  restated one layer up: invariant 6's conformance-vector mechanism can prove
+  a `code-identifier-v1` descriptor tokenizes its own declared input
+  correctly; nothing in the format can prove that declared input was
+  genuinely the code-only half of some real source file rather than the
+  whole file with comments left in — chain-correctness, never input-
+  provenance correctness, the same gap CIFF left and RFC 0004 was written to
+  close for the analysis-chain half but not, it turns out, for this new
+  span-provenance half. CIFF is adopted as the corrected nearest grave; a
+  future RFC amendment needs its own "how this could be wrong" treatment
+  built around it, and probably a `strand-tools inspect`-level diagnostic
+  (comparing a code-span field's byte length against the comment-span
+  field's, or spot-checking that the code-span field contains no
+  `///`-marker-adjacent text) as real scope, the same remedy D-6's own Fix 5
+  named for its own, structurally identical risk.
+
+  **Fix — the query-side score-fusion gap, named as an explicit out-of-scope
+  caveat (matching D-5's own Fix 3 pattern).** Row-ID identity, deletion
+  vectors, and BM25 scoring are all unaffected by splitting one document into
+  N sub-fields: row-ID assignment is per-row, entirely orthogonal to field
+  count (`spec/row-ids.md` §1–§2), deletion vectors tombstone row-IDs, not
+  fields, and `CLAUDE.md` explicitly excludes query-time fusion logic from
+  the format's own scope, so STRAND itself has no combiner to break. The
+  real, previously unnamed gap: a consumer that wants one ranked result per
+  file — not one per sub-field — needs some convention for fusing
+  `content.code`'s and `content.comment`'s separate per-field BM25 scores
+  into a single per-row-ID ranking. The existing reciprocal-rank-fusion
+  mechanism (invariant 1, M3-6, `crates/strand-core/src/fusion.rs`'s real
+  `reciprocal_rank_fusion(rankings: &[&[u64]], k: f64)`, confirmed directly
+  here) is a plausible mechanism for this — it already fuses independent
+  rankings that share a row-ID space, which `content.code` and
+  `content.comment` do by construction — but nothing in this design wires it
+  for this specific use, and this document does not claim otherwise. Named
+  here as explicit out-of-scope follow-on work, the same shape D-5's own
+  Fix 3 named for multi-term score aggregation.
+
+  **Costs, stated honestly.** Every mixed-content source file pays roughly
+  2x the per-field blob overhead (term dictionary, term-info store,
+  postings, positions, block-max sibling) a single-analyzer field would.
+  For a structured log line with nine JSON keys, this is a **fixed
+  per-field-per-segment multiplier, not a cost that scales with document
+  count** — correcting the prior design's looser phrasing: a segment with
+  one document carrying nine keys and a segment with a million documents
+  sharing the same nine keys both produce exactly nine fields' worth of
+  blobs, because blobs are keyed by `(family_id, blob_type_id, field_id)`
+  once per segment, not once per document. Tree-sitter's real Rust binding
+  compiles a small generated C parser per grammar via `cc` — a new,
+  non-pure-Rust build dependency, accepted rather than avoided (unlike the
+  ICU4X path RFC 0004's own Discussion section chose specifically to dodge a
+  C dependency), since no pure-Rust incremental parser has comparable
+  language coverage. License audit is real but partial: tree-sitter core
+  plus the Rust, Python, and JavaScript grammars were checked live
+  (`gh api`, `license.spdx_id: "MIT"` for all four) — every additional
+  language needs its own independent check before adoption, mirroring RFC
+  0004's own per-candidate CJK discipline. `acronym_run_boundary` is the one
+  genuinely new piece of literature (the rest of `code-identifier-v1`'s
+  splitting mechanics directly reuse Elasticsearch's real, quoted
+  `word_delimiter_graph` semantics unmodified) — a real design decision,
+  named as such, with its `SQLite` failure mode now stated explicitly
+  (above) rather than left for a future review to find.
+
+  **How this could be wrong.** Nearest grave: CIFF (above, corrected from
+  Pilosa) — a well-specified conformance-vector mechanism that proves chain-
+  correctness but cannot prove a writer's declared code/comment split was
+  honest. A second, narrower risk, unchanged from the prior design:
+  `acronym_run_boundary` is new normative surface with no conformance vector
+  of its own yet — RFC 0004's two existing vectors (`lucene-en-word-only-01.
+  json`, `icu4x-dictionary-zh-01.json`) are English prose and Chinese
+  dictionary segmentation; nothing tests `code-identifier-v1` or
+  `log-line-v1` today. The §6.1-style worked examples above (now corrected)
+  are the intended seed of the first two, not a substitute for building
+  them.
+
+  Status: **open, RFC-sized, design revised after independent adversarial
+  review** — not yet an approved or implemented RFC; a corrected pre-RFC
+  design ready for someone to actually draft. Depends on: nothing to begin
+  drafting; real conformance-vector work is coupled to D-2's real corpora
+  (`flog`, the Rust stdlib) and to the tree-sitter grammar-version
+  provenance-pinning mechanism, left open here the same way RFC 0004's own
+  stemmer commit-hash pinning was left open for a later session.
+
+  **Next step**: this amends RFC 0004 in place — **no new RFC number is
+  needed**. `ls rfcs/` shows 0001 through 0014 already allocated on disk;
+  `docs/roadmap.md`'s own D-5 and D-6 entries above claim 0015 and 0016
+  respectively for RFCs that register genuinely new blob families or amend
+  the manifest's own schema (a different layer, whose one real prior
+  amendment, RFC 0012, was itself a new numbered RFC rather than an in-place
+  amendment — Fix 2, D-6, above). `tokenizer_profile` is different: it is
+  RFC 0004's own owned schema, and RFC 0004 has already amended it once,
+  in place, through its Discussion section (the `segmentation_dictionary`
+  default, 2026-08-19) rather than through a new RFC — the direct precedent
+  this design follows rather than departs from. The real editing surface,
+  once someone picks this up: `rfcs/0004-analyzer-descriptors.md` Design §2
+  (widening `tokenizer_profile` into a discriminated union keyed by
+  `algorithm`, plus a new dated Discussion-section entry recording the
+  amendment) and `spec/analyzer-descriptors.md` §2 and §7 (schema and
+  conformance-status update, per the newly-named editing-surface fix above)
+  — both updated in the same session, matching every one of RFC 0004's prior
+  amendments, before any conformance vectors are built.
 
 ## Also corrected by this revision, outside this document
 
