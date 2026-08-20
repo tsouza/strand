@@ -4,8 +4,12 @@ A TLA+ model of the manifest CAS commit and read protocols (RFC 0001 §3,
 `spec/manifest.md`), covering the action grammar RFC 0002 §4 approved.
 Approved by RFC 0002 (`rfcs/0002-manifest-formal-verification.md`); this
 directory is the first of that RFC's three artifacts (TLA+ model, TLAPS
-proof, DST harness) — only the model and its TLC-checked safety invariants
-exist so far. No TLAPS proof and no DST cross-validation harness yet.
+proof, DST harness). The model and its TLC-checked safety invariants exist
+and are documented below; the DST cross-validation harness (Workflow II,
+`docs/roadmap.md` M3-3) also now exists, lives in
+`crates/strand-core/src/bin/dst_manifest_harness/`, and is documented in
+its own section near the end of this file. The TLAPS proof (M3-2) does
+not exist yet.
 
 ## Running it
 
@@ -98,3 +102,87 @@ depending on rival *count* (unlike Raft), and readers never interact with
 each other, so a 3rd writer or 2nd reader adds interleaving volume, not new
 guard combinations to check. Scaling the model up regardless is a
 deliberate follow-on, not done here.
+
+## DST cross-validation harness (Workflow II)
+
+`crates/strand-core/src/bin/dst_manifest_harness/` — a new `dst-manifest-
+harness` binary target in `crates/strand-core/Cargo.toml`. Implements RFC
+0002 §2's Workflow II (spec drives implementation): TLC generates real
+action sequences from `manifest.tla` above, and the harness replays each
+directly against the real `commit`/`commit_deletion_vector`/
+`read_snapshot` in `crates/strand-core/src/manifest.rs`, checking the real
+outcome against what the trace predicted. Workflow I (implementation
+drives verification — the real code's own spontaneous trace checked
+against the spec after the fact) is explicitly sequenced after Workflow II
+succeeds (RFC 0002 §2) and is not built here.
+
+**Running it**:
+
+```
+cargo run -p strand-core --bin dst-manifest-harness -- \
+  --seed 20260819 --workers 1 --num-per-worker 1000 --depth 40
+```
+
+Requires the same `tla2tools.jar` this directory's model-checking section
+above does; pass `--jar PATH` if it isn't at `~/.cache/tlaplus/
+tla2tools.jar`. `--traces-dir DIR` replays an already-generated directory
+instead of invoking TLC again (useful for re-inspecting one run's traces
+without regenerating them). The binary prints the exact `java` command
+line it runs, so a report is reproducible by copying that line back out.
+
+**Mechanism**: `-simulate num=N,file=PREFIX` (TLC's real random-simulation
+trace-file mode, checked live against `tla2tools.jar -help`'s actual flag
+list rather than assumed — `-dump` writes the whole reachable graph, not a
+sequence; the heavier TLA+ Trace Validation / `TLCTrace` tooling this
+project's own RFC 0002 Open Questions once wondered whether it would be
+needed is built for Workflow I's observe-and-reconcile shape, not this
+one). Each trace is a numbered sequence of full model states, not action
+labels, so the harness reconstructs which action fired between two
+consecutive states by diffing writer/reader process-counter variables
+(`crates/strand-core/src/bin/dst_manifest_harness/replay.rs`'s
+`diff_states`) — sound because `Next` never steps two processes in one
+transition and every `(from_pc, to_pc)` pair in RFC 0002 §4's grammar is
+unique. `ReadCurrent`'s `Expired` self-loop is invisible to this scheme by
+construction (it changes no state), which is correct: nothing observable
+happened for a real replay to check.
+
+**Replay design**: full rationale, including why writers are replayed in
+their own terminal-step order against one shared real `InMemoryStore`
+(real staleness then emerges from a real ETag comparison, never injected)
+and the named scope limit (sub-cycle rival interleaving beyond the
+`Ambiguous` landed/not-landed axis is not reproduced), lives in
+`replay.rs`'s own module doc — deliberately not duplicated here.
+
+**The recorded run** (seed 20260819, the harness's own default,
+`-workers 1`, 1,000 traces, `-depth 40`): 1,000 trace files parsed clean,
+8,396 total states. 3,000 writer trajectories replayed — 2,511 matched,
+489 skipped (never reached a terminal pc within this trace's depth,
+reported honestly rather than counted as pass or fail), **0 drift**. 1,000
+reader trajectories replayed — 1,000 matched, 0 skipped, **0 drift**.
+2,335/3,000 writer and 501/1,000 reader trajectories required injecting at
+least one non-trivial fault outcome (`Io`/`Ambiguous`/reader-side
+`Expired`) to reach their predicted terminal, so most of the corpus
+exercised RFC 0002 §4's fault branches, not only the uncontended happy
+path. Determinism confirmed directly, not assumed: re-running the same
+seed (111, `-workers 1`, `num=100`, `-depth 25`) twice produced
+byte-identical trace files and an identical report both times.
+
+Zero drift is real, positive evidence that the trace vocabulary and RFC
+0002 §4's action granularity correspond to this real code across a
+non-trivial, TLC-generated sample of the state space — not proof the
+model itself is complete (an unmodeled action class is invisible to this
+scheme in exactly the way an unmodeled fault is invisible to a `proptest`
+generator, the second adversarial review's own caveat), not a liveness
+check, and not, by itself, evidence Workflow I will succeed once attempted
+(RFC 0002 §2's own distinction: driven replay working is not the same
+claim as a spontaneous trace decomposing the same way). Full account,
+including two real bugs found and fixed in the harness itself during
+construction (neither a manifest protocol bug), in RFC 0002's Discussion
+section and `docs/roadmap.md`'s M3-3 entry.
+
+Automatic classification of any future drift into RFC 0002 §3's four
+types (Type-I / Type-II / tracer artifact / fault-model mismatch) is not
+implemented — the harness reports which writer/reader, which trace file,
+and the trace-predicted outcome versus the real one, which is enough
+detail for a human to classify by hand, per §3's own text that the
+classification is a design-intent question, not a mechanical one.

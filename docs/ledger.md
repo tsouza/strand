@@ -2828,3 +2828,100 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `CLAUDE.md` §1). `docs/roadmap.md`'s M5-1 entry and M5-2's dependency
   note are both updated to reflect this slice as done and to name what of
   M5-1's remaining scope M5-2's hybrid-fusion benchmark still needs.
+- **DST cross-validation harness (Workflow II) built and run — M3-3,
+  2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
+  TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and
+  RFC 0002's own Discussion section carry the full account, this entry the
+  condensed one.
+
+  **Mechanism, researched live rather than assumed** — RFC 0002 §2 left
+  "how the action sequences are actually obtained" as an open engineering
+  question. TLC's real flag list (`tla2tools.jar -help`, the copy already
+  cached in this environment) has no mode that names an action per step;
+  `-simulate num=N,file=PREFIX` (real random-simulation runs, each written
+  as a numbered sequence of full model states) is the closest real,
+  working mechanism, chosen and stated as a choice among real alternatives
+  (`-dump`'s whole-graph output; the heavier TLA+ Trace Validation tooling
+  built for Workflow I's different, observe-and-reconcile shape), not
+  presented as the only option. Since trace files carry no action labels,
+  the harness reconstructs which action fired between two consecutive
+  states by diffing writer/reader process-counter variables — sound
+  because `manifest.tla`'s `Next` never steps two processes in one
+  transition, and every `(from_pc, to_pc)` pair in RFC 0002 §4's grammar
+  is unique.
+
+  **Where it lives and what it resolves**:
+  `crates/strand-core/src/bin/dst_manifest_harness/` (`trace.rs` parser,
+  `replay.rs` replay engine, `main.rs` CLI/report), a new
+  `dst-manifest-harness` binary — deliberately outside `strand-core`'s own
+  `#[cfg(test)]` boundary, so it only ever calls the public
+  `commit`/`commit_deletion_vector`/`read_snapshot`/`ConditionalStore` API.
+  This resolves a real granularity mismatch RFC 0002 §4's own grammar
+  creates: its actions are individually-firable in the model, but the real
+  `commit()` is one function running its own internal retry loop with no
+  external pause point. The harness replays **one writer's whole
+  trajectory as one real `commit()`/`commit_deletion_vector()` call**,
+  writers ordered by when each first reaches its own terminal
+  process-counter value in the trace — proven, not assumed, to make real
+  staleness (`PreconditionFailed`) emerge from the real `InMemoryStore`'s
+  own ETag comparison rather than requiring injection, because any rival
+  whose landing causes staleness must itself terminate strictly earlier in
+  trace order. Only `Io`/`Ambiguous`/reader-side `Expired` — outcomes a
+  plain store cannot produce on its own — are scripted. Comparison is at
+  outcome level (final `Ok`/`Err`, version, segments), matching RFC 0002
+  §2's own "the real code's outcome matches what the spec predicted"
+  phrasing, since the replay-ordering choice collapses some
+  model-predicted stale-retry cycles rather than reproducing every
+  internal step. The named scope limit — sub-cycle mid-flight rival
+  interleaving beyond the model's own `Ambiguous` landed/not-landed axis
+  is not reproduced — is stated in `replay.rs`'s module doc, not glossed.
+
+  **Two real bugs, both in the harness, both caught and fixed the same
+  session, neither a manifest protocol bug**: an off-by-one between
+  TLA+'s 1-indexed `Len(snapshots)` and Rust's 0-indexed `Vec` in reader
+  replay's history lookup, and an overly eager early-skip in
+  `DeleteWriter` replay that bailed out whenever the real store had no
+  segment yet, even for trajectories that fail at `ReadCurrent` before a
+  segment is ever needed. Both surfaced as skip-reason counts that didn't
+  match the trace content, both fixed before the recorded run below — a
+  concrete instance of "verify the verifier" rather than trusting the
+  harness's own first output.
+
+  **The run**: seed 20260819 (the harness's own default), `-workers 1`,
+  1,000 traces, `-depth 40`. 1,000 trace files parsed clean, 8,396 total
+  states. **3,000 writer trajectories: 2,511 matched, 489 skipped (never
+  reached a terminal pc within this trace's depth, reported honestly, not
+  counted as pass or fail), 0 drift. 1,000 reader trajectories: 1,000
+  matched, 0 skipped, 0 drift.** 2,335/3,000 writer and 501/1,000 reader
+  trajectories required injecting at least one non-trivial fault outcome
+  to reach their predicted terminal, so most of the corpus genuinely
+  exercised RFC 0002 §4's fault branches, not only the happy path.
+  Determinism confirmed directly: re-running an identical command line
+  (seed 111, `-workers 1`, `num=100`, `-depth 25`) twice produced
+  byte-identical trace files and an identical report both times — DST's
+  own "a run is a seed, and a seed is exactly replayable" property, held,
+  not merely asserted.
+
+  **What this does and does not establish**, held to the same standard
+  RFC 0002 §2's own text uses: real, positive evidence that the trace
+  vocabulary and RFC 0002 §4's action granularity correspond to the real
+  code across a non-trivial, TLC-generated sample of the state space —
+  not proof the model is complete (an unmodeled action class is invisible
+  to this scheme the same way an unmodeled fault is invisible to
+  `proptest`'s generator, the standing caveat from RFC 0002's second
+  adversarial review), not a liveness check, and not, by itself, evidence
+  that Workflow I will succeed once attempted — driven replay of
+  spec-generated sequences working is a different claim from the real
+  code's own spontaneous trace decomposing at the same boundaries, RFC
+  0002 §2's own distinction, preserved here rather than overclaimed.
+  Automatic classification of any future drift into RFC 0002 §3's four
+  types is explicitly not implemented; the harness reports enough detail
+  (which actor, which trace file, predicted vs. real outcome) for a human
+  to classify by hand, and none of it was exercised against a real
+  instance since this run found zero drift. Workflow I remains entirely
+  unstarted, per RFC 0002 §2's own approved sequencing and this task's own
+  scope. `cargo clippy -p strand-core --all-targets -- -D warnings` and
+  `cargo test -p strand-core --lib` (80 tests) both clean; the harness
+  itself is not part of `cargo test`'s default run (it shells out to a
+  real `java`/`tla2tools.jar`, the same reasoning `bench/`'s MinIO-backed
+  binaries are run manually rather than under `cargo test`).
