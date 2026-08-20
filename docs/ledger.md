@@ -3772,6 +3772,25 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   widens the scope claimed below — the writer-path proof was always the
   right scope, and remains exactly as scoped.
 
+  **Addendum, two later passes, 2026-08-20.** This entry's own scope
+  (five writer actions, 1,261 obligations) is superseded, not wrong for
+  its own time. Two further extensions landed the same day: (1) the two
+  reader-path actions (`ReadPointer`, `ReadSnapshotObject`), adding a
+  seventh `IndInv1` conjunct, `PtrVersionBounded`, confirmed at `[INFO]:
+  All 2018 obligations proved.` (commit `b80a410`, independently
+  re-verified by the coordinator with a fresh `--cleanfp` run producing
+  the identical count); (2) the `Next`-level composition and temporal
+  invariance theorem, `Spec => []IndInv1`, assembling all eight prior
+  `Init`/action-step lemmas via TLAPS's `PTL` backend for the first time
+  in this file, confirmed at `[INFO]: All 2073 obligations proved.`
+  (commit `425446e`, two independent synchronous runs, one ordinary and
+  one `--cleanfp`, matching). Still not proved, unchanged: the model's
+  other six TLC-checked invariants, most notably `NoOverlappingRowIds`
+  (needs a materially harder segment-packing inductive strengthening).
+  `verification/README.md`'s "TLAPS proof" section and `docs/roadmap.md`'s
+  M3-2 entry are the current, authoritative status; this entry and its
+  1,261/1,247 obligation counts are historical, not current.
+
   **Confirmed NOT proved, named specifically rather than left implicit**:
   the reader-path actions (`ReadPointer`, `ReadSnapshotObject`); the
   `Next`-level composition and the temporal invariance theorem itself
