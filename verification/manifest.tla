@@ -383,12 +383,30 @@ VersionsMatchIndex ==
 \* across every committed segment) -- added by the second adversarial
 \* review because the TLA+ model previously checked less than the cheaper
 \* alternative it's supposed to complement.
-RECURSIVE SumCounts(_)
-SumCounts(segs) == IF segs = <<>> THEN 0 ELSE segs[1].count + SumCounts(Tail(segs))
+\*
+\* Written as a recursive FUNCTION (`SumCounts[segs \in Seq(...)] == ...`),
+\* not the RECURSIVE-operator form (`RECURSIVE SumCounts(_)` followed by
+\* `SumCounts(segs) == ...`) an earlier version of this line used. Both are
+\* standard TLA+ and TLC accepts (and, empirically, model-checks identically
+\* to) either; the rewrite was forced by TLAPS 1.5.0, not chosen for its own
+\* sake: `verification/manifest_proofs.tla` (RFC 0002 / docs/roadmap.md M3-2)
+\* -- which does NOT itself contain a proof of NextRowIdMatchesSegments; see
+\* that file's own "What is explicitly not yet proved" section -- could not
+\* be processed AT ALL under the operator form, regardless of which theorem
+\* was being checked: tlapm aborts on *any* obligation in a module extending
+\* this one with `Error: Recursive operator definitions are not supported`
+\* (an assertion failure in tlapm's own level-checker, e_levels.ml), confirmed
+\* by running tlapm against this module before and after this rewrite, in the
+\* same session that added the proof. The function form has no such problem.
+\* Re-run and re-confirmed against TLC after this change: same 5,943
+\* distinct states (22,286 generated, depth 18) as before -- see
+\* verification/README.md.
+SumCounts[segs \in Seq(SegmentRec)] ==
+    IF segs = <<>> THEN 0 ELSE segs[1].count + SumCounts[Tail(segs)]
 
 NextRowIdMatchesSegments ==
     snapshots = <<>> \/
-    snapshots[Len(snapshots)].nextRowId = SumCounts(snapshots[Len(snapshots)].segments)
+    snapshots[Len(snapshots)].nextRowId = SumCounts[snapshots[Len(snapshots)].segments]
 
 \* RFC 0012 (spec/deletion.md SS4): a commit_deletion_vector commit revises
 \* an existing segment in place -- it must never remove a segment, and (by

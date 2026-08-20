@@ -386,13 +386,44 @@ Non-goals and Open questions still leave genuinely open:
   written.
 - **M3-2** — TLAPS mechanized proof of the TLA+ manifest model as it
   stands (`commit` + `commit_deletion_vector`). Source: RFC 0002's
-  remaining artifact; `docs/milestones.md` M3 entry (gates M3-1). Status:
-  open. Depends on: nothing (the model exists and is TLC-checked at 5,943
-  states). **Honest sizing note**: the comparable case study RFC 0002
-  itself cites (FMDSE) ran to a 1,282-line TLAPS proof for a
-  similarly-scoped protocol. This is real, substantial, sequential
-  proof-engineering work — not a task that benefits from parallel-agent
-  decomposition the way independent research tasks do.
+  remaining artifact; `docs/milestones.md` M3 entry (gates M3-1). Depends
+  on: nothing (the model exists and is TLC-checked at 5,943 states).
+  **Honest sizing note**: the comparable case study RFC 0002 itself cites
+  (FMDSE) ran to a 1,282-line TLAPS proof for a similarly-scoped protocol.
+  This is real, substantial, sequential proof-engineering work — not a
+  task that benefits from parallel-agent decomposition the way
+  independent research tasks do.
+
+  **Status: partially done (2026-08-20, obligation count corrected
+  2026-08-20).** `verification/manifest_proofs.tla` (1,402 lines) proves
+  `IndInv1` (`TypeOK` plus five safety properties) inductive across `Init`
+  and all five **writer**-path actions (`ReadCurrent`, `ProposeSnapshot`,
+  `ProposeDeletionVectorCommit`, `TryAdvancePointer`, `ResolveAmbiguity` —
+  matching `commit()`'s and `commit_deletion_vector()`'s real control
+  flow), confirmed by a clean `tlapm` run reporting `[INFO]: All 1261
+  obligations proved.`, exit code 0, reproduced identically on two
+  separate cache-cleared runs. A real toolchain fix (TLAPS 1.5.0 cannot
+  process a `RECURSIVE`-operator definition; `SumCounts` rewritten to a
+  recursive function, semantics-preserving, re-confirmed against TLC) was
+  required first. **A first pass of this task reported 1,247 obligations
+  from a run that did not, in fact, reproduce** — caught by an independent
+  adversarial review that re-ran `tlapm` fresh and found one real failing
+  obligation; fixed with a different proof strategy for that one step
+  (`ExceptSegmentDelVer`, field-by-field `EXCEPT`-membership rather than a
+  literal-record-equality detour that looked like it worked but was not
+  reliable), independently re-verified twice before this entry was
+  corrected — full account in `verification/README.md`'s "Lessons"
+  section and RFC 0002's own Discussion addendum. **Not yet done**, named
+  specifically and unaffected by the correction above: the reader-path
+  actions (`ReadPointer`, `ReadSnapshotObject`); the `Next`-level
+  composition and the temporal invariance theorem (`Spec => []IndInv1`);
+  and the model's other six TLC-checked invariants, most notably
+  `NoOverlappingRowIds` (needs a materially harder segment-packing
+  inductive strengthening not yet attempted). Full accounting:
+  `verification/README.md`'s "TLAPS proof" section, RFC 0002's Discussion
+  section, `docs/ledger.md`. M3-2 is not yet complete, and the compaction
+  gate below still needs the remainder of this item plus M3-3 (below, now
+  done).
 - **M3-3** — DST (Deterministic Simulation Testing) cross-validation
   harness, Workflow II first per RFC 0002 §2's approved sequencing
   (TLC-generated action sequences from the model, replayed against the

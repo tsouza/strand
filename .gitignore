@@ -5,3 +5,7 @@
 # Session-local scratch: git worktrees used for isolated task execution, and
 # the scheduler's lock file. Never committed.
 /.claude/
+# TLAPS's own proof cache (fingerprints + Isabelle theory files), rebuilt
+# from verification/*.tla on every `tlapm` run. Never committed.
+/.tlacache/
+/verification/.tlacache/

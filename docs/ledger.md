@@ -3224,3 +3224,99 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   recommendation for exercising hybrid fusion at realistic multi-segment
   scale — this task proves the mechanism on one segment; the multi-segment
   amplification curve stays M3-7's job.
+- **TLAPS mechanized proof of `verification/manifest.tla`'s five writer
+  actions — 2026-08-20, `docs/roadmap.md` M3-2, RFC 0002's second
+  artifact.** Real, substantial, sequential proof-engineering work, sized
+  against FMDSE's own reported cost (a 1,282-line TLAPS proof, ~2
+  person-months across 3 engineers, for a comparably-scoped protocol,
+  `references/fmdse-blockchain-conformance-testing.md`) rather than
+  treated as a quick task, per this task's own honest-sizing note. Status:
+  **partial, honestly**, per this project's own "verification rigor
+  sequencing" discipline of never letting tests (or here, a partial
+  mechanized proof) substitute for stating exactly what formal-methods
+  work remains — see `feedback_verification_rigor_sequencing.md`.
+
+  A real toolchain gap was found and fixed first: TLAPS 1.5.0 cannot
+  process any module extending `manifest.tla` as it stood, because its
+  level-checker rejects `SumCounts`'s `RECURSIVE`-operator definition
+  outright. Fixed by rewriting `SumCounts` to TLA+'s native
+  recursive-function syntax — semantics-preserving, re-confirmed against
+  TLC (identical 5,943 states, 22,286 generated, depth 18, before and
+  after) — the one change this work made to `manifest.tla` itself.
+
+  New `verification/manifest_proofs.tla` (1,402 lines, `EXTENDS manifest`)
+  proves `IndInv1 == TypeOK /\ WriterSuccessIsCommitted /\
+  ReaderSeesOnlyCommitted /\ FnDomains /\ BaseVersionBounded /\
+  ProposedIsReal` inductive across `Init` and all five **writer**-path
+  actions (`ReadCurrent`, `ProposeSnapshot`, `ProposeDeletionVectorCommit`,
+  `TryAdvancePointer`, `ResolveAmbiguity` — matching `commit()`'s and
+  `commit_deletion_vector()`'s real control flow, the literal scope named).
+  Three of the six conjuncts (`FnDomains`, `BaseVersionBounded`,
+  `ProposedIsReal`) are not among `manifest.cfg`'s seven TLC-checked
+  invariants — each a fact true by construction that still needed its own
+  explicit inductive statement before TLAPS could use it, found by
+  watching tlapm reject a type-check without it. None weakens the seven
+  TLC-checked invariants.
+
+  **Confirmed proved** by a clean `tlapm` run reporting `[INFO]: All 1261
+  obligations proved.`, exit code 0, reproduced identically across two
+  separate cache-cleared runs (the honesty requirement this task carried:
+  every claim independently confirmed by running `tlapm` and reading its
+  own output, never assumed from a `THEOREM`'s presence in the file):
+  `Init1`, plus one step theorem per writer action. Chained, this is a
+  genuine inductive-invariant proof — not a bounded check — that `TypeOK`
+  never breaks and, the property RFC 0002's own Motivation names first, no
+  writer that reports success has lost its own committed data
+  (`WriterSuccessIsCommitted`), and no reader ever observes a snapshot
+  that was never really committed (`ReaderSeesOnlyCommitted`).
+
+  **This obligation count was wrong once, caught by review, and is now
+  independently re-verified — stated here rather than quietly overwritten.**
+  A first pass of this task reported 1,247 obligations proved from a run
+  that did not, in fact, reproduce: an independent adversarial reviewer
+  re-ran `tlapm` fresh against that exact commit and got one real failure
+  (`ProposeDeletionVectorCommitStep1`'s `<3>eq` step), reproduced 4/4 on
+  cache-cleared runs. The fix (`ExceptSegmentDelVer`, a reusable lemma
+  proving `EXCEPT`-membership field-by-field rather than via a literal-
+  record-equality detour that looked like it worked but did not reliably
+  discharge) is a different proof strategy for that one step, not a patch;
+  full account in `verification/README.md`'s "Lessons" section and RFC
+  0002's own Discussion addendum. Nothing about this correction narrows or
+  widens the scope claimed below — the writer-path proof was always the
+  right scope, and remains exactly as scoped.
+
+  **Confirmed NOT proved, named specifically rather than left implicit**:
+  the reader-path actions (`ReadPointer`, `ReadSnapshotObject`); the
+  `Next`-level composition and the temporal invariance theorem itself
+  (`Spec => []IndInv1`, needing TLAPS's `PTL` backend — today's six
+  theorems are independent per-action facts, not yet assembled into that
+  one statement); and the model's other six TLC-checked invariants, most
+  notably `NoOverlappingRowIds` — arguably the more central of the two
+  properties RFC 0002's Motivation names ("silently commit overlapping
+  row-ID ranges or lose a writer's data"), needing a materially harder
+  inductive strengthening (segments packed contiguously, by induction over
+  `SumCounts`'s recursive structure) this pass did not attempt. (This
+  paragraph originally described the DST cross-validation harness, RFC
+  0002's third artifact, as entirely unstarted; the harness now exists,
+  the entry above this one, and the sentence is corrected here rather
+  than left stale.) `docs/roadmap.md`'s M3-2 entry and RFC 0002's own
+  Discussion section both carry this same accounting; M3's compaction
+  gate (RFC 0002's Discussion, "Milestone reassignment") still needs the
+  remainder of this artifact (the reader-path actions, the `Next`-level
+  composition, and the other six invariants) before it is satisfied;
+  M3-3's own gate contribution is done.
+
+  Along the way, five genuinely reproducible `tlapm` backend-reliability
+  patterns were found and fixed, each confirmed via isolated test cases
+  and recorded in `verification/README.md`'s "Lessons for extending this
+  proof" for the next session: EXCEPT "own-index" projection needing an
+  explicit `DOMAIN` hypothesis; a disjunction+`LET`+`EXCEPT` combination
+  reliably defeating every backend unless CASE-split on each branch's
+  *full* conjunction (one such partial-branch citation was a genuine
+  unprovable gap, not flakiness, caught and fixed in
+  `WriterSuccessIsCommitted`'s `TryAdvancePointer` case); a repeated large
+  inline subexpression measurably worsening reliability until named once
+  via a local `DEFINE`; existential goals spanning a state transition
+  needing an explicit `PICK`; and `<=`-transitivity through a
+  record-field-and-index expression needing an explicit `\in Nat` fact
+  even when it "obviously" follows from an already-cited invariant.
