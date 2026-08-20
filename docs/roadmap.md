@@ -744,7 +744,7 @@ Non-goals and Open questions still leave genuinely open:
   rather than re-scoped outright, since the fork's own eventual scope
   (lexical-only vs. full-format) is itself still an open design choice.
 - **M4-5** — Puffin blob-type packaging RFC. Source: `docs/milestones.md`
-  M4 entry. **Status: Implemented (2026-08-20)**
+  M4 entry. **Status: done (2026-08-20)**
   (`rfcs/0013-puffin-export-sidecar.md`, `spec/puffin-export.md`,
   `docs/ledger.md`) — a one-way, on-demand STRAND → Puffin export sidecar
   (deletion vectors translated byte-exact into Puffin's own registered
