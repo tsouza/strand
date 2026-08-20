@@ -1595,16 +1595,171 @@ discipline every other milestone gets in this document.
   (D-2) make its own conformance-vector work concrete rather than speculative.
 - **D-2** — Source and license-audit real log and source-code corpora to ground D-1's
   conformance vectors and future benchmarks, the same discipline this project already
-  applied to MS MARCO (vendored, license-checked) and the RaBitQ/FastLanes reference
-  implementations (license-audited via GitHub's license API before adoption). A real
-  log corpus (e.g., a public system-log dataset — several exist under varied
-  licenses, none yet checked) and a real source-code corpus (e.g., a public,
-  Apache-2.0-or-compatible code dataset or a real open-source repository used as a
-  fixed snapshot) both need a genuine license audit before vendoring, matching
-  `CLAUDE.md` §1's "every dependency must be Apache-2.0-compatible" rule applied to
-  benchmark data, not just code dependencies. Status: open, research-sized — no RFC
-  needed, but real licensing verification work, not to be skipped or assumed.
-  Depends on: nothing; unblocks D-1's real conformance-vector work and D-3's real
+  applied to MS MARCO (fetched for `bench/`, license-checked, never committed — see
+  below) and the RaBitQ/FastLanes reference implementations (license-audited via
+  GitHub's license API before adoption). **Research pass completed 2026-08-20**,
+  live-verified against primary sources rather than remembered, per `CLAUDE.md` §3.
+
+  **Logs: LogHub (`github.com/logpai/loghub`) researched, real licensing
+  complication confirmed, not merely suspected.** GitHub's own license API
+  classifies the repository `license.key: "other"` / `spdx_id: "NOASSERTION"` — not
+  a recognized OSI license. The repository's actual `LICENSE` file (fetched
+  byte-for-byte, 2026-08-20) reads: "The datasets are freely available for research
+  or academic work, subject to the following condition: For any usage or
+  distribution of the loghub datasets, please refer to the loghub repository URL...
+  and cite the following loghub paper... The above license notice shall be included
+  in all copies of the datasets." This is a research/academic-use grant with a
+  mandatory attribution condition — not a permissive redistribution license, and not
+  Apache-2.0-compatible under any reading. The dataset's own Zenodo archival record
+  (`zenodo.org/records/8196385`, the exact host every download link in LogHub's
+  README points to) genuinely complicates rather than clarifies this: its structured
+  metadata field reports `license.id: "cc-by-4.0"`, but the human-readable
+  description on that same record restates the LICENSE file's more restrictive
+  "research or academic work" text verbatim, condition and all. These two signals
+  from the same publisher conflict — CC-BY-4.0 would permit commercial
+  redistribution with attribution, the description's own text does not — and this
+  pass does not resolve that conflict in LogHub's favor; it is reported as genuinely
+  ambiguous, per this task's own instruction not to pick the convenient reading.
+  Checked per this task's specific instruction not to assume the aggregator's
+  top-level license covers every inner dataset uniformly: the per-dataset READMEs
+  for `Apache/`, `HDFS/` (all three of `HDFS_v1`, `HDFS_v2`, `HDFS_v3_TraceBench`),
+  and `OpenSSH/` were each fetched directly — none carries a dataset-specific
+  license override; each states only "the raw logs are available for downloading at
+  github.com/logpai/loghub" and repeats the same citation requirement. **No
+  individual dataset inside LogHub is verifiably cleaner than the aggregator's own
+  restrictive grant** — the task's hoped-for "name that specific one explicitly"
+  outcome does not hold; stated honestly rather than softened. The successor
+  `logpai/loghub-2.0` (ISSTA'24, the paper LogHub's own README also asks to be
+  cited) carries the identical GitHub API classification (`"other"` /
+  `"NOASSERTION"`); its own README was not individually re-fetched dataset-by-dataset
+  the way the original LogHub's was, so that repo's per-dataset situation is assumed
+  structurally identical, not independently re-verified to the same depth.
+
+  **Real alternative researched and confirmed, as this task's own fallback
+  instruction anticipated.** `github.com/mingrammer/flog` — a real, actively
+  maintained (1,329 stars, last pushed 2025-06-05) fake-log generator — is
+  MIT-licensed, confirmed both via GitHub's license API (`license.key: "mit"`) and
+  by fetching its `LICENSE` file byte-for-byte (standard MIT text, copyright
+  mingrammer 2018). MIT is already an accepted-compatible license in this project
+  (the same class of check already applied to tantivy and FAISS, `CLAUDE.md` §1).
+  `flog` generates genuinely real log *formats*, not an invented one: Apache Common
+  Log Format, Apache Combined, Apache error log, RFC 3164 and RFC 5424 syslog, and
+  JSON — covering D-1's stated needs directly (real timestamps, real
+  key=value-shaped structure in JSON mode, real syslog framing). Because a run of
+  `flog` is *our own* generated output from an MIT-licensed tool, not a
+  redistribution of anyone else's copyrighted log content, its output carries zero
+  third-party redistribution risk and can be committed directly into
+  `conformance/analyzers/` — unlike anything sourced from LogHub.
+
+  **Recommendation, split by where the data lands, not a single verdict.** LogHub
+  is real, current (pushed as recently as today per its GitHub API `pushed_at`),
+  and directly on-domain (Hadoop, Spark, HDFS, Android, OpenSSH, Apache — real
+  system and application logs, unmodified per its own README's "NOT sanitized,
+  anonymized or modified" claim) — genuinely useful for **bench-only grounding**:
+  fetched at `bench/` build time into a gitignored location exactly like MS MARCO's
+  existing `/bench/data` (never committed to this Apache-2.0 repository, so its
+  research/academic-use restriction never actually collides with the repo's own
+  license), cited per its attribution requirement in the bench source itself. Named
+  candidates for that use, chosen for domain fit and moderate size: `Apache` (error
+  log, 56,481 lines, 4.90 MiB), `OpenSSH` (655,146 lines, 70.02 MiB), and `HDFS_v1`
+  (labeled with a real anomaly ground truth, 11,175,629 lines, 1.47 GiB) — all three
+  figures read directly from LogHub's own README table, 2026-08-20. LogHub is
+  **not** recommended for anything landing in `conformance/`, since those files are
+  committed into this Apache-2.0-licensed repository and redistributed to every
+  downstream user, which LogHub's own LICENSE does not clearly permit. For that
+  committed-conformance-vector use, **`flog`'s own generated output is the
+  recommendation** — deterministic, license-clean, and already covering the real
+  formats D-1 needs.
+
+  **Code: Rust standard library (`rust-lang/rust`, `library/core` + `library/std` +
+  `library/alloc`) is the recommendation, verified live rather than assumed.**
+  GitHub's license API reports the whole repository as `apache-2.0`; the repo's own
+  `COPYRIGHT` file (fetched directly) states the real, more precise claim: "The
+  Rust Project is dual-licensed under Apache 2.0 and MIT terms... at your option,"
+  with the caveat "Except as otherwise noted." That caveat was chased down rather
+  than glossed over: the project's own machine-checked license ledger,
+  `REUSE.toml` (fetched at tag `1.97.1`, the newest stable numeric release tag as of
+  this pass), sets a blanket `SPDX-License-Identifier = "MIT OR Apache-2.0"` over
+  `library/**` (among other paths), confirming the dual-license claim for the
+  subtree as a whole — but with exactly two documented per-file exceptions inside
+  that same subtree: `library/core/src/unicode/unicode_data.rs`
+  (`SPDX-License-Identifier = "Unicode-3.0"`, Unicode, Inc.'s own generated
+  character-property-table license — a separately permissive license, but not
+  itself Apache-2.0) and `library/std/src/sys/sync/mutex/fuchsia.rs`
+  (`SPDX-License-Identifier = "BSD-2-Clause AND (MIT OR Apache-2.0)"` — compatible
+  by combination, not solely Apache-2.0). A real vendoring pass MUST exclude or
+  separately attribute these two named files rather than assume the blanket
+  `library/**` claim covers them; this is exactly the "no exceptions, verify
+  carefully" discipline `CLAUDE.md` §1 already applies to RaBitQ and FastLanes,
+  applied here to a fixed source snapshot instead of a code dependency. Real,
+  live-measured scale at tag `1.97.1` (`git/trees` API, recursive, restricted to
+  `library/core/`, `library/std/`, `library/alloc/`, blobs only): **1,097 files,
+  13,977,908 bytes (≈13.3 MiB)** — real numbers from this pass, not estimated.
+  **Reasoning for the recommendation**: dual MIT/Apache-2.0 (strictly cleaner than
+  either MIT-only or the code corpora below), large enough for real conformance
+  work without needing a scale-shrinking sample, idiomatic production Rust with
+  heavy real doc-comment density (directly useful for D-1's own "prose-shaped spans
+  embedded inside code-shaped tokens" problem statement, since `std`'s doc comments
+  are exactly that shape at scale), and a fixed, citable tag rather than a moving
+  branch.
+
+  A second real candidate, already in this project's own dependency graph rather
+  than an outside pick, is named but not recommended as the primary choice:
+  `quickwit-oss/tantivy` — confirmed MIT via GitHub's license API, already a direct
+  `strand-tools` dependency (`tantivy = "0.26.1"`, `crates/strand-tools/Cargo.toml`)
+  ahead of M4's tantivy-fork work. It is a real, idiomatic Rust codebase this
+  project already builds against, so a fixed snapshot would double as grounding
+  code this project's own tooling already touches — a strong second option,
+  particularly if future work wants code that resembles a search engine's own
+  source. Not the primary pick because it is MIT-only (compatible, not dual) and
+  smaller than the standard library.
+
+  Two aggregator-style code datasets were checked live and ruled out for a first
+  vendored subset, for the same class of reason LogHub was: **CodeSearchNet**
+  (`github/CodeSearchNet`) aggregates code across many repositories, each keeping
+  its own source repository's license; the project's own construction only removed
+  repositories with no license or a license that didn't "explicitly permit
+  redistribution" — it does not filter down to Apache-2.0 or even a small permissive
+  set, so it reproduces the exact aggregator-license trap this task warned about,
+  confirmed via the dataset's own repository and Hugging Face dataset card rather
+  than assumed. **The Stack v2** (BigCode) does apply real upstream license
+  filtering — repositories are included only if they carry a license the Blue Oak
+  Council list or ScanCode's "Permissive"/"Public Domain" categories recognize —
+  but BigCode's own documentation states plainly this filtering is repository-level
+  and heuristic, not a file-level guarantee, and admits multiple permissive
+  licenses (MIT, BSD, Apache-2.0, others), not uniformly Apache-2.0; an independent
+  paper, "Cracks in the Stack: Hidden Vulnerabilities and Licensing Risks in LLM
+  Pre-Training Datasets" (arXiv:2501.02628, found via live search, not cited from
+  memory), documents real licensing risk in exactly this class of dataset,
+  corroborating rather than just asserting the concern. At 67.5 TB full scale it is
+  also wildly disproportionate to what a first conformance/benchmark pass needs. The
+  Stack v2 is not ruled out permanently — it is a real fallback if a broader
+  multi-repository, multi-language corpus is ever needed past one fixed-snapshot
+  repository — but it is not this pass's recommendation.
+
+  **Concrete next step (not this task's own job — this task is research and
+  recommendation only, per its own scope):** (1) for the log corpus, download
+  `Apache.tar.gz`, `SSH.tar.gz` (OpenSSH), and `HDFS_v1.zip` from LogHub's Zenodo
+  record (`zenodo.org/records/8196385`) into a gitignored `bench/data`-style
+  location, with the LICENSE attribution string reproduced in the fetching bench
+  source, mirroring `bench/src/msmarco_index.rs`'s existing pattern exactly; (2) run
+  `flog` (pinned version, pinned seed/flags for determinism) to generate the actual
+  committed `conformance/analyzers/` golden files for log-shaped analysis; (3) for
+  the code corpus, `git clone --branch 1.97.1 --depth 1
+  https://github.com/rust-lang/rust`, sparse-checkout `library/core`,
+  `library/std`, `library/alloc`, and carry `REUSE.toml`'s two named exceptions as
+  explicit per-file attribution notes rather than folding them into a blanket
+  Apache-2.0 claim. None of this — the actual download, vendoring, or
+  `references/`-style write-up — is done by this pass; this entry is the research
+  and recommendation only, matching this item's own original scope.
+
+  Status: **research complete, recommendation made 2026-08-20** — LogHub (bench-only,
+  named datasets above) plus `flog` (MIT, for committed conformance vectors) for
+  logs; Rust standard library `library/core`+`library/std`+`library/alloc` at tag
+  `1.97.1` (dual MIT/Apache-2.0, two named per-file exceptions) for code. Actual
+  vendoring (the concrete next step above) remains open, unblocked, and is real,
+  disk-space-bearing follow-on work for a later task, not this one. Depends on:
+  nothing; unblocks D-1's real conformance-vector work and D-3's real
   code-embedding grounding.
 - **D-3** — Revisit the vector family's embedding conventions against real
   code-embedding models rather than assumed-generic ones. The graph-blob family's own
@@ -1828,6 +1983,287 @@ discipline every other milestone gets in this document.
   this up, following `CLAUDE.md` §3's design-then-implementation separation (design
   lands and passes its own adversarial review before any implementation session
   starts building against it).
+
+- **D-6** — Optional per-segment range-pruning summary stats, resolving
+  `docs/ledger.md`'s R10 question ("should the manifest carry optional
+  per-segment summary metadata... so a reader can prune segments before
+  opening them") for the one concrete, generic case the logs domain motivates
+  directly: an ordered field — a log ingest timestamp, most concretely — whose
+  per-segment `[min, max]` range lets a reader skip opening segments a query's
+  range predicate cannot match. Like D-5, this is this session's own design
+  exploration (research → design → independent adversarial critique)
+  surfacing a real candidate, not one of the domain-scoping decision's four
+  originally-named items. The critique found the GET/byte arithmetic case
+  genuinely strong at measured scale but flagged real problems before the
+  design would be RFC-ready. This entry is the design corrected against all
+  of them, re-verified here directly against the actual repo — `spec/
+  manifest.md`, `spec/container.md` §5a, `rfcs/0001-container-rowid-
+  manifest.md`'s real Discussion section, `docs/ledger.md`'s R10 entry, and
+  `docs/lineage.md`'s Pilosa entry — rather than trusted from the critique's
+  own summary.
+
+  **Mechanism.** `TableMetadata` (`spec/manifest.md` §1, written once via a
+  single `put_if_absent`, immutable thereafter except the CAS-host move)
+  gains one new optional field, `range_prunable_fields: array of
+  RangePrunableField`, default empty:
+
+  | field             | type  | notes                                                        |
+  | ----------------- | ----- | -------------------------------------------------------------- |
+  | manifest_field_id | u64   | assigned sequentially from 1 at table-creation time; 0 reserved, unused |
+  | field_name        | string | the declared field's name, raw UTF-8, no normalization        |
+  | value_type        | string | `"i64"` only, this pass                                       |
+
+  `SegmentRef` (`spec/manifest.md` §1) gains one new optional field,
+  `summary_stats: array of FieldRangeStat`, default empty:
+
+  | field             | type | notes                                       |
+  | ----------------- | ---- | -------------------------------------------- |
+  | manifest_field_id | u64  | keys into `TableMetadata.range_prunable_fields` |
+  | min               | i64  | minimum value of the declared field over this segment's rows |
+  | max               | i64  | maximum value of the declared field over this segment's rows |
+
+  At commit, a writer that has declared a field range-prunable computes that
+  field's min/max over the segment being appended (already touching the data
+  during indexing) and attaches the resulting `FieldRangeStat` to the
+  proposed `SegmentRef`. Reader protocol (`spec/manifest.md` §3) gains one
+  new step, inserted before today's step 1, done at most once per reader
+  session: if the reader intends to exploit range pruning, `GET
+  _strand/metadata.json` once and cache `range_prunable_fields` — safe to
+  cache indefinitely, since this list is part of the write-once object and
+  this pass defines no amendment path for it (an explicit, named limitation,
+  unlike the CAS-host move, which the spec does define an amendment path
+  for) — and resolve the query's declared field name to its
+  `manifest_field_id`. A new step 2.5 is inserted between today's step 2
+  (`GET` snapshot metadata) and step 3 (open segments): filter `segments` to
+  those whose `summary_stats` contains an entry for the resolved
+  `manifest_field_id` whose `[min, max]` intersects the query's range
+  predicate; a segment with no matching `summary_stats` entry — an older
+  segment predating the feature, or one whose writer didn't compute stats for
+  this field — is conservatively kept. No new round trip is added to the
+  cold-open sequence itself: the snapshot metadata `GET` a reader already
+  makes at step 2 just carries more bytes, and the one new
+  `_strand/metadata.json` fetch is a one-time, cacheable session cost, not a
+  per-query one — a real, precise correction to the original design's
+  unqualified "no new round trip" claim, which didn't name this one-time
+  fetch at all.
+
+  **Worked example.** Four daily segments (`seg-2026-08-17` through
+  `seg-2026-08-20`, 3,200 rows each), `event_timestamp_millis` declared
+  range-prunable (`manifest_field_id = 1`). Query: `timestamp BETWEEN
+  2026-08-19T06:00 AND 2026-08-19T18:00`. Today: all 4 segments opened, 6
+  cold GETs (`2 + segment_count`). Proposed: only `seg-2026-08-19`
+  intersects, 3 cold GETs (`2 + 1`). Stats overhead added to the snapshot
+  metadata `GET`: 4 segments × 24 bytes/`FieldRangeStat` = **96 bytes** (one
+  declared field; `FieldRangeStat` is `manifest_field_id: u64` + `min: i64` +
+  `max: i64` = 8 + 8 + 8 = 24 bytes — the original design's "16 bytes" figure
+  silently dropped `manifest_field_id`/`field_id` from the count, corrected
+  here).
+
+  Napkin math at measured scale (128 segments, 4 relevant), re-derived here
+  against the real M3-7 baseline (`bench/results/multi-segment-query-
+  partial.json`, read directly: `"segment_count": 128, "cold_get_count":
+  130, "cold_bytes_fetched": 1291500`). GETs: today 130 (`2 + 128`); proposed
+  6 (`2 + 4`) — a reduction of 124 GETs, **95.4%** (`124 / 130 = 0.9538`,
+  unaffected by the byte-size correction). Bytes: average per-segment
+  open cost is `1,291,500 / 128 = 10,089.84` bytes; 4 relevant segments cost
+  `4 * 10,089.84 ≈ 40,359.4` bytes to open. Stats overhead at this scale,
+  corrected: `128 * 24 = 3,072` bytes (not the original design's `128 * 16 =
+  2,048`) added to every snapshot `GET` regardless of how many segments a
+  given query matches — a real, small, always-paid cost, negligible against
+  the 1.29 MB baseline but not zero, and it scales linearly with the number
+  of declared range-prunable fields. Total proposed bytes: `3,072 + 40,359 ≈
+  43,431`; reduction from the 1,291,500-byte baseline is `(1,291,500 -
+  43,431) / 1,291,500 = 0.96636`, **≈96.6%** (the original design's
+  undercounted math gave ≈96.7% off a smaller, wrong overhead figure — the
+  qualitative conclusion is unchanged, the number is corrected). Latency is
+  explicitly **not** estimated, for the same reason `docs/roadmap.md`'s own
+  M3-7 entry above gives: GET-count and latency did not scale linearly in
+  that real run (16→128 segments: 7.2x the GETs, 9.6x the p50 latency), so a
+  real re-measurement is owed, not invented, once this mechanism is actually
+  built.
+
+  **Fix 1 (byte-math error).** Corrected throughout above:
+  `FieldRangeStat` is 24 bytes, not 16 — the original design's field-by-field
+  breakdown counted only `min`/`max` and silently dropped the identifier
+  field from its own stated three-field struct. Every downstream figure
+  (worked example, at-scale bytes, at-scale percentage) is recomputed from
+  the corrected size, not just re-stated with a caveat.
+
+  **Fix 2 (precedent count).** The original design claimed SegmentRef's
+  schema had "already been amended post-approval through this RFC's
+  Discussion section four times," cited as evidence of low invasiveness.
+  Checked directly against `rfcs/0001-container-rowid-manifest.md`'s real
+  Discussion section (the only place post-approval amendments are recorded):
+  four items are named there — Task X-1, M3-4, M3-5, and Task X-2 — and none
+  of the four amends `SegmentRef`. X-1 (2026-08-19) adds `field_id` to
+  `blob_entry`, a `spec/container.md` §5a segment-registry structure, not the
+  manifest at all. M3-4 (2026-08-19) adds `committed_at_millis` to
+  `SnapshotMetadata` — the wrapper object that contains `segments: array of
+  SegmentRef`, not `SegmentRef` itself — and separately resolves how
+  `RetentionPolicy`'s two fields combine (the union reading), a **semantics**
+  clarification, not a new field: the RFC's own text states plainly
+  "`TableMetadata`/`RetentionPolicy` are unmodified" by that resolution,
+  correcting even the critique's own looser framing of this item as a
+  "resolution... landed on RetentionPolicy." M3-5 makes no wire-format
+  change at all — the retention window becomes a `sweep_orphans` call
+  parameter, explicitly not a `TableMetadata` field, per the RFC's own text
+  quoted above. Task X-2 closes three open questions (tail-read size,
+  404-refresh retry bound, suffix-range support) with no schema change of any
+  kind. The real count: `SegmentRef` has been amended exactly **once**, by
+  RFC 0012 (`spec/manifest.md` §1, `rfcs/0012-deletion-vectors.md` Design §1
+  and Discussion), adding the optional `deletion_vector` field. This design
+  would be the second. "Low-to-moderate invasiveness" is still a fair
+  characterization of amending a manifest object that has already absorbed
+  one optional, additive field cleanly — but on one real precedent, not four
+  fabricated ones, and RFC 0001 itself gains no new precedent from this
+  entry's correction; the accurate citation for the real precedent is RFC
+  0012, not RFC 0001.
+
+  **Fix 3 (index-internals-agnostic tension, resolved).** The original
+  design keyed `summary_stats` by the segment-internal `field_id` — the
+  `xxHash3-64` hash of a field's declared name, defined in `spec/
+  container.md` §5a for exactly one purpose: letting a reader that already
+  knows a field's name locate that field's blobs *within one segment's own
+  blob registry* without a name-to-ID lookup. Checked directly against
+  `spec/manifest.md` §1's own normative text — "No blob-family-specific
+  fields belong in `SegmentRef`; a family's own internal state lives inside
+  the segment... not the manifest" — and `docs/ledger.md`'s R10 entry, which
+  states any summary mechanism "must stay index-internals-agnostic per
+  `CLAUDE.md` §6": reusing container-internal `field_id` at the manifest
+  layer means the manifest's own schema becomes interpretable only by a
+  reader that also understands `spec/container.md` §5a's hashing scheme — a
+  new cross-chapter coupling the manifest has never had before. `field_id`
+  is not itself a blob-family-specific structure (it is used the same way
+  across every family), so the letter of the "no blob-family-specific
+  fields" rule is arguably satisfied either way; but the *spirit* — the
+  manifest needing no knowledge of what a segment's own footer defines,
+  matching `index_versions`'s existing, deliberately coarse and opaque
+  precedent for referencing family internals — is not. This design resolves
+  the tension by **not** reusing container `field_id` at all:
+  `manifest_field_id` is a distinct, manifest-native identifier, declared
+  once in `TableMetadata` (above) and never derived from, or requiring
+  knowledge of, any segment's internal hashing scheme. This is the option
+  the critique leaned toward, and it is the one actually adopted here — a
+  real design decision, not left argued-but-unsettled. It has a second,
+  independent point in its favor beyond closing the internals-agnostic
+  question: because `TableMetadata` is written exactly once via a single
+  `put_if_absent` (`spec/manifest.md` §1), `manifest_field_id` assignment
+  happens exactly once, ever, per table — there is no multi-writer
+  coordination race to reason about the way there would be if field
+  declarations lived in `SnapshotMetadata` (rewritten fresh on every commit,
+  `spec/manifest.md` §1), which would need a new append-only-across-commits
+  invariant this design avoids needing at all.
+
+  **Fix 4 (RFC 0004 misattribution, corrected).** The original design cited
+  RFC 0004/invariant 6 as covering "the 'declare field X as range-prunable'
+  plumbing." Checked directly against `rfcs/0004-analyzer-descriptors.md`
+  and `CLAUDE.md` §5 invariant 6: both are specifically about text-analysis
+  conformance for lexical blobs (tokenizer profile, stemmer, UAX #29
+  deviations, segmentation-dictionary identity) — a timestamp field's
+  range-prunability has nothing to do with analyzer descriptors, and the
+  citation is removed rather than repeated. There is currently no settled,
+  per-field, non-lexical metadata mechanism anywhere in this project;
+  `TableMetadata.range_prunable_fields` and `SegmentRef.summary_stats`
+  (above) are real new design surface an eventual RFC must specify from
+  scratch, closer in spirit to RFC 0003's small, typed, declared-once
+  scoring-profile-parameter mechanism than to RFC 0004's per-blob descriptor
+  mechanism, but neither is a drop-in precedent to lean on.
+
+  **Fix 5 (grave, corrected).** The original design named BitFunnel
+  (`docs/lineage.md`: "a hardware-profile bet, published with strong
+  numbers, adopted by nobody") as its nearest grave, arguing this mechanism
+  is distinguishable as "additive/optional/generic rather than
+  structural/all-or-nothing." Checked against `docs/lineage.md` directly:
+  that argument is true but the comparison was never sharp — `summary_stats`
+  bakes in no hardware assumption whatsoever (a plain `i64` min/max pair), so
+  BitFunnel's specific failure mode never really applied here. The nearest
+  real grave is Pilosa: "a good structure with a spec is not a distribution
+  strategy" (`docs/lineage.md`). This mechanism's entire payoff is
+  contingent on writer discipline the format cannot enforce — time-clustered
+  commits, or more generally, commits where a segment's declared field
+  actually has a narrow range rather than one spanning most of the table's
+  history. A writer that batches indiscriminately (interleaving old and new
+  timestamps into every segment) produces segments whose `[min, max]` each
+  span nearly the whole table; every query's predicate then intersects
+  nearly every segment's range, and the mechanism degrades silently to
+  today's baseline (open everything) with **no reader-visible signal that it
+  happened** — a query just gets no faster, with nothing in the manifest or
+  the response telling an operator why. This is exactly Pilosa's shape: a
+  well-specified, structurally sound mechanism whose real-world payoff is
+  entirely a deployment-discipline question the spec text cannot answer, and
+  can silently fail to answer, in production. Naming this honestly doesn't
+  kill the design — daily- or hourly-batched log ingestion (D-5's own
+  motivating assumption) is a genuinely common, plausible writer pattern —
+  but an eventual RFC needs a real "how this could be wrong" treatment built
+  around this specific risk, and probably a reader-facing diagnostic (for
+  example, `strand-tools inspect` reporting each declared field's
+  per-segment range width relative to the table's overall range, so an
+  operator can see degradation directly instead of inferring it from query
+  latency) as part of its own scope, not an afterthought.
+
+  **Blast radius, corrected.** Invariant 1 (`CLAUDE.md` §5) is untouched:
+  `summary_stats` is not a registered blob family, so it needs no declared
+  row-ID merge strategy; its own composition rule under a future segment
+  merge is simply min-of-mins/max-of-maxes over the two input segments'
+  already-computed `FieldRangeStat` entries, requiring no data rescan — a
+  real, welcome property for whenever M3-1 compaction lands, though M3-1
+  remains unbuilt (`docs/roadmap.md`, confirmed still open) and this
+  composition claim is therefore unexercised, not measured. Invariant 3 (the
+  one-wave rule) is untouched: pruning happens entirely before any
+  segment-open request. Invariant 4 (`CLAUDE.md` §5) is **not** a literal
+  generalization the way the original design claimed ("generalized one level
+  up... from its current postings-block-granularity scope") — invariant 4 is
+  specifically scoped to codec-independent, scoring-independent postings
+  pruning (block-max bounds). `summary_stats` shares its spirit — raw
+  statistics, stored as sibling metadata beside the structure they describe,
+  never a precomputed score — but operates over an arbitrary declared
+  `i64`-orderable field at segment granularity in the manifest, a different
+  layer invariant 4 never claimed to cover; stated here as spirit-consistent,
+  not as an instance of an already-settled invariant, correcting the
+  original design's overstatement. `verification/manifest.tla`'s
+  `SegmentRec` abstraction likely needs no change: `summary_stats` is
+  written once per segment at initial commit (the `commit` append path)
+  and never revised via `commit_deletion_vector`'s revise path, the same
+  shape as `SegmentRef`'s other already-modeled write-once fields
+  (`row_id_base`, `row_id_count`, `checksum`) — following the same reasoning
+  RFC 0001's own M3-4 entry used to justify `committed_at_millis` needing no
+  TLA+ model change ("`SnapshotRec` already abstracts away `path`,
+  `checksum`, and `byte_length` as content its safety properties don't
+  depend on"). This is a real, low-cost recheck still owed, not yet done —
+  named honestly as unstarted work, not claimed complete. RFC 0012 (the real
+  `SegmentRef` precedent, Fix 2) is the right target for a `SegmentRef`
+  amendment RFC to cite, not RFC 0001.
+
+  Nearest live prior art for the future-escalation direction: NOFireAI/
+  ravel's snapshot resolution switches from a per-bucket LIST loop to a
+  prefix-scan strategy once a query window crosses
+  `prefix_list_crossover_requests` (default 720 suffix buckets) — now a
+  real, vendored citation (`references/nofireai-ravel-storage-
+  architecture.md`, `docs/roadmap.md` D-4, **done**, independently
+  re-verified against `crates/ravel-catalog/src/config.rs` line 124), not
+  the unvendored conversational claim the original design rested on. This is
+  a real, if structurally different, precedent for "switch strategy once a
+  measured count threshold is crossed," named here as a future escalation
+  path if segment counts grow past whatever crossover a future STRAND
+  benchmark finds — not a present dependency this design relies on, since
+  this pass scopes itself to the tens-to-hundreds segment-count range the
+  real M3-7 measurement above actually covers.
+
+  Status: **open, RFC-sized, design revised after independent adversarial
+  review** — not yet an approved or implemented RFC; a corrected pre-RFC
+  design ready for someone to actually draft. Depends on: nothing to begin
+  drafting; real validation of the compaction-composition claim above is
+  coupled to M3-1 landing, and a real multi-segment pruning benchmark (an
+  actual measured latency figure, not the explicitly-not-estimated one
+  above) is coupled to D-1/D-2's real log corpora with real timestamps and
+  to M3-7's still-open full, post-compaction version.
+
+  **Next step**: draft this as a real numbered RFC — `ls rfcs/` shows 0001
+  through 0014 already allocated on disk, and `docs/roadmap.md`'s own D-5
+  entry above claims **0015** for the `bm25-recency` RFC (not yet drafted,
+  so not yet on disk, but spoken for) — so the next free number for this
+  design is **0016**, once someone picks this up, following `CLAUDE.md` §3's
+  design-then-implementation separation.
 
 ## Also corrected by this revision, outside this document
 
