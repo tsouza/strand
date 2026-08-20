@@ -2803,6 +2803,85 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   scoping, or the Pilosa nearest-grave pick — needed to change; the
   review found it, independently, to already be sound. RFC Status is now
   **Approved**.
+
+  **Addendum, 2026-08-20 — implemented.** A separate implementation
+  session (per `CLAUDE.md` §3's "not in the same breath" principle — the
+  RFC was approved above by a review distinct from the drafting session;
+  this addendum is a third, later pass that builds against the now-frozen
+  design, changing none of it) wrote the deliverables RFC 0013's own
+  Design section calls for. **Spec chapter**: `spec/puffin-export.md`,
+  written only now that Approval has happened (the RFC's own "Spec
+  chapters produced: none yet" line), following `spec/deletion.md`'s and
+  `spec/container.md`'s conventions — normative RFC-2119-keyword prose,
+  markdown tables for every byte layout (`CLAUDE.md` §2's rule), the RFC's
+  own worked example reproduced as this chapter's own §7. **Code**:
+  `crates/strand-tools/src/puffin_export.rs`, following `ciff.rs`'s and
+  `orphan_sweep.rs`'s established module shape (a focused module, a
+  `strand-tools export-puffin` CLI verb wired into `main.rs`, following
+  `convert-ciff`'s own `Convert`/`ConvertCiff` pattern). Three real
+  pieces: `opaque_blobs_from_segment` decodes a bare segment's footer and
+  hotcache (`strand_core::container`, the same real decode path
+  `inspect.rs` uses, not a reimplementation) and slices each registry
+  entry's on-disk bytes out of the segment file directly, unmodified;
+  `build_deletion_vector_v1_blob` assembles the exact 46-byte translated
+  layout RFC 0013 Design §4 and `spec/puffin-export.md` §3 pin
+  (`combined_length` big-endian, Puffin's own `D1 D3 39 64` magic,
+  `bitmap_count`/`key[0]` little-endian, the deletion vector's own bytes
+  verbatim, then a big-endian CRC-32); `write_puffin_file` assembles the
+  full file (leading magic, blob regions in the RFC's own deletion-vector-
+  first-then-registry-order convention, footer magic, hand-built compact
+  JSON in the RFC's own pinned key order, `footer_payload_size`, zero
+  `flags`, trailing magic). The footer JSON is built by hand
+  (`escape_json_string`/`properties_json`/`blob_metadata_json`), not
+  through `serde_json::Map`: this workspace's `serde_json` has no
+  `preserve_order` feature enabled, so its `Map` backing store sorts keys
+  alphabetically — which would silently produce the wrong key order for
+  every blob-metadata object (`type` would sort after `snapshot-id`) even
+  though it happens to match the top-level `{"blobs":...,"properties":...}`
+  object by coincidence — a real trap named in the code's own doc comment
+  rather than discovered by a future session's byte diff. CRC-32 is
+  `crc32fast` (IEEE/ISO-HDLC, the variant `zlib.crc32` computes and the
+  variant the RFC's own worked example uses), added as a direct
+  dependency of `strand-tools` even though it was already present
+  transitively in `Cargo.lock` — a second checksum algorithm, scoped only
+  to this export path exactly as the RFC's invariant-11 checklist
+  requires, never touching invariant 11's own xxHash3-64 default
+  elsewhere. **Conformance test, the strongest proof available**: the
+  worked example's 46-byte deletion-vector-v1 blob and full 345-byte
+  Puffin file are both asserted byte-for-byte
+  (`full_puffin_file_matches_rfc_0013_worked_example_byte_for_byte`)
+  against `conformance/puffin/toy-deletion-vector.puffin`, a golden file
+  built by an independent, from-scratch Python script (not this crate's
+  own code — a second construction path, the same discipline RFC 0013's
+  own worked example used) driven from the identical
+  `rfcs/0012-deletion-vectors.md` inputs (`{2, 5, 100}` tombstoned,
+  `row_id_base = 1000`, `row_id_count = 200`,
+  `SegmentRef.path = "segments/0000000000000001.strand"`); the CRC-32
+  value (`0x85872AAD`) and the 279-byte footer JSON are asserted
+  independently within the same test so a future regression localizes to
+  a specific field rather than an opaque whole-file diff. Two further
+  tests decode the translated bitmap region back through the real
+  `roaring` crate and confirm the recovered tombstone set, and two more
+  exercise `opaque_blobs_from_segment` against `conformance/container/
+  toy-segment.bin` (RFC 0001's own worked example) and against a
+  freshly-built two-field segment, confirming registry order is
+  preserved and each field's bytes land in the right blob — a real,
+  if narrow, second cross-check beyond the deletion-vector path alone.
+  A manual CLI smoke test (`strand-tools export-puffin --segment
+  conformance/container/toy-segment.bin --output ...`) round-tripped a
+  real 342-byte opaque-only Puffin file. **Scope discipline**: no
+  Puffin → STRAND importer, no chunked/per-block export (a
+  `chunk-compressed` blob's on-disk bytes always travel as one opaque
+  payload), no change to `spec/manifest.md`'s snapshot metadata, no
+  Iceberg blob-type registration — all four Non-goals RFC 0013 names,
+  confirmed untouched by reading the diff, not merely by intent.
+  **Left explicitly open, per the RFC's own Open questions, not attempted
+  here**: cross-checking this output against a real Puffin reader
+  (`apache/iceberg-rust`'s `PuffinReader`) — no dependency on the
+  `iceberg` crate was added. `cargo check --workspace --all-targets`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt
+  --check`, and `cargo test --workspace` all clean (`strand-tools`'s own
+  unit-test count: 23, up from 14).
 - **M5-1 (`docs/roadmap.md`) — thin, read-only DataFusion `TableProvider`
   over STRAND's lexical family, lexical-only slice done 2026-08-20.**
   `docs/roadmap.md`'s own M5-1 text scopes the first pass to "read

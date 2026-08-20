@@ -18,6 +18,14 @@ path = "src/main.rs"
 aws-config = "1.10.1"
 aws-sdk-s3 = "1.142.0"
 clap = { version = "4.6.6", features = ["derive"] }
+# `export-puffin` (RFC 0013, M4-5): CRC-32 (IEEE/ISO-HDLC) is
+# `deletion-vector-v1`'s own checksum, quoted verbatim in
+# `references/puffin-spec-and-iceberg-rust-implementation.md` — a second
+# checksum algorithm scoped only to this export path (invariant 11's
+# checklist), never STRAND's own xxHash3-64 default. Already present in
+# this workspace's dependency tree (a transitive dependency of several
+# crates already in `Cargo.lock`), so this adds no new supply-chain surface.
+crc32fast = "1.5.0"
 prost = "0.14.4"
 # The `sweep` subcommand (M3-5) talks to real S3-compatible object storage,
 # the same way `convert` unconditionally depends on `tantivy` for its own

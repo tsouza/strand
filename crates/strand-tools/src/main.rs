@@ -15,7 +15,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use strand_tools::{ciff, convert, inspect, orphan_sweep};
+use strand_tools::{ciff, convert, inspect, orphan_sweep, puffin_export};
 
 #[derive(Parser)]
 #[command(name = "strand-tools")]
@@ -54,6 +54,32 @@ enum Command {
         #[arg(long)]
         field: String,
         /// Path to write the resulting STRAND segment file to.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// The RFC 0013 Puffin export sidecar (M4-5, `spec/puffin-export.md`):
+    /// exports an already-built STRAND segment — and, optionally, its
+    /// current deletion vector — into a standalone Puffin v1 file a
+    /// Puffin-aware tool with no STRAND-specific code can open. One-way,
+    /// on-demand, never referenced by the manifest.
+    ExportPuffin {
+        /// Path to the STRAND segment file to export.
+        #[arg(long)]
+        segment: PathBuf,
+        /// Path to the segment's deletion-vector object bytes
+        /// (`spec/deletion.md` §2), if it has one. Omit for a segment with
+        /// no deleted rows.
+        #[arg(long = "deletion-vector")]
+        deletion_vector: Option<PathBuf>,
+        /// The `SegmentRef.path` this segment carries (or would carry) in
+        /// the manifest, embedded in the translated deletion vector's
+        /// `referenced-data-file` property (`spec/puffin-export.md` §3).
+        /// Defaults to `--segment`'s own path string when the deletion
+        /// vector's manifest key happens to match the local file path.
+        /// Ignored when `--deletion-vector` is not given.
+        #[arg(long = "segment-path")]
+        segment_path: Option<String>,
+        /// Path to write the resulting Puffin file to.
         #[arg(long)]
         output: PathBuf,
     },
@@ -111,6 +137,17 @@ fn main() -> ExitCode {
             field,
             output,
         } => run_convert_ciff(&ciff_file, &field, &output),
+        Command::ExportPuffin {
+            segment,
+            deletion_vector,
+            segment_path,
+            output,
+        } => run_export_puffin(
+            &segment,
+            deletion_vector.as_deref(),
+            segment_path.as_deref(),
+            &output,
+        ),
         Command::Sweep {
             bucket,
             prefix,
@@ -161,6 +198,83 @@ fn run_convert_ciff(
                 segment_bytes.len(),
                 field_blobs.term_info.len()
                     / strand_lexical::term_dictionary::SHORT_TERM_INFO_RECORD_LEN,
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: could not write {}: {e}", output.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_export_puffin(
+    segment: &std::path::Path,
+    deletion_vector: Option<&std::path::Path>,
+    segment_path: Option<&str>,
+    output: &std::path::Path,
+) -> ExitCode {
+    let segment_bytes = match std::fs::read(segment) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("error: could not read {}: {e}", segment.display());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let opaque_blobs = match puffin_export::opaque_blobs_from_segment(&segment_bytes) {
+        Ok(blobs) => blobs,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let dv_export = match deletion_vector {
+        None => None,
+        Some(dv_path) => {
+            let bitmap_bytes = match std::fs::read(dv_path) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    eprintln!("error: could not read {}: {e}", dv_path.display());
+                    return ExitCode::FAILURE;
+                }
+            };
+            let cardinality = match strand_core::deletion::DeletionVector::decode(&bitmap_bytes) {
+                Ok(dv) => dv.clone_bitmap().len(),
+                Err(e) => {
+                    eprintln!(
+                        "error: {} is not a valid deletion-vector object: {e:?}",
+                        dv_path.display()
+                    );
+                    return ExitCode::FAILURE;
+                }
+            };
+            let referenced_data_file = segment_path
+                .map(str::to_string)
+                .unwrap_or_else(|| segment.display().to_string());
+            Some(puffin_export::DeletionVectorExport {
+                bitmap_bytes,
+                referenced_data_file,
+                cardinality,
+            })
+        }
+    };
+
+    let puffin_bytes = puffin_export::write_puffin_file(dv_export.as_ref(), &opaque_blobs);
+
+    match std::fs::write(output, &puffin_bytes) {
+        Ok(()) => {
+            println!(
+                "wrote {} ({} bytes, {} blob(s){})",
+                output.display(),
+                puffin_bytes.len(),
+                opaque_blobs.len() + usize::from(dv_export.is_some()),
+                if dv_export.is_some() {
+                    ", including 1 translated deletion vector"
+                } else {
+                    ""
+                },
             );
             ExitCode::SUCCESS
         }

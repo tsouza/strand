@@ -5279,6 +5279,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "clap",
+ "crc32fast",
  "prost",
  "serde_json",
  "strand-core",

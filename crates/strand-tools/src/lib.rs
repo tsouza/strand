@@ -21,3 +21,4 @@ pub mod ciff;
 pub mod convert;
 pub mod inspect;
 pub mod orphan_sweep;
+pub mod puffin_export;
