@@ -3344,6 +3344,89 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   Depends on: slices 1 and 2 for their real output types; slice 4 (the
   `GreedySearch`/`BeamSearch` query path, Design §5) is the one remaining
   slice in this sequence.
+- **RFC 0014 implementation, slice 4 of 4 — the cold-open `GreedySearch`/
+  `BeamSearch` query path, closing this implementation sequence —
+  2026-08-20.** `crates/strand-vector/src/graph_query.rs`; `docs/
+  roadmap.md`'s M2-3 entry carries the full account, this entry the
+  condensed one. `greedy_search_cold` runs the same candidate-list
+  expand/trim algorithm as `crate::vamana::greedy_search` (task 1), but
+  against a real, opened `NodeRecordReader` (slice 3's per-record wire
+  accessor), fetching each candidate's vector and physical-slot adjacency
+  list from real segment bytes rather than an in-memory array — grounded
+  in `NodeRecordReader` rather than slice 3's `decode_graph_blobs`, whose
+  eager full-blob materialization would silently deflate every query's
+  fetch count to zero (argued in the module's own doc comment). `filter_
+  deleted` closes Design §5 step 3, mirroring `crate::query::
+  filter_deleted`'s own established pattern rather than a new one.
+
+  **The "array index is local ordinal" landmine, handled by argument.**
+  Slice 3's own reviewer flagged that convention as governing
+  `GraphBlobInput` callers specifically. This module never constructs a
+  `GraphBlobInput`; `NodeRecordReader`'s entire public API is indexed by
+  physical slot only, with no second, independently-indexed array a slot
+  could be mismatched against — the landmine's actual precondition does
+  not exist here, so no defensive marker type was added for its own sake.
+  `PermutationDirectoryReader`'s own already-correct `physical_slot`
+  method is reused, not re-derived, for the one place local ordinal
+  appears (the row-id-seeded query variant).
+
+  **A real bug found in this slice's own first draft, fixed before
+  landing — not in the three already-reviewed modules, which stayed
+  untouched.** The first draft cached a fetched slot's decoded content
+  permanently, treating "fetched once" as a lifetime property.
+  `crate::vamana::greedy_search`'s own proven semantics are narrower: a
+  slot is logged as fetched exactly when admitted to the *current*,
+  possibly-already-trimmed candidate list `L` (Design §5 step 2's own
+  literal wording, "not already in `L`"), so a slot trimmed out of `L`
+  and later rediscovered as a neighbor is genuinely re-fetched — a real
+  double-count the RFC's own algorithm produces. The permanent-cache
+  draft under-counted against this (151 vs. 231 fetches on the same real
+  graph and query, caught by the large-scale equivalence test). Fixed by
+  separating content memoization (`ensure_decoded`, never itself logged)
+  from fetch-event logging (gated on the same `L`-membership check
+  `crate::vamana::greedy_search` uses).
+
+  **Worked-example reproduction: exact match, both result and fetch
+  arithmetic.** Built from the RFC's own stated 5-node topology and
+  physical-slot assignment (slice 3's own construction for this graph),
+  assembled into a real segment, reopened cold, queried from the real
+  wire-decoded entry point: result **B** (row_id 11), **2 real hops**,
+  **4 real fetches** — the RFC's own figure matched exactly over real
+  wire bytes.
+
+  **Larger-scale equivalence against the already-proven in-memory
+  algorithm — the property that caught the bug above.** A real
+  `build_vamana` + `bnf` graph (`n=300`, `dims=16`, `R=12`), written,
+  assembled, and reopened cold; 25 real queries run through both
+  `greedy_search_cold` (real wire bytes) and `crate::vamana::
+  greedy_search` (the original in-memory graph, pre-write). Every
+  result, hop count, and fetch count matched exactly across all 25
+  queries.
+
+  **Napkin-math honesty check: measured, not skipped, and not forced to
+  confirm the RFC's own pessimistic bound.** A real `build_vamana` +
+  `bnf` graph at `n=1,000`, `dims=32`, `R=16`; 30 real `k=10` queries:
+  mean 447.4 fetches/query, mean 33.6 hops/query. Against this same
+  scale's own `hops × R` pessimistic bound (`≈537`), the measured mean is
+  **≈83% of it** — real inter-hop overlap shrinks the naive bound
+  somewhat, but this scale (`n=1,000`, `R=16`) is three to four orders of
+  magnitude smaller in `n`, and roughly `4`–`8`x smaller in `R`, than the
+  RFC's own pessimistic-case citation (DiskANN's `R=64`–`128` at "tens of
+  millions of vectors"). Stated honestly rather than stretched: this
+  neither confirms nor refutes the RFC's own `10,000`-fetch bound at
+  realistic scale — it is one real data point toward RFC 0014's own named
+  follow-on ("a real inter-hop neighbor-overlap measurement for Vamana
+  graphs," Open questions), not a resolution of it.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `cargo
+  test --workspace` all clean (5 new tests, 0 failures workspace-wide;
+  full workspace suite ≈31s). Depends on: slice 3 for `NodeRecordReader`;
+  this is the last slice in the RFC 0014 implementation sequence.
+  `spec/graph-vectors.md` remains real, named, unwritten follow-on work —
+  this slice completes the reference implementation, not the normative
+  spec chapter (`docs/roadmap.md`'s M2-3 entry states this explicitly
+  rather than claiming full completion).
 - **DST cross-validation harness (Workflow II) built and run — M3-3,
   2026-08-20.** Closes one of RFC 0002's two remaining artifacts (the
   TLAPS proof, M3-2, is still open); `docs/roadmap.md`'s M3-3 entry and

@@ -18,8 +18,10 @@
 //! RFC 0010 (`rfcs/0010-vector-blob-cluster-family.md`). Also hosts the
 //! graph blob family (`family_id = 5`, "graph"): Vamana construction
 //! (`vamana`), Starling's node-order-permutation algorithms (`reorder`),
-//! and the wire format tying them together (`graph_blob`), approved by
-//! RFC 0014 (`rfcs/0014-graph-blob-family.md`).
+//! the wire format tying them together (`graph_blob`), and the cold-open
+//! `GreedySearch`/`BeamSearch` query path over that wire format
+//! (`graph_query`), approved by RFC 0014
+//! (`rfcs/0014-graph-blob-family.md`).
 
 pub mod closure;
 pub mod codebook;
@@ -28,6 +30,7 @@ pub mod estimate;
 pub mod fastscan;
 pub mod flat;
 pub mod graph_blob;
+pub mod graph_query;
 pub mod kmeans;
 pub mod navigation;
 pub mod orthogonal;

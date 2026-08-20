@@ -214,7 +214,17 @@ Non-goals and Open questions still leave genuinely open:
   Starling vs. an untested alternative). Source: `CLAUDE.md`'s own mission
   statement ("the warm-tier graph blob family is in-scope but explicitly
   second") and RFC 0010 Non-goals/Open questions ("entirely untouched by
-  this RFC"). **Status: Approved (2026-08-20)**
+  this RFC"). **Status: Approved (2026-08-20); implementation done, all
+  four slices (2026-08-20)** — the four-slice account below (construction,
+  node-order permutation, wire format, cold-open query path) is the full
+  RFC 0014 v0.1 implementation. One real, named gap survives completion,
+  not silently closed: `spec/graph-vectors.md` — the normative chapter
+  slice 3's own report already flagged as genuinely unwritten — still does
+  not exist; every byte layout and algorithm this family registers lives
+  only in the RFC and in the crate code's own doc comments, not in a spec
+  chapter a second implementation could build against without reading
+  Rust. This entry does not claim "spec chapter written," only "reference
+  implementation complete."
   (`rfcs/0014-graph-blob-family.md`, `docs/ledger.md`) — a
   full new blob family, the same weight RFC 0010 itself carried for the
   cluster family, registering `family_id = 5` ("graph") with two blob
@@ -536,6 +546,135 @@ Non-goals and Open questions still leave genuinely open:
   (`vamana.rs`, `reorder.rs`) for their real output types; slice 4 (the
   `GreedySearch`/`BeamSearch` query path over this wire format, Design §5)
   is the one remaining slice in this sequence.
+
+  **Implementation, slice 4 of 4 — the cold-open `GreedySearch`/
+  `BeamSearch` query path over the real wire format, closing this
+  implementation sequence — done (2026-08-20).**
+  `crates/strand-vector/src/graph_query.rs`: `greedy_search_cold`, run
+  against a real, opened `NodeRecordReader` (slice 3's own per-record
+  wire-format accessor) rather than slice 3's `decode_graph_blobs` — a
+  deliberate choice, argued in the module's own doc comment, because
+  `decode_graph_blobs` eagerly materializes every node before a query
+  starts, which would make every candidate "already resident" and
+  silently deflate the very fetch counts Design §5 exists to measure.
+  Same algorithm as `crate::vamana::greedy_search` (task 1) — same
+  candidate-list expand/trim loop, same `min_by`/`sort_by` tie-break
+  behavior — with every candidate's vector and physical-slot adjacency
+  list read from the segment's real bytes via `NodeRecordReader::
+  row_id`/`vector`/`neighbor_slots` rather than indexed out of an
+  in-memory array. `filter_deleted` closes Design §5 step 3 (tombstoned
+  row-ids removed from the *returned* result only, never from the
+  traversal's visited/fetched sets), mirroring `crate::query::
+  filter_deleted`'s own already-established pattern for the cluster
+  family rather than inventing a second convention.
+
+  **The "array index is local ordinal" landmine slice 3's own reviewer
+  flagged for this task, handled by argument, not by adding defensive
+  code for its own sake.** That convention governs only the *writer*
+  side — a caller of `GraphBlobInput` must pass `points`/`row_ids`/
+  `permutation` arrays that agree on what array index `i` means, because
+  nothing in `GraphBlobInput`'s own type enforces it. This module never
+  constructs a `GraphBlobInput`; `NodeRecordReader`'s entire public API
+  (`entry_point_slot`, `neighbor_slots`, `row_id`, `vector`) is indexed by
+  physical slot only, with no second, independently-indexed array a slot
+  value could be silently mismatched against. The landmine's actual
+  precondition — two arrays a caller must keep in sync by convention
+  alone — does not exist in this module's own code, so no runtime check
+  or marker type was added; a marker type wrapping a `u32` slot with no
+  operations to guard against would have been ceremony, not safety.
+  `PermutationDirectoryReader` (the one place local ordinal appears at
+  all, for the row-id-seeded query variant Design §3 names) already
+  exposes a correctly-scoped `physical_slot(local_ordinal)` method this
+  module reuses rather than re-deriving.
+
+  **A real bug this task found in its own first draft, fixed, and named
+  rather than quietly patched — not in `vamana.rs`/`reorder.rs`/
+  `graph_blob.rs` (those stayed untouched, per this task's own
+  instruction), but in this slice's own first attempt at the fetch-count
+  semantics.** The first draft cached a slot's decoded record permanently
+  once read, treating "already fetched this search" as a lifetime
+  property. `crate::vamana::greedy_search`'s own proven-correct semantics
+  are narrower: a slot is fetched exactly when it is added to the
+  *current*, possibly-already-trimmed candidate list `L` — the RFC's own
+  literal Design §5 step 2 wording ("for each of `p*`'s `neighbor_slots`
+  not already in `L`... fetch that slot's record"). Once a slot is
+  trimmed out of `L`, it is no longer "already in `L`," so a later hop
+  that rediscovers it as a neighbor genuinely re-fetches it — a real
+  double-count the RFC's own algorithm produces, not a bug in either
+  implementation. The permanent-cache draft under-counted fetches against
+  this behavior (caught by the large-scale equivalence test below: 151
+  fetches reported vs. 231 actually required by `crate::vamana::
+  greedy_search` on the same real graph and query). Fixed by decoupling
+  content memoization (`ensure_decoded`, reused freely, never itself
+  logged) from fetch-event logging (`fetched_slots.push`, gated on the
+  same `L`-membership check `crate::vamana::greedy_search` uses) — found
+  and fixed before landing, not shipped and discovered later.
+
+  **Worked-example reproduction: exact match, both the result and the
+  fetch arithmetic.** Built directly from the RFC's own stated
+  illustrative 5-node topology and physical-slot assignment (the same
+  construction slice 3's own tests use for this graph, not a
+  `build_vamana` run), assembled into a real segment via `SegmentBuilder`,
+  reopened cold through the real footer/hotcache/registry path, and
+  queried with `greedy_search_cold` from the real, wire-decoded
+  `entry_point_slot`: result **`B`** (row_id 11), **2 real hops** (`A`
+  then `B` expanded), **4 real fetches** (`A`, `B`, `C`, `D` — `C` and `D`
+  fetched only to be trimmed away) — the RFC's own "2 hops, 4 fetches"
+  figure matched exactly, over real wire bytes, not only in-memory
+  structures.
+
+  **Larger-scale equivalence against the already-proven in-memory
+  algorithm — the single most important correctness property for this
+  task, and the one that caught the bug above.** A real `build_vamana` +
+  `bnf` graph (`n=300`, `dims=16`, `R=12`), written through
+  `build_graph_blob_specs`, assembled into a real segment, and reopened
+  cold; 25 real random queries run through both `greedy_search_cold`
+  (over the real wire bytes) and `crate::vamana::greedy_search` (over the
+  original in-memory graph, before anything was ever written to disk).
+  Every query's result, hop count, and fetch count match exactly across
+  all 25 queries — the cold-open path is a faithful reproduction of the
+  already-proven-correct in-memory algorithm, confirmed rather than
+  assumed.
+
+  **Napkin-math honesty check: a real, measured fetch count at moderate
+  scale, checked (not skipped) because it was feasible without heavy
+  compute, and reported honestly against the RFC's own pessimistic
+  bound rather than forced to confirm it.** A real `build_vamana` + `bnf`
+  graph at `n=1,000`, `dims=32`, `R=16` (construction `L=32`), 30 real
+  random `k=10` queries at query-time `L=32`: **mean 447.4 fetches/query,
+  mean 33.6 hops/query, max 501 fetches/query** — measured directly by
+  `measures_a_real_fetch_count_at_moderate_scale_against_the_rfcs_
+  pessimistic_bound` (`cargo test -p strand-vector -- --nocapture` prints
+  the exact figures). Against the same test's own computed `hops × R`
+  pessimistic bound at this scale (`33.6 × 16 ≈ 537`), the real measured
+  mean (447.4) is **≈83% of the pessimistic bound** — real inter-hop
+  neighbor-set overlap is reducing the fetch count below the "credit no
+  overlap between hops" worst case Napkin math's own `10,000`-fetch
+  figure assumes, but not dramatically, and not enough to draw a general
+  conclusion from. Stated honestly, per this task's own instruction not
+  to force a match: this measurement is at `n=1,000`, `R=16` — three to
+  four orders of magnitude smaller in `n` and roughly a factor of 4–8
+  smaller in `R` than the RFC's own pessimistic-case citation (DiskANN's
+  own `R=64`–`128` at "tens of millions of vectors," Starling's own
+  "hundreds of hops" figure at that scale). It neither confirms nor
+  refutes the RFC's own `10,000`-fetch pessimistic bound at realistic
+  production scale — it is real evidence that *some* inter-hop overlap
+  exists and measurably shrinks the naive bound at this smaller scale,
+  which is worth recording, but Napkin math's own named follow-on ("a
+  real inter-hop neighbor-overlap measurement for Vamana graphs," RFC
+  0014 Open questions) remains open at realistic `R` and `n` — this is a
+  real data point toward it, not a resolution of it.
+
+  Verification: `cargo check --workspace --all-targets`, `cargo clippy
+  --workspace --all-targets -- -D warnings`, `cargo fmt --check`, and
+  `cargo test --workspace` all clean (5 new tests in
+  `crates/strand-vector/src/graph_query.rs`, 0 failures workspace-wide;
+  full workspace suite ≈31s wall time with the new tests included, most
+  of it this slice's own two graph-construction-backed tests). Depends
+  on: slice 3 (`graph_blob.rs`) for `NodeRecordReader`; this is the last
+  slice in the RFC 0014 implementation sequence. `spec/graph-vectors.md`
+  remains real, named, unwritten follow-on work — this slice completes
+  the reference implementation, not the normative spec chapter.
 - **M2-4** — Fetch SPANN's real body figures (`arxiv.org/abs/2111.08566`
   PDF) to replace the provisional, flagged-unverified 1.73×/≈227 MB
   replication estimate. Source: RFC 0010 Open questions. Status: **done**
