@@ -67,8 +67,15 @@ rather than presenting `60` as a uniquely optimal number.
 
 RRF combines **rank positions only** — it is defined entirely in terms of
 `r(d)`, never the underlying rankers' own scores (this is the paper's own
-contrast with CombMNZ, §1: "RRF... combines ranks without regard to the
-arbitrary scores returned by particular ranking methods"). It carries no
+contrast with Condorcet Fuse, §2 (Discussion): "RRF is simpler and more
+effective than Condorcet Fuse, while sharing the valuable property that
+it combines results without regard to the arbitrary scores returned by
+particular ranking methods"). An earlier version of this file misquoted
+this sentence as "combines ranks without regard to..." (substituting
+"ranks" for the paper's actual "results") and misattributed it to §1;
+corrected here against the real PDF, re-fetched directly from
+`cormack.uwaterloo.ca` rather than trusted from memory, per `CLAUDE.md`
+§3. It carries no
 per-ranking weighting term and no normalization by `|D|` or by how many
 rankings a document appears in — the formula above is the entire
 mechanism. It is validated on TREC ad hoc/robust collections and the

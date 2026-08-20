@@ -452,10 +452,13 @@ segment), not merely trust the loop shape.
   sweep tool itself remains M3, unbuilt.
 - ~~Extending `verification/manifest.tla` to model `commit_deletion_
   vector`'s new transition shape~~ — done, see Discussion below.
-- **A TLAPS mechanized proof and a DST cross-validation harness covering
-  the extended model** (RFC 0002's own remaining two artifacts). The TLA+
-  model itself is extended and TLC-checked (Discussion, below); the proof
-  and the trace-replay harness are real, separate, unstarted work.
+- ~~A TLAPS mechanized proof and a DST cross-validation harness covering
+  the extended model~~ — the DST harness is done (`docs/roadmap.md`
+  M3-3, 0 drift, including trajectories exercising
+  `ProposeDeletionVectorCommit`); the TLAPS proof is done for the
+  writer-path actions, including `ProposeDeletionVectorCommit` itself
+  (`docs/roadmap.md` M3-2, 1,261 obligations), with the reader-path
+  actions and the model's other invariants still open.
 - **Per-family deletion-vector caching or batching** (e.g. amortizing the
   extra GET across multiple queries against the same snapshot). A real,
   separate performance question once a real caller exists to measure it
@@ -536,7 +539,9 @@ invariant in this file follows:
 
 TLC re-verified clean: **5,943 distinct states (22,286 generated), depth 18**
 (up from 591/1,793, depth 14), all nine invariants — the original seven plus
-these two — holding. `verification/README.md` carries the new baseline. What
-RFC 0002's own remaining scope still owes: a TLAPS proof and a DST
-cross-validation harness, both against this now-extended model, neither
-started here (Non-goals, above).
+these two — holding. `verification/README.md` carries the new baseline.
+Neither the TLAPS proof nor the DST harness against this extended model
+was started in this pass (Non-goals, above); both are done now, in later
+sessions — DST fully (`docs/roadmap.md` M3-3), TLAPS for the writer-path
+actions only (`docs/roadmap.md` M3-2) — recorded here rather than left to
+read as still-open against this RFC's own text.

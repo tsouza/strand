@@ -185,8 +185,14 @@ row-ID-allocation accounting (`next_row_id + added_row_ids`) never has to
 reason about an update-in-place case. `verification/manifest.tla` now
 models this revise shape too (`ProposeDeletionVectorCommit`, RFC 0012
 Discussion — post-approval amendments), TLC-checked alongside the
-original append shape; a TLAPS proof and a DST cross-validation harness
-covering it remain open (RFC 0002's own remaining scope).
+original append shape; a DST cross-validation harness covering it is now
+built and run (`docs/roadmap.md` M3-3, 0 drift across 3,000 writer and
+1,000 reader trajectories), and a TLAPS proof covers it too, partially —
+the writer-path inductive invariant, including `ProposeDeletionVectorCommit`
+itself, is mechanically proved (`docs/roadmap.md` M3-2, 1,261 obligations),
+while the reader-path actions, the `Next`-level temporal-invariance
+theorem, and the model's other invariants remain open (RFC 0002's own
+remaining scope).
 
 ## 3. Reader protocol
 

@@ -576,7 +576,12 @@ model already proven to correspond to the real code, not one more hopeful extens
 stacked on an never-cross-validated base. **Status (2026-08-20): the DST harness
 (2) is built and run clean (0 drift across 3,000 writer and 1,000 reader
 trajectories, `docs/roadmap.md`'s M3-3 entry, RFC 0002 Discussion); the TLAPS
-proof (1) is not built yet** (`verification/README.md`).
+proof (1) is partially built** — the writer-path inductive invariant is
+mechanically proved (1,261 obligations, `docs/roadmap.md`'s M3-2 entry), while
+the reader-path actions, the `Next`-level temporal-invariance theorem, and the
+model's other invariants remain open (`verification/README.md`). Both gate
+items therefore have real, verified progress; M3-1 (compaction) still waits
+on the TLAPS proof's remaining scope before this gate is satisfied.
 
 **M4 — Interchange + independence.** CIFF importer (lossless where CIFF permits);
 conformance manifest frozen at spec v0.1. **Second-reader parity must be real

@@ -2267,9 +2267,12 @@ tantivy and FAISS licenses MIT (verified byte-level 2026-08-18; vendor at M0).
   `verification/README.md`, `spec/manifest.md`, and RFC 0012's own
   Discussion section all carry the new baseline and the closed gap.
 
-  What RFC 0002's own remaining scope still owes, unchanged by this entry:
-  a TLAPS mechanized proof and a DST cross-validation harness, both
-  against this now-extended model, neither started.
+  What RFC 0002's own remaining scope still owed, unchanged by this
+  entry: a TLAPS mechanized proof and a DST cross-validation harness,
+  both against this now-extended model, neither started at the time this
+  entry was written. Both now exist, in later entries below: the DST
+  harness fully (M3-3), TLAPS for the writer-path actions only (M3-2),
+  the reader-path actions and the model's other invariants still open.
 - **Real M0-style byte-budget measurement for the vector blob family —
   2026-08-19, prompted by "build a real M0-style byte-budget measurement
   for the vector blob family, the same way `bench/src/cold_open.rs` already
