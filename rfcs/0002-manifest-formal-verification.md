@@ -615,3 +615,163 @@ first, per §2's own approved sequencing) both land before compaction's own
 commit-path design work starts, so that work extends a model already proven to
 correspond to the real code rather than stacking a third hopeful, unverified
 extension on top. Neither artifact is built yet. Landed 2026-08-19.
+
+**The DST cross-validation harness (Workflow II) is built and run — M3-3
+(`docs/roadmap.md`).** This closes one of the two remaining artifacts this
+section names above; the TLAPS proof (M3-2) is still open.
+
+**Mechanism, researched live rather than assumed** (§2's own Open Questions
+left "how the action sequences are actually obtained" undecided). TLC's real
+flag list (`java -cp tla2tools.jar tlc2.TLC -help`, `tla2tools.jar` 2.19,
+already cached in this environment) offers no mode that emits an action
+*name* per step — `-dump` writes the whole reachable state graph, not one
+sequence, and the heavier TLA+ Trace Validation / `TLCTrace` tooling this
+RFC's Open Questions flagged as possibly unnecessary is built for Workflow
+I's observe-and-reconcile shape (checking a trace *against* a spec after
+the fact), not Workflow II's simpler "spec generates, harness replays" one.
+The mechanism this harness actually uses is `-simulate num=N,file=PREFIX`:
+real random-simulation runs of the spec's own `Init`/`Next` relation, each
+written out as a numbered `STATE_1 == ... STATE_k ==` sequence of full
+model states (not action labels) in a `.tla`-shaped trace file. Confirmed
+empirically before committing to it: a `-workers W` run produces `W ×
+num` trace files (`tr_<worker>_<n>`), and a state where every enabled
+transition has already run into a terminal process-counter value ends the
+trace early (a real deadlock in the simulator's sense, not a bug) — both
+behaviors are used, not fought, by the harness below. Since no state
+carries an action label, the harness reconstructs which action fired
+between two consecutive states by diffing their writer/reader
+process-counter variables (`wPc`/`rPc`) — sound here specifically because
+`Next` is a disjunction of single-process actions (never two processes
+stepping in the same transition), confirmed by asserting exactly this
+invariant while parsing every real trace in the runs below, and because
+every `(from_pc, to_pc)` pair in §4's action grammar is unique across the
+whole model (worked out by hand while designing the classifier, in
+`crates/strand-core/src/bin/dst_manifest_harness/replay.rs`'s module doc).
+The one action this scheme cannot see at all is `ReadCurrent`'s `Expired`
+self-loop (`manifest.tla`'s own comment: "a true self-loop... cannot
+introduce a new reachable state"), which is correct, not a gap: it changes
+nothing observable, so there is nothing for a real replay to check.
+
+**Where the harness actually lives, and the granularity mismatch it
+resolves.** `crates/strand-core/src/bin/dst_manifest_harness/` (`trace.rs`:
+the trace-file parser above; `replay.rs`: everything below; `main.rs`: CLI,
+TLC invocation, the report), a new `[[bin]]` named `dst-manifest-harness`
+in `crates/strand-core/Cargo.toml`. It was deliberately **not** placed
+inside `strand-core`'s own `#[cfg(test)]` modules: §4's action grammar
+(`ReadCurrent`/`ProposeSnapshot`/`TryAdvancePointer`/`ResolveAmbiguity`) is
+individually-firable in the model, but the real `commit()` is one function
+running its own internal retry loop over exactly that sequence with no
+external pause point — there is no private per-step entry point to drive
+"this action, then this one" against from outside. Living in `src/bin/`
+means this harness sees exactly the public API (`commit`,
+`commit_deletion_vector`, `read_snapshot`, `ConditionalStore`,
+`InMemoryStore`) an external consumer would, and resolves the mismatch by
+replaying **one writer's whole trajectory as one real `commit()` (or
+`commit_deletion_vector()`) call**, with writers replayed in the order
+each first reaches its own terminal process-counter value in the trace.
+That ordering is load-bearing, not arbitrary — `replay.rs`'s own module doc
+proves why: any rival whose landing causes another writer's real
+`PreconditionFailed` must itself have reached `Done` strictly earlier in
+trace order, so replaying in terminal-order means every such rival has
+already landed for real, via its own real `commit()` call, by the time the
+writer observing staleness runs. Real staleness therefore emerges from the
+real `InMemoryStore`'s own real ETag comparison — never injected — and only
+the outcomes a plain store cannot produce on its own (`Io`, `Ambiguous`,
+and reader-side `Expired`) are scripted, via a `ConditionalStore` wrapper
+built directly from each trajectory's own trace-derived script. Because
+this collapses some model-predicted stale-retry cycles into a single real
+attempt that simply starts past the point of staleness, comparison is done
+at **outcome** level — final `Ok`/`Err`, final version/segments/next_row_id
+— matching this section's own phrasing ("the real code's outcome matches
+what the spec predicted"), not at exact internal retry-count. What this
+ordering cannot reproduce is a rival landing strictly *between* one
+writer's own `ReadCurrent` and its own `TryAdvancePointer` within a single
+cycle (true sub-call-granularity interleaving) beyond the `Ambiguous`
+landed/not-landed axis the model actually needs; `replay.rs`'s module doc
+states this scope limit in the same place a reader will look for the
+ordering argument, rather than only here.
+
+**DST's own replayability property, checked, not just claimed.** The only
+randomness anywhere in this pipeline is TLC's `-seed`; the harness's own
+replay logic is a pure function of a parsed trace file. Re-running the
+exact command line the harness itself prints (seed 111, `-workers 1`,
+`num=100`, `-depth 25`) reproduced byte-identical trace files and an
+identical report (300 writer trajectories: 255 matched / 45 skipped / 0
+drift; 100 reader trajectories: 100 matched / 0 skipped / 0 drift, twice)
+— confirmed directly, not assumed. `-workers` is pinned alongside `-seed`
+in the reproducibility contract because TLC splits its RNG stream across
+workers.
+
+**Two real bugs, both in the harness itself, caught by its own output
+before they could mask a real finding — worth recording exactly because
+CLAUDE.md §2 says a wrong number is deleted, not softened, and the same
+discipline applies to a wrong *classification*.** First, an off-by-one:
+`manifest.tla`'s `rLocal[r].ptrVersion` is `Len(snapshots)` — TLA+'s
+1-indexed sequence length — used to index `history`, a 0-indexed Rust
+`Vec`; the first version of `replay_reader`'s seeding loop read
+`history[ptr_version]` instead of `history[ptr_version - 1]`, which
+silently reported "no entry for this version" as a *skip* for every reader
+trajectory that actually read a committed snapshot, at a small trace
+count. Second, `commit_deletion_vector` replay bailed out early with
+"needs an existing real segment" whenever the real store had none yet —
+correct when the trajectory's own first action genuinely needs one, wrong
+when the trajectory's script fails at `ReadCurrent` before `segment_path`
+is ever inspected (`manifest.rs`'s own control flow), which made ~30% of
+`DeleteWriter` replays skip needlessly at a 20-trace smoke test. Both were
+caught by watching the skip-reason counts move in ways the trace content
+didn't justify, both fixed before the run cited below, and neither is a
+manifest protocol bug — RFC 0002 §3's fourth category, fault-model
+mismatch, is about the *simulated backend*'s fidelity; these were bugs in
+the harness's own trace-to-replay translation, a distinct failure mode
+worth naming so a future reader does not conflate "the harness had a bug"
+with "the protocol had a bug." Neither survived past this same session.
+
+**The run.** Seed 20260819 (the harness's own default, so a bare
+invocation reproduces it), `-workers 1`, `num=1000` per worker, `-depth
+40`: `java -XX:+UseParallelGC -jar tla2tools.jar -workers 1 -config
+verification/manifest.cfg -simulate num=1000,file=... -depth 40 -seed
+20260819 verification/manifest.tla`, then `cargo run -p strand-core --bin
+dst-manifest-harness -- --seed 20260819` replaying the result. 1,000 trace
+files generated and parsed clean, 8,396 total states. **3,000 writer
+trajectories replayed: 2,511 matched, 489 skipped (never reached a
+terminal process-counter value within this trace's depth — a legitimate,
+reported non-outcome, not a failure), 0 drift.** **1,000 reader
+trajectories replayed: 1,000 matched, 0 skipped, 0 drift.** Of the
+replayed trajectories, 2,335/3,000 writers and 501/1,000 readers required
+injecting at least one non-trivial fault outcome (`Io`, `Ambiguous`, or
+reader-side `Expired`) to reach their trace-predicted terminal — meaning
+most of the corpus actually exercised §4's fault branches, not only the
+uncontended happy path. **Zero drift, of either RFC 0002 §3's four types,
+across this run.**
+
+**What this does and does not establish, stated with the same care §2's
+own text used.** This is real, positive evidence for exactly the thing
+Workflow II was built to check first: that the trace vocabulary and the
+model's action granularity (§4) actually correspond to the real code's
+behavior across a real, non-trivial sample of the state space TLC's random
+simulation reached — not a cherry-picked handful of scenarios. It does
+**not** prove the TLA+ model is complete (the second adversarial review's
+own caveat stands: TLC explores the *modeled* action space exhaustively-
+within-bounds, not action classes nobody wrote down), does not prove
+liveness (out of scope per the Open Questions), and — per §2's own
+argument — does **not** by itself establish that Workflow I will succeed
+once attempted: this shows *driven* replay of spec-generated sequences
+works, not that the real code's own *spontaneous* concurrent trace
+decomposes at the same boundaries, which is MongoDB's specific documented
+failure mode and remains a live risk for Workflow I specifically. Workflow
+I is unstarted, per §2's own approved sequencing and this task's own
+explicit scope.
+
+**Classification, honestly scoped.** The harness reports human-readable
+mismatch detail (which writer/reader, which trace file, trace-predicted
+outcome vs. real outcome) sufficient for a human to classify any future
+drift against §3's four-way table; it does not attempt automatic
+classification into Type-I/Type-II/tracer-artifact/fault-model-mismatch —
+that judgment, per §3's own text, is a design-intent question answered by
+consulting this RFC and `spec/manifest.md`, not a mechanical one. No drift
+occurred in the run above, so this capability is documented but untested
+against a real instance; the next session that finds real drift should
+expect to do the classification by hand and record it here, not expect the
+harness to have already done it.
+
+Landed 2026-08-20.

@@ -365,7 +365,8 @@ Non-goals and Open questions still leave genuinely open:
   assignment compatibility with a rebalanced navigation tier (RFC 0010
   Design §7, Open questions).
   Source: `docs/milestones.md` M3 entry; invariant 1. Status: **blocked**
-  on M3-2 and M3-3.
+  on M3-2 (M3-3, the DST harness, is done as of 2026-08-20 — see its own
+  entry below).
 
   **The gate's rationale, stated explicitly because a fair reading of
   precedent could ask why THIS extension is gated when the deletion-vector
@@ -396,9 +397,68 @@ Non-goals and Open questions still leave genuinely open:
   harness, Workflow II first per RFC 0002 §2's approved sequencing
   (TLC-generated action sequences from the model, replayed against the
   real Rust `commit`/`commit_deletion_vector` code). Source: RFC 0002's
-  remaining artifact; `docs/milestones.md` M3 entry (gates M3-1). Status:
-  open. Depends on: nothing. Workflow I is explicitly sequenced after
-  Workflow II succeeds — not part of this task.
+  remaining artifact; `docs/milestones.md` M3 entry (gates M3-1).
+  **Status: done (2026-08-20).** Depends on: nothing. Workflow I is
+  explicitly sequenced after Workflow II succeeds — not part of this task,
+  and still unstarted.
+
+  **Mechanism**: TLC's `-simulate num=N,file=PREFIX` real random-simulation
+  trace-file output (`java -cp tla2tools.jar tlc2.TLC -help`'s actual flag
+  list, checked live rather than assumed — `-dump` writes the whole
+  reachable graph, not a sequence, and the heavier TLA+ Trace Validation
+  tooling this RFC's own Open Questions flagged as possibly unnecessary is
+  built for Workflow I's observe-and-reconcile shape, not this one). Each
+  trace is a numbered sequence of full model states, not action labels;
+  the harness reconstructs which action fired between consecutive states
+  by diffing writer/reader process-counter variables, sound because
+  `manifest.tla`'s `Next` never steps two processes at once and every
+  `(from_pc, to_pc)` pair in RFC 0002 §4's grammar is unique.
+
+  **Harness**: `crates/strand-core/src/bin/dst_manifest_harness/`
+  (`trace.rs` parser, `replay.rs` replay engine, `main.rs` CLI/report), a
+  new `dst-manifest-harness` binary target — outside `strand-core`'s own
+  `#[cfg(test)]` boundary on purpose, so it only ever calls the same public
+  `commit`/`commit_deletion_vector`/`read_snapshot`/`ConditionalStore` API
+  an external consumer would. Resolves the granularity mismatch between
+  §4's individually-firable model actions and the real `commit()`'s own
+  monolithic retry loop by replaying one writer's whole trajectory as one
+  real call, writers ordered by when each first reaches its own terminal
+  process-counter value — real staleness (`PreconditionFailed`) then
+  emerges from the real `InMemoryStore`'s own ETag comparison, never
+  injected; only `Io`/`Ambiguous`/reader-side `Expired` are scripted.
+  Comparison is at outcome level (final `Ok`/`Err`, version, segments),
+  matching RFC 0002 §2's own "the real code's outcome matches what the
+  spec predicted" phrasing. Full detail, including the ordering argument
+  and its named scope limit (sub-cycle mid-flight rival interleaving
+  beyond the `Ambiguous` axis is not reproduced), lives in `replay.rs`'s
+  module doc and RFC 0002's Discussion section.
+
+  **The run**: seed 20260819 (the harness's own default — a bare
+  invocation reproduces it), `-workers 1`, 1,000 traces, `-depth 40`.
+  1,000 trace files parsed clean, 8,396 total states. **3,000 writer
+  trajectories replayed: 2,511 matched, 489 skipped (never reached a
+  terminal pc within this trace's depth — reported, not a failure), 0
+  drift. 1,000 reader trajectories replayed: 1,000 matched, 0 skipped, 0
+  drift.** 2,335/3,000 writer and 501/1,000 reader trajectories required
+  injecting at least one non-trivial fault outcome to reach their
+  predicted terminal — most of the corpus exercised RFC 0002 §4's fault
+  branches, not only the happy path. Determinism (a run is a seed, a seed
+  is exactly replayable) confirmed directly: re-running the identical
+  command line (seed 111, `-workers 1`, `num=100`, `-depth 25`) twice
+  produced byte-identical trace files and an identical report.
+
+  Two real bugs were found and fixed **in the harness itself** during
+  construction — an off-by-one between TLA+'s 1-indexed sequence length
+  and Rust's 0-indexed `Vec` in reader-replay seeding, and an overly eager
+  skip in `DeleteWriter` replay — both caught by the harness's own
+  skip-reason counts moving in ways the trace content didn't justify,
+  neither a manifest protocol bug; full account in RFC 0002's Discussion
+  section, which also states plainly that automatic drift classification
+  into RFC 0002 §3's four types is not implemented (the harness reports
+  human-readable mismatch detail for a human to classify by hand) and that
+  zero drift in this run is real, positive evidence for the trace
+  vocabulary's correspondence to the real code — not proof the model is
+  complete, and not proof Workflow I will succeed once attempted.
 - **M3-4** — Table metadata (`_strand/metadata.json`) and retention-
   policy-driven snapshot expiry. Source: `spec/manifest.md` §1 ("Not yet
   implemented... table-metadata-driven retention is M3 scope"), restated

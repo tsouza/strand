@@ -573,8 +573,10 @@ harness — Workflow II first per RFC 0002's own approved sequencing (TLC-genera
 action sequences from the model, replayed against the real Rust code) — landing
 *before* compaction's own commit-path design work starts, so compaction extends a
 model already proven to correspond to the real code, not one more hopeful extension
-stacked on an never-cross-validated base. Neither artifact is built yet
-(`verification/README.md`).
+stacked on an never-cross-validated base. **Status (2026-08-20): the DST harness
+(2) is built and run clean (0 drift across 3,000 writer and 1,000 reader
+trajectories, `docs/roadmap.md`'s M3-3 entry, RFC 0002 Discussion); the TLAPS
+proof (1) is not built yet** (`verification/README.md`).
 
 **M4 — Interchange + independence.** CIFF importer (lossless where CIFF permits);
 conformance manifest frozen at spec v0.1. **Second-reader parity must be real
